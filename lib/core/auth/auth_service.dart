@@ -1,0 +1,1 @@
+// Auth service for Firebase authentication and role-based access control 

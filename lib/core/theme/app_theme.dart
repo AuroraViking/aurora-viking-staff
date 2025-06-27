@@ -1,0 +1,1 @@
+// App theme configuration for consistent styling across the app 

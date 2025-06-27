@@ -1,0 +1,1 @@
+// Photo model for representing photo data 

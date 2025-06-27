@@ -1,0 +1,1 @@
+// Auth controller for managing authentication state and user roles 

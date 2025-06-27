@@ -1,0 +1,1 @@
+// Location model for representing location data 

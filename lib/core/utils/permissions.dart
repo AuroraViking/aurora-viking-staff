@@ -1,0 +1,1 @@
+// Permissions file for handling app permissions like camera, location, etc. 

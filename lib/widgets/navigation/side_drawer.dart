@@ -1,0 +1,1 @@
+// Side drawer widget for alternative module access 

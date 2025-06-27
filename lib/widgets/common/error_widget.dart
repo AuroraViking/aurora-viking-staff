@@ -1,0 +1,1 @@
+// Error widget for consistent error handling across the app 
