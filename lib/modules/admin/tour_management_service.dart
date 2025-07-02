@@ -20,15 +20,23 @@ class TourManagementService {
   Future<Map<DateTime, TourDate>> fetchTourDataForMonth(DateTime month) async {
     try {
       if (!_hasApiCredentials) {
-        print('Bokun API credentials not found. Using mock data.');
+        print('❌ Bokun API credentials not found. Using mock data.');
+        print('Access Key: ${_accessKey.isEmpty ? "MISSING" : "FOUND"}');
+        print('Secret Key: ${_secretKey.isEmpty ? "MISSING" : "FOUND"}');
         return _getMockTourDataForMonth(month);
       }
+
+      print('✅ Bokun API credentials found. Making API request...');
+      print('📅 Fetching data for month: ${month.year}-${month.month.toString().padLeft(2, '0')}');
 
       final startDate = DateTime(month.year, month.month, 1);
       final endDate = DateTime(month.year, month.month + 1, 0);
 
+      final url = '$_baseUrl/bookings?startDate=${startDate.toIso8601String()}&endDate=${endDate.toIso8601String()}';
+      print('🌐 API URL: $url');
+
       final response = await http.get(
-        Uri.parse('$_baseUrl/bookings?startDate=${startDate.toIso8601String()}&endDate=${endDate.toIso8601String()}'),
+        Uri.parse(url),
         headers: {
           'X-Bokun-AccessKey': _accessKey,
           'X-Bokun-SecretKey': _secretKey,
@@ -36,17 +44,25 @@ class TourManagementService {
         },
       );
 
+      print('📡 API Response Status: ${response.statusCode}');
+      print('📄 Response Headers: ${response.headers}');
+
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        return _parseTourDataFromBookings(data['bookings'] ?? [], month);
+        print('✅ API call successful!');
+        print('📊 Raw API response: ${data.toString().substring(0, data.toString().length > 500 ? 500 : data.toString().length)}...');
+        
+        final tourData = _parseTourDataFromBookings(data['bookings'] ?? [], month);
+        print('🗓️ Parsed ${tourData.length} tour dates');
+        return tourData;
       } else {
-        print('Bokun API returned status code: ${response.statusCode}');
-        print('Response body: ${response.body}');
-        throw Exception('Failed to fetch tour data: ${response.statusCode}');
+        print('❌ API Error: ${response.statusCode}');
+        print('📄 Error Response: ${response.body}');
+        throw Exception('Failed to fetch tour data: ${response.statusCode} - ${response.body}');
       }
     } catch (e) {
-      print('Error fetching tour data from Bokun API: $e');
-      print('Falling back to mock data');
+      print('❌ Error fetching tour data from Bokun API: $e');
+      print('🔄 Falling back to mock data');
       return _getMockTourDataForMonth(month);
     }
   }
@@ -199,4 +215,59 @@ class TourManagementService {
 
   // Get maximum passengers per bus
   int get maxPassengersPerBus => _maxPassengersPerBus;
+
+  // Test API connection
+  Future<Map<String, dynamic>> testApiConnection() async {
+    try {
+      if (!_hasApiCredentials) {
+        return {
+          'success': false,
+          'error': 'API credentials not found',
+          'accessKey': _accessKey.isEmpty ? 'MISSING' : 'FOUND',
+          'secretKey': _secretKey.isEmpty ? 'MISSING' : 'FOUND',
+        };
+      }
+
+      print('🧪 Testing Bokun API connection...');
+      
+      final testDate = DateTime.now();
+      final startDate = DateTime(testDate.year, testDate.month, testDate.day);
+      final endDate = startDate.add(const Duration(days: 1));
+
+      final url = '$_baseUrl/bookings?startDate=${startDate.toIso8601String()}&endDate=${endDate.toIso8601String()}';
+      print('🌐 Test API URL: $url');
+
+      final response = await http.get(
+        Uri.parse(url),
+        headers: {
+          'X-Bokun-AccessKey': _accessKey,
+          'X-Bokun-SecretKey': _secretKey,
+          'Content-Type': 'application/json',
+        },
+      );
+
+      print('📡 Test API Response Status: ${response.statusCode}');
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return {
+          'success': true,
+          'statusCode': response.statusCode,
+          'bookingsCount': (data['bookings'] as List<dynamic>?)?.length ?? 0,
+          'responsePreview': data.toString().substring(0, data.toString().length > 200 ? 200 : data.toString().length),
+        };
+      } else {
+        return {
+          'success': false,
+          'statusCode': response.statusCode,
+          'error': response.body,
+        };
+      }
+    } catch (e) {
+      return {
+        'success': false,
+        'error': e.toString(),
+      };
+    }
+  }
 } 

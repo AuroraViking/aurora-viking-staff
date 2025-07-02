@@ -20,15 +20,23 @@ class PickupService {
     try {
       // Check if API credentials are available
       if (!_hasApiCredentials) {
-        print('Bokun API credentials not found in .env file. Using mock data.');
+        print('❌ Pickup Service: Bokun API credentials not found in .env file. Using mock data.');
+        print('Access Key: ${_accessKey.isEmpty ? "MISSING" : "FOUND"}');
+        print('Secret Key: ${_secretKey.isEmpty ? "MISSING" : "FOUND"}');
         return _getMockBookings(date);
       }
+
+      print('✅ Pickup Service: Bokun API credentials found. Making API request...');
+      print('📅 Fetching bookings for date: ${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}');
 
       final startDate = DateTime(date.year, date.month, date.day);
       final endDate = startDate.add(const Duration(days: 1));
 
+      final url = '$_baseUrl/bookings?startDate=${startDate.toIso8601String()}&endDate=${endDate.toIso8601String()}';
+      print('🌐 Pickup API URL: $url');
+
       final response = await http.get(
-        Uri.parse('$_baseUrl/bookings?startDate=${startDate.toIso8601String()}&endDate=${endDate.toIso8601String()}'),
+        Uri.parse(url),
         headers: {
           'X-Bokun-AccessKey': _accessKey,
           'X-Bokun-SecretKey': _secretKey,
@@ -36,8 +44,14 @@ class PickupService {
         },
       );
 
+      print('📡 Pickup API Response Status: ${response.statusCode}');
+      print('📄 Pickup Response Headers: ${response.headers}');
+
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
+        print('✅ Pickup API call successful!');
+        print('📊 Pickup Raw API response: ${data.toString().substring(0, data.toString().length > 500 ? 500 : data.toString().length)}...');
+        
         final bookings = <PickupBooking>[];
         
         // Parse Bokun API response and convert to our model
@@ -52,15 +66,16 @@ class PickupService {
           }
         }
         
+        print('📋 Pickup Service: Parsed ${bookings.length} bookings');
         return bookings;
       } else {
-        print('Bokun API returned status code: ${response.statusCode}');
-        print('Response body: ${response.body}');
+        print('❌ Pickup API Error: ${response.statusCode}');
+        print('📄 Pickup Error Response: ${response.body}');
         throw Exception('Failed to fetch bookings: ${response.statusCode}');
       }
     } catch (e) {
-      print('Error fetching bookings from Bokun API: $e');
-      print('Falling back to mock data for development/testing');
+      print('❌ Pickup Service: Error fetching bookings from Bokun API: $e');
+      print('🔄 Pickup Service: Falling back to mock data for development/testing');
       // Return mock data for development/testing
       return _getMockBookings(date);
     }

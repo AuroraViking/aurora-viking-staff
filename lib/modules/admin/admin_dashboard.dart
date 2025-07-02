@@ -11,6 +11,7 @@ import 'admin_guide_management_screen.dart';
 import 'admin_reports_screen.dart';
 import 'admin_pickup_management_screen.dart';
 import 'admin_tour_calendar_screen.dart';
+import 'tour_management_service.dart';
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
@@ -409,6 +410,14 @@ class _AdminDashboardState extends State<AdminDashboard> {
           const SizedBox(height: 12),
           
           _buildActionCard(
+            'Test API Connection',
+            'Test Bokun API connection and view response',
+            Icons.api,
+            Colors.orange,
+            () => _testApiConnection(),
+          ),
+          
+          _buildActionCard(
             'Guide Management',
             'View and manage all registered guides',
             Icons.people,
@@ -503,5 +512,81 @@ class _AdminDashboardState extends State<AdminDashboard> {
         onTap: onTap,
       ),
     );
+  }
+
+  void _testApiConnection() async {
+    showDialog(
+      context: context,
+      builder: (context) => const AlertDialog(
+        title: Text('Testing API Connection'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 16),
+            Text('Testing Bokun API connection...'),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      final service = TourManagementService();
+      final result = await service.testApiConnection();
+      
+      Navigator.of(context).pop(); // Close loading dialog
+      
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(result['success'] ? '✅ API Test Successful' : '❌ API Test Failed'),
+          content: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('Status: ${result['success'] ? 'SUCCESS' : 'FAILED'}'),
+                if (result['statusCode'] != null) Text('Status Code: ${result['statusCode']}'),
+                if (result['bookingsCount'] != null) Text('Bookings Found: ${result['bookingsCount']}'),
+                if (result['error'] != null) ...[
+                  const SizedBox(height: 8),
+                  const Text('Error:', style: TextStyle(fontWeight: FontWeight.bold)),
+                  Text(result['error']),
+                ],
+                if (result['responsePreview'] != null) ...[
+                  const SizedBox(height: 8),
+                  const Text('Response Preview:', style: TextStyle(fontWeight: FontWeight.bold)),
+                  Text(result['responsePreview']),
+                ],
+                if (result['accessKey'] != null) Text('Access Key: ${result['accessKey']}'),
+                if (result['secretKey'] != null) Text('Secret Key: ${result['secretKey']}'),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Close'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      Navigator.of(context).pop(); // Close loading dialog
+      
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('❌ API Test Error'),
+          content: Text('Error testing API connection: $e'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Close'),
+            ),
+          ],
+        ),
+      );
+    }
   }
 } 
