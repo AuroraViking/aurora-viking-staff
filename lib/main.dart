@@ -1,9 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'screens/home_screen.dart';
 import 'modules/admin/admin_controller.dart';
+import 'modules/pickup/pickup_controller.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  
+  // Load environment variables
+  await dotenv.load(fileName: ".env");
+  
   runApp(const AuroraVikingStaffApp());
 }
 
@@ -15,6 +22,7 @@ class AuroraVikingStaffApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => AdminController()),
+        ChangeNotifierProvider(create: (_) => PickupController()),
       ],
       child: MaterialApp(
         title: 'Aurora Viking Staff',

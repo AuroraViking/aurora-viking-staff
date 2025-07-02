@@ -9,6 +9,7 @@ import 'admin_map_screen.dart';
 import 'admin_shift_management_screen.dart';
 import 'admin_guide_management_screen.dart';
 import 'admin_reports_screen.dart';
+import 'admin_pickup_management_screen.dart';
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
@@ -365,6 +366,23 @@ class _AdminDashboardState extends State<AdminDashboard> {
                 context,
                 MaterialPageRoute(
                   builder: (context) => const AdminShiftManagementScreen(),
+                ),
+              );
+            },
+          ),
+          
+          const SizedBox(height: 12),
+          
+          _buildActionCard(
+            'Pickup Management',
+            'Distribute pickup lists to guides',
+            Icons.assignment,
+            Colors.teal,
+            () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const AdminPickupManagementScreen(),
                 ),
               );
             },
