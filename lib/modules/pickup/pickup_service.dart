@@ -12,9 +12,18 @@ class PickupService {
   String get _secretKey => dotenv.env['BOKUN_SECRET_KEY'] ?? '';
   int get _maxPassengersPerBus => int.tryParse(dotenv.env['MAX_PASSENGERS_PER_BUS'] ?? '19') ?? 19;
 
+  // Check if API credentials are available
+  bool get _hasApiCredentials => _accessKey.isNotEmpty && _secretKey.isNotEmpty;
+
   // Fetch bookings from Bokun API for a specific date
   Future<List<PickupBooking>> fetchBookingsForDate(DateTime date) async {
     try {
+      // Check if API credentials are available
+      if (!_hasApiCredentials) {
+        print('Bokun API credentials not found in .env file. Using mock data.');
+        return _getMockBookings(date);
+      }
+
       final startDate = DateTime(date.year, date.month, date.day);
       final endDate = startDate.add(const Duration(days: 1));
 
@@ -45,10 +54,13 @@ class PickupService {
         
         return bookings;
       } else {
+        print('Bokun API returned status code: ${response.statusCode}');
+        print('Response body: ${response.body}');
         throw Exception('Failed to fetch bookings: ${response.statusCode}');
       }
     } catch (e) {
-      print('Error fetching bookings: $e');
+      print('Error fetching bookings from Bokun API: $e');
+      print('Falling back to mock data for development/testing');
       // Return mock data for development/testing
       return _getMockBookings(date);
     }
