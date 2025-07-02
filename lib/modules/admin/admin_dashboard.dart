@@ -10,6 +10,7 @@ import 'admin_shift_management_screen.dart';
 import 'admin_guide_management_screen.dart';
 import 'admin_reports_screen.dart';
 import 'admin_pickup_management_screen.dart';
+import 'admin_tour_calendar_screen.dart';
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
@@ -383,6 +384,23 @@ class _AdminDashboardState extends State<AdminDashboard> {
                 context,
                 MaterialPageRoute(
                   builder: (context) => const AdminPickupManagementScreen(),
+                ),
+              );
+            },
+          ),
+          
+          const SizedBox(height: 12),
+          
+          _buildActionCard(
+            'Tour Calendar',
+            'View bookings and assign guides to buses',
+            Icons.calendar_month,
+            Colors.indigo,
+            () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const AdminTourCalendarScreen(),
                 ),
               );
             },
