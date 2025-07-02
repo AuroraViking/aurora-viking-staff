@@ -166,28 +166,6 @@ class _AdminReportsScreenState extends State<AdminReportsScreen> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _buildStatCard(
-                            'Average Rating',
-                            '${_stats!.averageRating}/5.0',
-                            Icons.star,
-                            Colors.amber,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: _buildStatCard(
-                            'Active Alerts',
-                            _stats!.alerts.toString(),
-                            Icons.warning,
-                            Colors.red,
-                          ),
-                        ),
-                      ],
-                    ),
                   ],
                   
                   const SizedBox(height: 32),
@@ -304,10 +282,10 @@ class _AdminReportsScreenState extends State<AdminReportsScreen> {
                         const SizedBox(width: 12),
                         Expanded(
                           child: _buildReportCard(
-                            'Avg Rating',
-                            '${_monthlyReport!['averageRating']}/5.0',
-                            Icons.star,
-                            Colors.amber,
+                            'Total Guides',
+                            _monthlyReport!['totalGuides'].toString(),
+                            Icons.people,
+                            Colors.blue,
                           ),
                         ),
                       ],
@@ -336,12 +314,12 @@ class _AdminReportsScreenState extends State<AdminReportsScreen> {
                           ),
                           title: Text(guide['name']),
                           subtitle: Text('${guide['shifts']} shifts completed'),
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.star, size: 16, color: Colors.amber),
-                              Text('${guide['rating']}'),
-                            ],
+                          trailing: Text(
+                            '${guide['shifts']} shifts',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.primary,
+                            ),
                           ),
                         ),
                       )),
@@ -446,9 +424,9 @@ class _AdminReportsScreenState extends State<AdminReportsScreen> {
                                     ),
                                     Expanded(
                                       child: _buildMiniStat(
-                                        'Rating',
-                                        '${monthly.averageRating}',
-                                        Colors.amber,
+                                        'Guides',
+                                        monthly.totalGuides.toString(),
+                                        Colors.green,
                                       ),
                                     ),
                                   ],

@@ -67,7 +67,6 @@ lib/
 │   └── utils/          # Utility functions
 ├── modules/
 │   ├── admin/          # Admin dashboard and features
-│   ├── forecast/       # Weather forecast module
 │   ├── photos/         # Photo upload functionality
 │   ├── profile/        # User profile management
 │   ├── shifts/         # Shift management
@@ -101,7 +100,6 @@ To access admin features:
 - [ ] Push notifications
 
 ### 📋 Planned
-- [ ] Weather forecast integration
 - [ ] Advanced analytics
 - [ ] Multi-language support
 - [ ] Offline mode

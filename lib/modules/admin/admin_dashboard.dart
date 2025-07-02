@@ -21,7 +21,6 @@ class _AdminDashboardState extends State<AdminDashboard> {
   final TextEditingController _passwordController = TextEditingController();
   bool _obscurePassword = true;
   AdminStats? _stats;
-  List<AdminAlert> _alerts = [];
   bool _isLoadingStats = false;
 
   @override
@@ -45,11 +44,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
 
     try {
       final stats = await AdminService.getDashboardStats();
-      final alerts = await AdminService.getAlerts(unreadOnly: true);
       
       setState(() {
         _stats = stats;
-        _alerts = alerts;
         _isLoadingStats = false;
       });
     } catch (e) {
@@ -331,51 +328,6 @@ class _AdminDashboardState extends State<AdminDashboard> {
           
           const SizedBox(height: 32),
           
-          // Recent Alerts
-          if (_alerts.isNotEmpty) ...[
-            Text(
-              'Recent Alerts',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: AppColors.primary,
-              ),
-            ),
-            const SizedBox(height: 16),
-            ..._alerts.take(3).map((alert) => Card(
-              margin: const EdgeInsets.only(bottom: 8),
-              child: ListTile(
-                leading: Icon(
-                  _getAlertIcon(alert.type),
-                  color: _getAlertColor(alert.severity),
-                ),
-                title: Text(
-                  alert.title,
-                  style: const TextStyle(fontWeight: FontWeight.w600),
-                ),
-                subtitle: Text(
-                  alert.message,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                trailing: Text(
-                  _formatTimeAgo(alert.createdAt),
-                  style: const TextStyle(fontSize: 12, color: Colors.grey),
-                ),
-                onTap: () async {
-                  try {
-                    await AdminService.markAlertAsRead(alert.id);
-                    _loadDashboardData();
-                  } catch (e) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Error marking alert as read: $e')),
-                    );
-                  }
-                },
-              ),
-            )),
-            const SizedBox(height: 32),
-          ],
-          
           // Admin Actions
           Text(
             'Admin Actions',
@@ -515,48 +467,5 @@ class _AdminDashboardState extends State<AdminDashboard> {
         onTap: onTap,
       ),
     );
-  }
-
-  IconData _getAlertIcon(String type) {
-    switch (type) {
-      case 'shift_conflict':
-        return Icons.schedule;
-      case 'guide_unavailable':
-        return Icons.person_off;
-      case 'weather_warning':
-        return Icons.cloud;
-      case 'system_alert':
-        return Icons.warning;
-      default:
-        return Icons.info;
-    }
-  }
-
-  Color _getAlertColor(String severity) {
-    switch (severity) {
-      case 'low':
-        return Colors.blue;
-      case 'medium':
-        return Colors.orange;
-      case 'high':
-        return Colors.red;
-      case 'critical':
-        return Colors.purple;
-      default:
-        return Colors.grey;
-    }
-  }
-
-  String _formatTimeAgo(DateTime dateTime) {
-    final difference = DateTime.now().difference(dateTime);
-    if (difference.inDays > 0) {
-      return '${difference.inDays}d ago';
-    } else if (difference.inHours > 0) {
-      return '${difference.inHours}h ago';
-    } else if (difference.inMinutes > 0) {
-      return '${difference.inMinutes}m ago';
-    } else {
-      return 'Just now';
-    }
   }
 } 

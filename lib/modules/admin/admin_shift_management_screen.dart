@@ -1,6 +1,7 @@
-// Admin shift management screen for reviewing and approving/rejecting shift applications
+// Admin shift management screen with calendar interface for reviewing and approving/rejecting shift applications
 
 import 'package:flutter/material.dart';
+import 'package:table_calendar/table_calendar.dart';
 import '../../core/models/admin_models.dart';
 import '../../core/theme/colors.dart';
 import 'admin_service.dart';
@@ -14,22 +15,16 @@ class AdminShiftManagementScreen extends StatefulWidget {
 
 class _AdminShiftManagementScreenState extends State<AdminShiftManagementScreen> {
   List<AdminShift> _shifts = [];
-  List<AdminShift> _filteredShifts = [];
+  Map<DateTime, List<AdminShift>> _shiftsByDate = {};
   bool _isLoading = true;
-  String _selectedStatus = 'all';
-  String _selectedType = 'all';
-  final TextEditingController _searchController = TextEditingController();
+  DateTime _focusedDay = DateTime.now();
+  DateTime? _selectedDay;
+  CalendarFormat _calendarFormat = CalendarFormat.month;
 
   @override
   void initState() {
     super.initState();
     _loadShifts();
-  }
-
-  @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
   }
 
   Future<void> _loadShifts() async {
@@ -41,7 +36,7 @@ class _AdminShiftManagementScreenState extends State<AdminShiftManagementScreen>
       final shifts = await AdminService.getShifts();
       setState(() {
         _shifts = shifts;
-        _filteredShifts = shifts;
+        _organizeShiftsByDate();
         _isLoading = false;
       });
     } catch (e) {
@@ -54,17 +49,24 @@ class _AdminShiftManagementScreenState extends State<AdminShiftManagementScreen>
     }
   }
 
-  void _filterShifts() {
-    setState(() {
-      _filteredShifts = _shifts.where((shift) {
-        bool matchesStatus = _selectedStatus == 'all' || shift.status == _selectedStatus;
-        bool matchesType = _selectedType == 'all' || shift.type == _selectedType;
-        bool matchesSearch = _searchController.text.isEmpty ||
-            shift.guideName.toLowerCase().contains(_searchController.text.toLowerCase());
-        
-        return matchesStatus && matchesType && matchesSearch;
-      }).toList();
-    });
+  void _organizeShiftsByDate() {
+    _shiftsByDate.clear();
+    for (final shift in _shifts) {
+      final date = DateTime(shift.date.year, shift.date.month, shift.date.day);
+      if (_shiftsByDate[date] == null) {
+        _shiftsByDate[date] = [];
+      }
+      _shiftsByDate[date]!.add(shift);
+    }
+  }
+
+  List<AdminShift> _getShiftsForDay(DateTime day) {
+    final date = DateTime(day.year, day.month, day.day);
+    return _shiftsByDate[date] ?? [];
+  }
+
+  List<AdminShift> _getEventMarkers(DateTime day) {
+    return _getShiftsForDay(day);
   }
 
   Future<void> _approveShift(AdminShift shift) async {
@@ -173,6 +175,190 @@ class _AdminShiftManagementScreenState extends State<AdminShiftManagementScreen>
     }
   }
 
+  void _showDayShifts(DateTime day) {
+    final shifts = _getShiftsForDay(day);
+    if (shifts.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No shifts for ${_formatDate(day)}')),
+      );
+      return;
+    }
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.7,
+        minChildSize: 0.5,
+        maxChildSize: 0.9,
+        expand: false,
+        builder: (context, scrollController) => Column(
+          children: [
+            Container(
+              margin: const EdgeInsets.only(top: 8),
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(
+                'Shifts for ${_formatDate(day)}',
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            Expanded(
+              child: ListView.builder(
+                controller: scrollController,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                itemCount: shifts.length,
+                itemBuilder: (context, index) {
+                  final shift = shifts[index];
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      shift.guideName,
+                                      style: const TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      shift.type.replaceAll('_', ' ').toUpperCase(),
+                                      style: TextStyle(
+                                        color: AppColors.primary,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: _getStatusColor(shift.status).withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: _getStatusColor(shift.status)),
+                                ),
+                                child: Text(
+                                  shift.status.toUpperCase(),
+                                  style: TextStyle(
+                                    color: _getStatusColor(shift.status),
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              const Icon(Icons.access_time, size: 16, color: Colors.grey),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Applied: ${_formatDateTime(shift.appliedAt)}',
+                                style: const TextStyle(color: Colors.grey),
+                              ),
+                            ],
+                          ),
+                          if (shift.approvedAt != null) ...[
+                            const SizedBox(height: 4),
+                            Row(
+                              children: [
+                                const Icon(Icons.check_circle, size: 16, color: Colors.green),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'Approved: ${_formatDateTime(shift.approvedAt!)}',
+                                  style: const TextStyle(color: Colors.green),
+                                ),
+                              ],
+                            ),
+                          ],
+                          if (shift.rejectionReason != null) ...[
+                            const SizedBox(height: 4),
+                            Row(
+                              children: [
+                                const Icon(Icons.cancel, size: 16, color: Colors.red),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'Reason: ${shift.rejectionReason}',
+                                    style: const TextStyle(color: Colors.red),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                          if (shift.status == 'pending') ...[
+                            const SizedBox(height: 16),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: ElevatedButton.icon(
+                                    onPressed: () {
+                                      Navigator.pop(context);
+                                      _approveShift(shift);
+                                    },
+                                    icon: const Icon(Icons.check),
+                                    label: const Text('Approve'),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.green,
+                                      foregroundColor: Colors.white,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: OutlinedButton.icon(
+                                    onPressed: () {
+                                      Navigator.pop(context);
+                                      _rejectShift(shift);
+                                    },
+                                    icon: const Icon(Icons.close),
+                                    label: const Text('Reject'),
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: Colors.red,
+                                      side: const BorderSide(color: Colors.red),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   String _formatDate(DateTime date) {
     return '${date.day}/${date.month}/${date.year}';
   }
@@ -213,244 +399,143 @@ class _AdminShiftManagementScreenState extends State<AdminShiftManagementScreen>
       ),
       body: Column(
         children: [
-          // Filters
+          // Calendar
+          TableCalendar<AdminShift>(
+            firstDay: DateTime.utc(2024, 1, 1),
+            lastDay: DateTime.utc(2025, 12, 31),
+            focusedDay: _focusedDay,
+            calendarFormat: _calendarFormat,
+            selectedDayPredicate: (day) {
+              return isSameDay(_selectedDay, day);
+            },
+            onDaySelected: (selectedDay, focusedDay) {
+              setState(() {
+                _selectedDay = selectedDay;
+                _focusedDay = focusedDay;
+              });
+              _showDayShifts(selectedDay);
+            },
+            onFormatChanged: (format) {
+              setState(() {
+                _calendarFormat = format;
+              });
+            },
+            onPageChanged: (focusedDay) {
+              _focusedDay = focusedDay;
+            },
+            eventLoader: _getEventMarkers,
+            calendarStyle: const CalendarStyle(
+              outsideDaysVisible: false,
+              weekendTextStyle: TextStyle(color: Colors.red),
+              holidayTextStyle: TextStyle(color: Colors.red),
+            ),
+            headerStyle: const HeaderStyle(
+              formatButtonVisible: true,
+              titleCentered: true,
+            ),
+            calendarBuilders: CalendarBuilders(
+              markerBuilder: (context, date, events) {
+                if (events.isNotEmpty) {
+                  final pendingShifts = events.where((e) => e.status == 'pending').length;
+                  final approvedShifts = events.where((e) => e.status == 'approved').length;
+                  final rejectedShifts = events.where((e) => e.status == 'rejected').length;
+                  
+                  return Positioned(
+                    bottom: 1,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (pendingShifts > 0)
+                          Container(
+                            width: 8,
+                            height: 8,
+                            decoration: const BoxDecoration(
+                              color: Colors.orange,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                        if (approvedShifts > 0) ...[
+                          if (pendingShifts > 0) const SizedBox(width: 2),
+                          Container(
+                            width: 8,
+                            height: 8,
+                            decoration: const BoxDecoration(
+                              color: Colors.green,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                        ],
+                        if (rejectedShifts > 0) ...[
+                          if (pendingShifts > 0 || approvedShifts > 0) const SizedBox(width: 2),
+                          Container(
+                            width: 8,
+                            height: 8,
+                            decoration: const BoxDecoration(
+                              color: Colors.red,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  );
+                }
+                return null;
+              },
+            ),
+          ),
+          
+          // Legend
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               color: Colors.grey[50],
-              border: Border(bottom: BorderSide(color: Colors.grey[300]!)),
+              border: Border(top: BorderSide(color: Colors.grey[300]!)),
             ),
-            child: Column(
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
-                // Search
-                TextField(
-                  controller: _searchController,
-                  decoration: InputDecoration(
-                    hintText: 'Search by guide name...',
-                    prefixIcon: const Icon(Icons.search),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  ),
-                  onChanged: (_) => _filterShifts(),
-                ),
-                const SizedBox(height: 12),
-                // Status and Type filters
-                Row(
-                  children: [
-                    Expanded(
-                      child: DropdownButtonFormField<String>(
-                        value: _selectedStatus,
-                        decoration: const InputDecoration(
-                          labelText: 'Status',
-                          border: OutlineInputBorder(),
-                          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        ),
-                        items: [
-                          const DropdownMenuItem(value: 'all', child: Text('All Statuses')),
-                          const DropdownMenuItem(value: 'pending', child: Text('Pending')),
-                          const DropdownMenuItem(value: 'approved', child: Text('Approved')),
-                          const DropdownMenuItem(value: 'rejected', child: Text('Rejected')),
-                          const DropdownMenuItem(value: 'completed', child: Text('Completed')),
-                        ],
-                        onChanged: (value) {
-                          setState(() {
-                            _selectedStatus = value!;
-                          });
-                          _filterShifts();
-                        },
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: DropdownButtonFormField<String>(
-                        value: _selectedType,
-                        decoration: const InputDecoration(
-                          labelText: 'Type',
-                          border: OutlineInputBorder(),
-                          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        ),
-                        items: [
-                          const DropdownMenuItem(value: 'all', child: Text('All Types')),
-                          const DropdownMenuItem(value: 'day_tour', child: Text('Day Tour')),
-                          const DropdownMenuItem(value: 'northern_lights', child: Text('Northern Lights')),
-                        ],
-                        onChanged: (value) {
-                          setState(() {
-                            _selectedType = value!;
-                          });
-                          _filterShifts();
-                        },
-                      ),
-                    ),
-                  ],
-                ),
+                _buildLegendItem('Pending', Colors.orange),
+                _buildLegendItem('Approved', Colors.green),
+                _buildLegendItem('Rejected', Colors.red),
               ],
             ),
           ),
           
-          // Shifts list
-          Expanded(
-            child: _isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : _filteredShifts.isEmpty
-                    ? const Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.work_off, size: 64, color: Colors.grey),
-                            SizedBox(height: 16),
-                            Text(
-                              'No shifts found',
-                              style: TextStyle(fontSize: 18, color: Colors.grey),
-                            ),
-                          ],
-                        ),
-                      )
-                    : ListView.builder(
-                        padding: const EdgeInsets.all(16),
-                        itemCount: _filteredShifts.length,
-                        itemBuilder: (context, index) {
-                          final shift = _filteredShifts[index];
-                          return Card(
-                            margin: const EdgeInsets.only(bottom: 12),
-                            child: Padding(
-                              padding: const EdgeInsets.all(16),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              shift.guideName,
-                                              style: const TextStyle(
-                                                fontSize: 18,
-                                                fontWeight: FontWeight.bold,
-                                              ),
-                                            ),
-                                            const SizedBox(height: 4),
-                                            Text(
-                                              shift.type.replaceAll('_', ' ').toUpperCase(),
-                                              style: TextStyle(
-                                                color: AppColors.primary,
-                                                fontWeight: FontWeight.w500,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                        decoration: BoxDecoration(
-                                          color: _getStatusColor(shift.status).withOpacity(0.1),
-                                          borderRadius: BorderRadius.circular(12),
-                                          border: Border.all(color: _getStatusColor(shift.status)),
-                                        ),
-                                        child: Text(
-                                          shift.status.toUpperCase(),
-                                          style: TextStyle(
-                                            color: _getStatusColor(shift.status),
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 12),
-                                  Row(
-                                    children: [
-                                      const Icon(Icons.calendar_today, size: 16, color: Colors.grey),
-                                      const SizedBox(width: 8),
-                                      Text(
-                                        'Date: ${_formatDate(shift.date)}',
-                                        style: const TextStyle(color: Colors.grey),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Row(
-                                    children: [
-                                      const Icon(Icons.access_time, size: 16, color: Colors.grey),
-                                      const SizedBox(width: 8),
-                                      Text(
-                                        'Applied: ${_formatDateTime(shift.appliedAt)}',
-                                        style: const TextStyle(color: Colors.grey),
-                                      ),
-                                    ],
-                                  ),
-                                  if (shift.approvedAt != null) ...[
-                                    const SizedBox(height: 4),
-                                    Row(
-                                      children: [
-                                        const Icon(Icons.check_circle, size: 16, color: Colors.green),
-                                        const SizedBox(width: 8),
-                                        Text(
-                                          'Approved: ${_formatDateTime(shift.approvedAt!)}',
-                                          style: const TextStyle(color: Colors.green),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                  if (shift.rejectionReason != null) ...[
-                                    const SizedBox(height: 4),
-                                    Row(
-                                      children: [
-                                        const Icon(Icons.cancel, size: 16, color: Colors.red),
-                                        const SizedBox(width: 8),
-                                        Expanded(
-                                          child: Text(
-                                            'Reason: ${shift.rejectionReason}',
-                                            style: const TextStyle(color: Colors.red),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                  if (shift.status == 'pending') ...[
-                                    const SizedBox(height: 16),
-                                    Row(
-                                      children: [
-                                        Expanded(
-                                          child: ElevatedButton.icon(
-                                            onPressed: () => _approveShift(shift),
-                                            icon: const Icon(Icons.check),
-                                            label: const Text('Approve'),
-                                            style: ElevatedButton.styleFrom(
-                                              backgroundColor: Colors.green,
-                                              foregroundColor: Colors.white,
-                                            ),
-                                          ),
-                                        ),
-                                        const SizedBox(width: 12),
-                                        Expanded(
-                                          child: OutlinedButton.icon(
-                                            onPressed: () => _rejectShift(shift),
-                                            icon: const Icon(Icons.close),
-                                            label: const Text('Reject'),
-                                            style: OutlinedButton.styleFrom(
-                                              foregroundColor: Colors.red,
-                                              side: const BorderSide(color: Colors.red),
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ],
-                              ),
-                            ),
-                          );
-                        },
-                      ),
+          // Instructions
+          Container(
+            padding: const EdgeInsets.all(16),
+            child: const Text(
+              'Tap on any date with colored dots to view and manage shift applications',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.grey,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildLegendItem(String label, Color color) {
+    return Row(
+      children: [
+        Container(
+          width: 12,
+          height: 12,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+          ),
+        ),
+        const SizedBox(width: 4),
+        Text(
+          label,
+          style: const TextStyle(fontSize: 12),
+        ),
+      ],
     );
   }
 } 

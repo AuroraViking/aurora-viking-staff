@@ -1,1 +1,0 @@
-// Forecast service for handling weather and aurora forecast API calls 

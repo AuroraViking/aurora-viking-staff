@@ -7,7 +7,6 @@ import '../modules/tracking/tracking_screen.dart';
 import '../modules/photos/photo_upload_screen.dart';
 import '../modules/profile/profile_screen.dart';
 import '../modules/admin/admin_dashboard.dart';
-import '../modules/forecast/forecast_screen.dart';
 import '../modules/admin/admin_controller.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -25,7 +24,6 @@ class _HomeScreenState extends State<HomeScreen> {
     const ShiftsScreen(),
     const PhotoUploadScreen(),
     const TrackingScreen(),
-    const ForecastScreen(),
   ];
 
   void _onItemTapped(int index) {
@@ -182,10 +180,6 @@ class _HomeScreenState extends State<HomeScreen> {
           BottomNavigationBarItem(
             icon: Icon(Icons.location_on),
             label: 'Tracking',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.cloud),
-            label: 'Forecast',
           ),
         ],
       ),
