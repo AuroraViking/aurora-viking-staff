@@ -2,8 +2,13 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme/colors.dart';
+import '../../core/models/admin_models.dart';
 import 'admin_controller.dart';
+import 'admin_service.dart';
 import 'admin_map_screen.dart';
+import 'admin_shift_management_screen.dart';
+import 'admin_guide_management_screen.dart';
+import 'admin_reports_screen.dart';
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
@@ -15,11 +20,46 @@ class AdminDashboard extends StatefulWidget {
 class _AdminDashboardState extends State<AdminDashboard> {
   final TextEditingController _passwordController = TextEditingController();
   bool _obscurePassword = true;
+  AdminStats? _stats;
+  List<AdminAlert> _alerts = [];
+  bool _isLoadingStats = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDashboardData();
+  }
 
   @override
   void dispose() {
     _passwordController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadDashboardData() async {
+    if (!context.read<AdminController>().isAdminMode) return;
+    
+    setState(() {
+      _isLoadingStats = true;
+    });
+
+    try {
+      final stats = await AdminService.getDashboardStats();
+      final alerts = await AdminService.getAlerts(unreadOnly: true);
+      
+      setState(() {
+        _stats = stats;
+        _alerts = alerts;
+        _isLoadingStats = false;
+      });
+    } catch (e) {
+      setState(() {
+        _isLoadingStats = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error loading dashboard data: $e')),
+      );
+    }
   }
 
   void _showAdminLoginDialog() {
@@ -106,6 +146,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
           backgroundColor: Colors.green,
         ),
       );
+      _loadDashboardData();
     }
   }
 
@@ -119,7 +160,12 @@ class _AdminDashboardState extends State<AdminDashboard> {
             backgroundColor: AppColors.primary,
             foregroundColor: Colors.white,
             actions: [
-              if (adminController.isAdminMode)
+              if (adminController.isAdminMode) ...[
+                IconButton(
+                  onPressed: _loadDashboardData,
+                  icon: const Icon(Icons.refresh),
+                  tooltip: 'Refresh Data',
+                ),
                 IconButton(
                   onPressed: () {
                     adminController.logoutFromAdminMode();
@@ -133,6 +179,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                   icon: const Icon(Icons.logout),
                   tooltip: 'Logout from Admin Mode',
                 ),
+              ],
             ],
           ),
           body: adminController.isAdminMode
@@ -234,51 +281,100 @@ class _AdminDashboardState extends State<AdminDashboard> {
           ),
           const SizedBox(height: 16),
           
-          Row(
-            children: [
-              Expanded(
-                child: _buildStatCard(
-                  'Active Guides',
-                  '12',
-                  Icons.people,
-                  Colors.blue,
+          if (_isLoadingStats)
+            const Center(child: CircularProgressIndicator())
+          else if (_stats != null) ...[
+            Row(
+              children: [
+                Expanded(
+                  child: _buildStatCard(
+                    'Active Guides',
+                    _stats!.activeGuides.toString(),
+                    Icons.people,
+                    Colors.blue,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildStatCard(
-                  'Pending Shifts',
-                  '8',
-                  Icons.schedule,
-                  Colors.orange,
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildStatCard(
+                    'Pending Shifts',
+                    _stats!.pendingShifts.toString(),
+                    Icons.schedule,
+                    Colors.orange,
+                  ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: _buildStatCard(
-                  'Today\'s Tours',
-                  '5',
-                  Icons.directions_bus,
-                  Colors.green,
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildStatCard(
+                    'Today\'s Tours',
+                    _stats!.todayTours.toString(),
+                    Icons.directions_bus,
+                    Colors.green,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildStatCard(
-                  'Alerts',
-                  '2',
-                  Icons.warning,
-                  Colors.red,
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildStatCard(
+                    'Alerts',
+                    _stats!.alerts.toString(),
+                    Icons.warning,
+                    Colors.red,
+                  ),
                 ),
-              ),
-            ],
-          ),
+              ],
+            ),
+          ],
           
           const SizedBox(height: 32),
+          
+          // Recent Alerts
+          if (_alerts.isNotEmpty) ...[
+            Text(
+              'Recent Alerts',
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: AppColors.primary,
+              ),
+            ),
+            const SizedBox(height: 16),
+            ..._alerts.take(3).map((alert) => Card(
+              margin: const EdgeInsets.only(bottom: 8),
+              child: ListTile(
+                leading: Icon(
+                  _getAlertIcon(alert.type),
+                  color: _getAlertColor(alert.severity),
+                ),
+                title: Text(
+                  alert.title,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                subtitle: Text(
+                  alert.message,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                trailing: Text(
+                  _formatTimeAgo(alert.createdAt),
+                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                onTap: () async {
+                  try {
+                    await AdminService.markAlertAsRead(alert.id);
+                    _loadDashboardData();
+                  } catch (e) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Error marking alert as read: $e')),
+                    );
+                  }
+                },
+              ),
+            )),
+            const SizedBox(height: 32),
+          ],
           
           // Admin Actions
           Text(
@@ -313,9 +409,11 @@ class _AdminDashboardState extends State<AdminDashboard> {
             Icons.work,
             Colors.orange,
             () {
-              // TODO: Navigate to shift management screen
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Shift Management - Coming Soon')),
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const AdminShiftManagementScreen(),
+                ),
               );
             },
           ),
@@ -328,9 +426,11 @@ class _AdminDashboardState extends State<AdminDashboard> {
             Icons.people,
             Colors.green,
             () {
-              // TODO: Navigate to guide management screen
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Guide Management - Coming Soon')),
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const AdminGuideManagementScreen(),
+                ),
               );
             },
           ),
@@ -343,9 +443,11 @@ class _AdminDashboardState extends State<AdminDashboard> {
             Icons.analytics,
             Colors.purple,
             () {
-              // TODO: Navigate to reports screen
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Reports & Analytics - Coming Soon')),
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const AdminReportsScreen(),
+                ),
               );
             },
           ),
@@ -413,5 +515,48 @@ class _AdminDashboardState extends State<AdminDashboard> {
         onTap: onTap,
       ),
     );
+  }
+
+  IconData _getAlertIcon(String type) {
+    switch (type) {
+      case 'shift_conflict':
+        return Icons.schedule;
+      case 'guide_unavailable':
+        return Icons.person_off;
+      case 'weather_warning':
+        return Icons.cloud;
+      case 'system_alert':
+        return Icons.warning;
+      default:
+        return Icons.info;
+    }
+  }
+
+  Color _getAlertColor(String severity) {
+    switch (severity) {
+      case 'low':
+        return Colors.blue;
+      case 'medium':
+        return Colors.orange;
+      case 'high':
+        return Colors.red;
+      case 'critical':
+        return Colors.purple;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  String _formatTimeAgo(DateTime dateTime) {
+    final difference = DateTime.now().difference(dateTime);
+    if (difference.inDays > 0) {
+      return '${difference.inDays}d ago';
+    } else if (difference.inHours > 0) {
+      return '${difference.inHours}h ago';
+    } else if (difference.inMinutes > 0) {
+      return '${difference.inMinutes}m ago';
+    } else {
+      return 'Just now';
+    }
   }
 } 

@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
+import '../../core/utils/constants.dart';
 
 class AdminController extends ChangeNotifier {
   bool _isAdminMode = false;
   bool _isLoading = false;
   String _errorMessage = '';
-  
-  // Admin credentials (in a real app, this would be stored securely or fetched from Firebase)
-  static const String _adminPassword = 'aurora2024'; // TODO: Move to secure storage or Firebase
   
   bool get isAdminMode => _isAdminMode;
   bool get isLoading => _isLoading;
@@ -22,7 +20,7 @@ class AdminController extends ChangeNotifier {
       // Simulate network delay
       await Future.delayed(const Duration(milliseconds: 500));
       
-      if (password == _adminPassword) {
+      if (password == AppConstants.adminPassword) {
         _isAdminMode = true;
         _errorMessage = '';
         
