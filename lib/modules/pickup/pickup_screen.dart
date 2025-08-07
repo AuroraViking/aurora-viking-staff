@@ -21,6 +21,7 @@ class _PickupScreenState extends State<PickupScreen> {
   @override
   void initState() {
     super.initState();
+    _selectedDay = DateTime.now(); // Set today as default selected day
     _loadMonthData();
   }
 
@@ -72,11 +73,75 @@ class _PickupScreenState extends State<PickupScreen> {
             );
           }
 
+          // Get today's bookings
+          final today = DateTime.now();
+          final todayKey = DateTime(today.year, today.month, today.day);
+          final todayBookings = controller.monthData[todayKey] ?? [];
+          final todayGuestCount = todayBookings.fold<int>(0, (sum, booking) => sum + booking.numberOfGuests);
+
           return Column(
             children: [
-              // Calendar Section
+              // Today's Summary Header
               Container(
                 margin: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.primary.withOpacity(0.3)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.today, color: AppColors.primary, size: 24),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Today (${today.day}/${today.month}/${today.year})',
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.primary,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            todayBookings.isEmpty 
+                              ? 'No Bookings Today'
+                              : '${todayGuestCount} guests • ${todayBookings.length} bookings',
+                            style: const TextStyle(
+                              fontSize: 14,
+                              color: Colors.grey,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (todayBookings.isNotEmpty)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary,
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Text(
+                          '$todayGuestCount guests',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+
+              // Calendar Section
+              Container(
+                margin: const EdgeInsets.symmetric(horizontal: 16),
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(12),
@@ -103,6 +168,14 @@ class _PickupScreenState extends State<PickupScreen> {
                     outsideDaysVisible: false,
                     weekendTextStyle: TextStyle(color: Colors.red),
                     holidayTextStyle: TextStyle(color: Colors.red),
+                    selectedDecoration: BoxDecoration(
+                      color: AppColors.primary,
+                      shape: BoxShape.circle,
+                    ),
+                    todayDecoration: BoxDecoration(
+                      color: AppColors.primary,
+                      shape: BoxShape.circle,
+                    ),
                   ),
                   headerStyle: const HeaderStyle(
                     formatButtonVisible: false,
@@ -158,7 +231,7 @@ class _PickupScreenState extends State<PickupScreen> {
               
               // Summary Section
               Container(
-                margin: const EdgeInsets.symmetric(horizontal: 16),
+                margin: const EdgeInsets.all(16),
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   color: Colors.white,
@@ -255,16 +328,6 @@ class _PickupScreenState extends State<PickupScreen> {
     final controller = context.read<PickupController>();
     final bookings = controller.monthData[DateTime(date.year, date.month, date.day)] ?? [];
     
-    if (bookings.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('No bookings for ${date.day}/${date.month}/${date.year}'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      return;
-    }
-
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -296,6 +359,22 @@ class _PickupScreenState extends State<PickupScreen> {
                     ),
                   ),
                   const Spacer(),
+                  if (bookings.isNotEmpty)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        '${bookings.fold<int>(0, (sum, booking) => sum + booking.numberOfGuests)} guests',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
                   IconButton(
                     icon: const Icon(Icons.close, color: Colors.white),
                     onPressed: () => Navigator.pop(context),
@@ -304,42 +383,77 @@ class _PickupScreenState extends State<PickupScreen> {
               ),
             ),
             Expanded(
-              child: ListView.builder(
-                padding: const EdgeInsets.all(16),
-                itemCount: bookings.length,
-                itemBuilder: (context, index) {
-                  final booking = bookings[index];
-                  return Card(
-                    margin: const EdgeInsets.only(bottom: 12),
-                    child: ListTile(
-                      title: Text(
-                        booking.customerFullName,
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      subtitle: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('📍 ${booking.pickupPlaceName}'),
-                          Text('🕐 ${_formatTime(booking.pickupTime)}'),
-                          Text('👥 ${booking.numberOfGuests} guests'),
-                          if (booking.phoneNumber.isNotEmpty)
-                            Text('📞 ${booking.phoneNumber}'),
-                          if (booking.email.isNotEmpty)
-                            Text('📧 ${booking.email}'),
-                        ],
-                      ),
-                      trailing: IconButton(
-                        icon: const Icon(Icons.no_transfer, color: Colors.red),
-                        onPressed: () => _markAsNoShow(booking.id),
-                        tooltip: 'Mark as No Show',
-                      ),
-                    ),
-                  );
-                },
-              ),
+              child: bookings.isEmpty
+                ? _buildEmptyState(date)
+                : ListView.builder(
+                    padding: const EdgeInsets.all(16),
+                    itemCount: bookings.length,
+                    itemBuilder: (context, index) {
+                      final booking = bookings[index];
+                      return Card(
+                        margin: const EdgeInsets.only(bottom: 12),
+                        child: ListTile(
+                          title: Text(
+                            booking.customerFullName,
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('📍 ${booking.pickupPlaceName}'),
+                              Text('🕐 ${_formatTime(booking.pickupTime)}'),
+                              Text('👥 ${booking.numberOfGuests} guests'),
+                              if (booking.phoneNumber.isNotEmpty)
+                                Text('📞 ${booking.phoneNumber}'),
+                              if (booking.email.isNotEmpty)
+                                Text('📧 ${booking.email}'),
+                            ],
+                          ),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.no_transfer, color: Colors.red),
+                            onPressed: () => _markAsNoShow(booking.id),
+                            tooltip: 'Mark as No Show',
+                          ),
+                        ),
+                      );
+                    },
+                  ),
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyState(DateTime date) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.event_busy,
+            size: 64,
+            color: Colors.grey[400],
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'No Bookings',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: Colors.grey[600],
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'There are no bookings for ${date.day}/${date.month}/${date.year}',
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey[500],
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ],
       ),
     );
   }
