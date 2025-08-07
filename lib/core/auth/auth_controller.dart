@@ -171,6 +171,24 @@ class AuthController extends ChangeNotifier {
       return true;
     } catch (e) {
       print('❌ Sign in failed: $e');
+      
+      // Check if this is the known Firebase Auth plugin type casting error
+      if (e.toString().contains('PigeonUserDetails') || 
+          e.toString().contains('List<Object?>')) {
+        print('⚠️ Known Firebase Auth plugin type casting error detected');
+        
+        // Wait a moment for auth state to settle
+        await Future.delayed(const Duration(milliseconds: 500));
+        
+        // Check if user is actually signed in despite the error
+        final currentUser = FirebaseService.currentUser;
+        if (currentUser != null) {
+          print('✅ User actually signed in successfully despite plugin error');
+          // Don't set error - let the auth state listener handle the rest
+          return true;
+        }
+      }
+      
       _error = _getAuthErrorMessage(e);
       return false;
     } finally {

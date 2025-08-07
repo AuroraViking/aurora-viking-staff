@@ -35,24 +35,77 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _signIn() async {
     if (_formKey.currentState!.validate()) {
       final authController = context.read<AuthController>();
-      final success = await authController.signIn(
-        _emailController.text.trim(),
-        _passwordController.text,
-      );
       
-      // Check if widget is still mounted before updating UI
-      if (!mounted) {
-        print('⚠️ Login screen disposed during sign in');
-        return;
-      }
-      
-      if (!success) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(authController.error ?? 'Login failed'),
-            backgroundColor: Colors.red,
-          ),
+      try {
+        // Don't navigate immediately - wait for auth to complete
+        final success = await authController.signIn(
+          _emailController.text.trim(),
+          _passwordController.text,
         );
+        
+        // Check if widget is still mounted before updating UI
+        if (!mounted) {
+          print('⚠️ Login screen disposed during sign in');
+          return;
+        }
+        
+        if (success) {
+          print('✅ Sign in successful, auth state should handle navigation');
+          // Don't show success message - let auth state listener handle navigation
+        } else {
+          // Check if the error is the known type casting issue
+          final error = authController.error;
+          if (error != null && (error.contains('PigeonUserDetails') || 
+                               error.contains('List<Object?>'))) {
+            print('⚠️ Known Firebase Auth plugin issue, checking auth state...');
+            
+            // Wait a moment for auth state to settle
+            await Future.delayed(const Duration(milliseconds: 500));
+            
+            // Check if user is actually signed in despite the error
+            if (authController.isAuthenticated) {
+              print('✅ User actually signed in successfully despite plugin error');
+              // Don't show error - auth state listener will handle navigation
+              return;
+            }
+          }
+          
+          // Show error to user only for real errors
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(authController.error ?? 'Login failed'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      } catch (e) {
+        print('❌ Sign in error: $e');
+        
+        // Check if the error is the known type casting issue
+        if (e.toString().contains('PigeonUserDetails') || 
+            e.toString().contains('List<Object?>')) {
+          print('⚠️ Known Firebase Auth plugin issue, checking auth state...');
+          
+          // Wait a moment for auth state to settle
+          await Future.delayed(const Duration(milliseconds: 500));
+          
+          // Check if user is actually signed in despite the error
+          if (authController.isAuthenticated) {
+            print('✅ User actually signed in successfully despite plugin error');
+            // Don't show error - auth state listener will handle navigation
+            return;
+          }
+        }
+        
+        // Show error to user only for real errors
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Sign in failed: ${e.toString()}'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
       }
     }
   }
