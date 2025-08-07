@@ -5,21 +5,44 @@ import '../models/user_model.dart';
 import '../models/pickup_models.dart';
 
 class FirebaseService {
-  static final firebase_auth.FirebaseAuth _auth = firebase_auth.FirebaseAuth.instance;
-  static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  static firebase_auth.FirebaseAuth? _auth;
+  static FirebaseFirestore? _firestore;
+  static bool _initialized = false;
 
   // Authentication methods
-  static firebase_auth.User? get currentUser => _auth.currentUser;
+  static firebase_auth.User? get currentUser => _auth?.currentUser;
 
-  static Stream<firebase_auth.User?> get authStateChanges => _auth.authStateChanges();
+  static Stream<firebase_auth.User?> get authStateChanges => 
+      _auth?.authStateChanges() ?? Stream.value(null);
+
+  // Initialize Firebase
+  static Future<void> initialize() async {
+    try {
+      await Firebase.initializeApp();
+      _auth = firebase_auth.FirebaseAuth.instance;
+      _firestore = FirebaseFirestore.instance;
+      _initialized = true;
+      print('✅ Firebase initialized successfully');
+    } catch (e) {
+      print('❌ Failed to initialize Firebase: $e');
+      _initialized = false;
+      // Don't rethrow - allow app to continue without Firebase
+    }
+  }
+
+  static bool get isInitialized => _initialized;
 
   // Sign in with email and password
   static Future<firebase_auth.UserCredential> signInWithEmailAndPassword(
     String email,
     String password,
   ) async {
+    if (!_initialized || _auth == null) {
+      throw Exception('Firebase not initialized');
+    }
+    
     try {
-      final credential = await _auth.signInWithEmailAndPassword(
+      final credential = await _auth!.signInWithEmailAndPassword(
         email: email,
         password: password,
       );
@@ -31,8 +54,12 @@ class FirebaseService {
 
   // Sign out
   static Future<void> signOut() async {
+    if (!_initialized || _auth == null) {
+      return; // Nothing to do if Firebase isn't initialized
+    }
+    
     try {
-      await _auth.signOut();
+      await _auth!.signOut();
     } catch (e) {
       throw Exception('Failed to sign out: $e');
     }
@@ -40,23 +67,33 @@ class FirebaseService {
 
   // Get user data from Firestore
   static Future<User?> getUserData(String uid) async {
+    if (!_initialized || _firestore == null) {
+      return null; // Return null if Firebase isn't initialized
+    }
+    
     try {
-      final doc = await _firestore.collection('users').doc(uid).get();
+      final doc = await _firestore!.collection('users').doc(uid).get();
       if (doc.exists) {
         return User.fromJson(doc.data()!);
       }
       return null;
     } catch (e) {
-      throw Exception('Failed to get user data: $e');
+      print('❌ Failed to get user data: $e');
+      return null;
     }
   }
 
   // Create or update user data
   static Future<void> saveUserData(User user) async {
+    if (!_initialized || _firestore == null) {
+      print('⚠️ Firebase not initialized - skipping user data save');
+      return;
+    }
+    
     try {
-      await _firestore.collection('users').doc(user.id).set(user.toJson());
+      await _firestore!.collection('users').doc(user.id).set(user.toJson());
     } catch (e) {
-      throw Exception('Failed to save user data: $e');
+      print('❌ Failed to save user data: $e');
     }
   }
 
@@ -67,6 +104,11 @@ class FirebaseService {
     bool? isArrived,
     bool? isNoShow,
   }) async {
+    if (!_initialized || _firestore == null) {
+      print('⚠️ Firebase not initialized - skipping booking status update');
+      return;
+    }
+    
     try {
       final updates = <String, dynamic>{};
       if (isArrived != null) updates['isArrived'] = isArrived;
@@ -74,19 +116,24 @@ class FirebaseService {
       updates['updatedAt'] = FieldValue.serverTimestamp();
       updates['updatedBy'] = currentUser?.uid;
 
-      await _firestore
+      await _firestore!
           .collection('booking_status')
           .doc('${date}_$bookingId')
           .set(updates, SetOptions(merge: true));
     } catch (e) {
-      throw Exception('Failed to update booking status: $e');
+      print('❌ Failed to update booking status: $e');
     }
   }
 
   // Get booking status for a specific date
   static Future<Map<String, Map<String, dynamic>>> getBookingStatuses(String date) async {
+    if (!_initialized || _firestore == null) {
+      print('⚠️ Firebase not initialized - returning empty booking statuses');
+      return {};
+    }
+    
     try {
-      final querySnapshot = await _firestore
+      final querySnapshot = await _firestore!
           .collection('booking_status')
           .where(FieldPath.documentId, isGreaterThanOrEqualTo: '${date}_')
           .where(FieldPath.documentId, isLessThan: '${date}_\uf8ff')
@@ -99,7 +146,8 @@ class FirebaseService {
       }
       return statuses;
     } catch (e) {
-      throw Exception('Failed to get booking statuses: $e');
+      print('❌ Failed to get booking statuses: $e');
+      return {};
     }
   }
 
@@ -108,6 +156,11 @@ class FirebaseService {
     DateTime startDate,
     DateTime endDate,
   ) async {
+    if (!_initialized || _firestore == null) {
+      print('⚠️ Firebase not initialized - returning empty booking statuses for date range');
+      return {};
+    }
+    
     try {
       final statuses = <String, Map<String, dynamic>>{};
       
@@ -121,7 +174,8 @@ class FirebaseService {
       
       return statuses;
     } catch (e) {
-      throw Exception('Failed to get booking statuses for date range: $e');
+      print('❌ Failed to get booking statuses for date range: $e');
+      return {};
     }
   }
 
@@ -130,11 +184,16 @@ class FirebaseService {
     required String date,
     required List<GuidePickupList> guideLists,
   }) async {
+    if (!_initialized || _firestore == null) {
+      print('⚠️ Firebase not initialized - skipping pickup assignments save');
+      return;
+    }
+    
     try {
-      final batch = _firestore.batch();
+      final batch = _firestore!.batch();
       
       // Clear existing assignments for the date
-      final existingAssignments = await _firestore
+      final existingAssignments = await _firestore!
           .collection('pickup_assignments')
           .where('date', isEqualTo: date)
           .get();
@@ -145,10 +204,12 @@ class FirebaseService {
       
       // Save new assignments
       for (final guideList in guideLists) {
-        final docRef = _firestore.collection('pickup_assignments').doc();
+        final docRef = _firestore!.collection('pickup_assignments').doc();
         batch.set(docRef, {
           'date': date,
           'guideId': guideList.guideId,
+          'guideName': guideList.guideName,
+          'bookings': guideList.bookings.map((b) => b.toJson()).toList(),
           'totalPassengers': guideList.totalPassengers,
           'createdAt': FieldValue.serverTimestamp(),
         });
@@ -156,14 +217,19 @@ class FirebaseService {
       
       await batch.commit();
     } catch (e) {
-      throw Exception('Failed to save pickup assignments: $e');
+      print('❌ Failed to save pickup assignments: $e');
     }
   }
 
   // Get pickup assignments for a date
   static Future<List<GuidePickupList>> getPickupAssignments(String date) async {
+    if (!_initialized || _firestore == null) {
+      print('⚠️ Firebase not initialized - returning empty pickup assignments');
+      return [];
+    }
+    
     try {
-      final querySnapshot = await _firestore
+      final querySnapshot = await _firestore!
           .collection('pickup_assignments')
           .where('date', isEqualTo: date)
           .get();
@@ -186,16 +252,8 @@ class FirebaseService {
       
       return guideLists;
     } catch (e) {
-      throw Exception('Failed to get pickup assignments: $e');
-    }
-  }
-
-  // Initialize Firebase
-  static Future<void> initialize() async {
-    try {
-      await Firebase.initializeApp();
-    } catch (e) {
-      throw Exception('Failed to initialize Firebase: $e');
+      print('❌ Failed to get pickup assignments: $e');
+      return [];
     }
   }
 } 

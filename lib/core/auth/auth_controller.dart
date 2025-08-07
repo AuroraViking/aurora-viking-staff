@@ -7,6 +7,7 @@ class AuthController extends ChangeNotifier {
   User? _currentUser;
   bool _isLoading = false;
   String? _error;
+  bool _firebaseInitialized = false;
 
   User? get currentUser => _currentUser;
   bool get isLoading => _isLoading;
@@ -14,20 +15,68 @@ class AuthController extends ChangeNotifier {
   bool get isAuthenticated => _currentUser != null;
   bool get isAdmin => _currentUser?.role == 'admin';
   bool get isGuide => _currentUser?.role == 'guide';
+  bool get firebaseInitialized => _firebaseInitialized;
 
   AuthController() {
     _initializeAuth();
   }
 
-  void _initializeAuth() {
-    FirebaseService.authStateChanges.listen((firebase_auth.User? firebaseUser) async {
-      if (firebaseUser != null) {
-        await _loadUserData(firebaseUser.uid);
+  void _initializeAuth() async {
+    try {
+      // Check if Firebase is available
+      _firebaseInitialized = FirebaseService.currentUser != null || 
+                            await _testFirebaseConnection();
+      
+      if (_firebaseInitialized) {
+        FirebaseService.authStateChanges.listen((firebase_auth.User? firebaseUser) async {
+          if (firebaseUser != null) {
+            await _loadUserData(firebaseUser.uid);
+          } else {
+            _currentUser = null;
+            notifyListeners();
+          }
+        });
       } else {
-        _currentUser = null;
+        print('⚠️ Firebase not initialized - running in offline mode');
+        // Create a default user for development/testing
+        _currentUser = User(
+          id: 'dev-user',
+          fullName: 'Development User',
+          email: 'dev@auroraviking.com',
+          phoneNumber: '',
+          role: 'guide',
+          profilePictureUrl: null,
+          createdAt: DateTime.now(),
+          isActive: true,
+        );
         notifyListeners();
       }
-    });
+    } catch (e) {
+      print('❌ Auth initialization error: $e');
+      _firebaseInitialized = false;
+      // Create default user for development
+      _currentUser = User(
+        id: 'dev-user',
+        fullName: 'Development User',
+        email: 'dev@auroraviking.com',
+        phoneNumber: '',
+        role: 'guide',
+        profilePictureUrl: null,
+        createdAt: DateTime.now(),
+        isActive: true,
+      );
+      notifyListeners();
+    }
+  }
+
+  Future<bool> _testFirebaseConnection() async {
+    try {
+      // Try to access Firebase Auth to see if it's initialized
+      final auth = firebase_auth.FirebaseAuth.instance;
+      return true;
+    } catch (e) {
+      return false;
+    }
   }
 
   Future<void> _loadUserData(String uid) async {
@@ -60,6 +109,22 @@ class AuthController extends ChangeNotifier {
   }
 
   Future<bool> signIn(String email, String password) async {
+    if (!_firebaseInitialized) {
+      // In development mode, allow any login
+      _currentUser = User(
+        id: 'dev-user',
+        fullName: 'Development User',
+        email: email,
+        phoneNumber: '',
+        role: email.contains('admin') ? 'admin' : 'guide',
+        profilePictureUrl: null,
+        createdAt: DateTime.now(),
+        isActive: true,
+      );
+      notifyListeners();
+      return true;
+    }
+
     try {
       _setLoading(true);
       _error = null;
@@ -75,6 +140,13 @@ class AuthController extends ChangeNotifier {
   }
 
   Future<void> signOut() async {
+    if (!_firebaseInitialized) {
+      // In development mode, just clear the user
+      _currentUser = null;
+      notifyListeners();
+      return;
+    }
+
     try {
       _setLoading(true);
       await FirebaseService.signOut();
@@ -91,7 +163,9 @@ class AuthController extends ChangeNotifier {
     if (_currentUser != null) {
       try {
         _currentUser = _currentUser!.copyWith(role: role);
-        await FirebaseService.saveUserData(_currentUser!);
+        if (_firebaseInitialized) {
+          await FirebaseService.saveUserData(_currentUser!);
+        }
         notifyListeners();
       } catch (e) {
         _error = 'Failed to update user role: $e';

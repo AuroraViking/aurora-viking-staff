@@ -13,14 +13,6 @@ import 'core/services/firebase_service.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
-  // Initialize Firebase
-  try {
-    await FirebaseService.initialize();
-    print('✅ Firebase initialized successfully');
-  } catch (e) {
-    print('❌ Failed to initialize Firebase: $e');
-  }
-  
   // Load environment variables (optional - won't crash if .env doesn't exist)
   try {
     // Try to load .env file
@@ -41,9 +33,13 @@ class AuroraVikingStaffApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (_) => AuthController()),
         ChangeNotifierProvider(create: (_) => AdminController()),
         ChangeNotifierProvider(create: (_) => PickupController()),
+        // Create AuthController lazily to avoid Firebase initialization issues
+        ChangeNotifierProxyProvider<AdminController, AuthController>(
+          create: (_) => AuthController(),
+          update: (_, __, ___) => AuthController(),
+        ),
       ],
       child: MaterialApp(
         title: 'Aurora Viking Staff',
@@ -70,22 +66,89 @@ class AuthWrapper extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<AuthController>(
-      builder: (context, authController, child) {
-        if (authController.isLoading) {
+    return FutureBuilder(
+      future: _initializeFirebase(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
           return const Scaffold(
             body: Center(
-              child: CircularProgressIndicator(),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 16),
+                  Text('Initializing Aurora Viking Staff...'),
+                ],
+              ),
             ),
           );
         }
         
-        if (authController.isAuthenticated) {
-          return const HomeScreen();
+        if (snapshot.hasError) {
+          return Scaffold(
+            body: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(
+                    Icons.error_outline,
+                    size: 64,
+                    color: Colors.red,
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Failed to initialize app',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Error: ${snapshot.error}',
+                    style: const TextStyle(color: Colors.grey),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 16),
+                  ElevatedButton(
+                    onPressed: () {
+                      // Force rebuild to retry initialization
+                      (context as Element).markNeedsBuild();
+                    },
+                    child: const Text('Retry'),
+                  ),
+                ],
+              ),
+            ),
+          );
         }
         
-        return const LoginScreen();
+        return Consumer<AuthController>(
+          builder: (context, authController, child) {
+            if (authController.isLoading) {
+              return const Scaffold(
+                body: Center(
+                  child: CircularProgressIndicator(),
+                ),
+              );
+            }
+            
+            if (authController.isAuthenticated) {
+              return const HomeScreen();
+            }
+            
+            return const LoginScreen();
+          },
+        );
       },
     );
+  }
+
+  Future<void> _initializeFirebase() async {
+    try {
+      await FirebaseService.initialize();
+      print('✅ Firebase initialized successfully');
+    } catch (e) {
+      print('❌ Failed to initialize Firebase: $e');
+      // Don't rethrow - let the app continue without Firebase for now
+      // This allows the app to work in development without Firebase setup
+    }
   }
 }
