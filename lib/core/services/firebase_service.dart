@@ -52,6 +52,39 @@ class FirebaseService {
     }
   }
 
+  // Create user with email and password
+  static Future<firebase_auth.UserCredential> createUserWithEmailAndPassword(
+    String email,
+    String password,
+  ) async {
+    if (!_initialized || _auth == null) {
+      throw Exception('Firebase not initialized');
+    }
+    
+    try {
+      final credential = await _auth!.createUserWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+      return credential;
+    } catch (e) {
+      throw Exception('Failed to create user: $e');
+    }
+  }
+
+  // Send password reset email
+  static Future<void> sendPasswordResetEmail(String email) async {
+    if (!_initialized || _auth == null) {
+      throw Exception('Firebase not initialized');
+    }
+    
+    try {
+      await _auth!.sendPasswordResetEmail(email: email);
+    } catch (e) {
+      throw Exception('Failed to send password reset email: $e');
+    }
+  }
+
   // Sign out
   static Future<void> signOut() async {
     if (!_initialized || _auth == null) {

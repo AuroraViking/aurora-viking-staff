@@ -139,6 +139,74 @@ class AuthController extends ChangeNotifier {
     }
   }
 
+  Future<bool> signUp(String email, String password, String fullName) async {
+    if (!_firebaseInitialized) {
+      // In development mode, create a local user
+      _currentUser = User(
+        id: 'dev-user-${DateTime.now().millisecondsSinceEpoch}',
+        fullName: fullName,
+        email: email,
+        phoneNumber: '',
+        role: email.contains('admin') ? 'admin' : 'guide',
+        profilePictureUrl: null,
+        createdAt: DateTime.now(),
+        isActive: true,
+      );
+      notifyListeners();
+      return true;
+    }
+
+    try {
+      _setLoading(true);
+      _error = null;
+      
+      final credential = await FirebaseService.createUserWithEmailAndPassword(email, password);
+      
+      // Create user profile
+      final user = User(
+        id: credential.user?.uid ?? '',
+        fullName: fullName,
+        email: email,
+        phoneNumber: '',
+        role: 'guide', // Default role
+        profilePictureUrl: null,
+        createdAt: DateTime.now(),
+        isActive: true,
+      );
+      
+      await FirebaseService.saveUserData(user);
+      _currentUser = user;
+      notifyListeners();
+      
+      return true;
+    } catch (e) {
+      _error = _getAuthErrorMessage(e);
+      return false;
+    } finally {
+      _setLoading(false);
+    }
+  }
+
+  Future<bool> forgotPassword(String email) async {
+    if (!_firebaseInitialized) {
+      // In development mode, simulate success
+      return true;
+    }
+
+    try {
+      _setLoading(true);
+      _error = null;
+      
+      await FirebaseService.sendPasswordResetEmail(email);
+      return true;
+    } catch (e) {
+      _error = _getAuthErrorMessage(e);
+      return false;
+    } finally {
+      _setLoading(false);
+    }
+  }
+
   Future<void> signOut() async {
     if (!_firebaseInitialized) {
       // In development mode, just clear the user
