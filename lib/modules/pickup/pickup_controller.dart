@@ -68,6 +68,16 @@ class PickupController extends ChangeNotifier {
     _error = null;
     
     try {
+      // Check if month is too far in the past
+      final now = DateTime.now();
+      final currentMonth = DateTime(now.year, now.month, 1);
+      if (month.isBefore(currentMonth)) {
+        print('ℹ️ Month ${month.toString()} is in the past, skipping data fetch');
+        _monthData.clear();
+        _setLoading(false);
+        return;
+      }
+      
       final startDate = DateTime(month.year, month.month, 1);
       final endDate = DateTime(month.year, month.month + 1, 0);
       
@@ -76,6 +86,13 @@ class PickupController extends ChangeNotifier {
       // Fetch data for each day in the month
       for (int day = 1; day <= endDate.day; day++) {
         final date = DateTime(month.year, month.month, day);
+        
+        // Skip dates that are too far in the past
+        final thirtyDaysAgo = now.subtract(const Duration(days: 30));
+        if (date.isBefore(thirtyDaysAgo)) {
+          continue;
+        }
+        
         try {
           final bookings = await _pickupService.fetchBookingsForDate(date);
           if (bookings.isNotEmpty) {

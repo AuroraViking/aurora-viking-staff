@@ -67,10 +67,18 @@ class PickupService {
     try {
       // Check if API credentials are available
       if (!_hasApiCredentials) {
-        print('❌ Pickup Service: Bokun API credentials not found in .env file. Using mock data.');
+        print('❌ Pickup Service: Bokun API credentials not found in .env file.');
         print('Access Key: ${_accessKey.isEmpty ? "MISSING" : "FOUND"}');
         print('Secret Key: ${_secretKey.isEmpty ? "MISSING" : "FOUND"}');
-        return _getMockBookings(date);
+        return [];
+      }
+
+      // Check if date is in the past (more than 30 days ago)
+      final now = DateTime.now();
+      final thirtyDaysAgo = now.subtract(const Duration(days: 30));
+      if (date.isBefore(thirtyDaysAgo)) {
+        print('ℹ️ Date ${date.toString()} is too far in the past, skipping API call');
+        return [];
       }
 
       print('✅ Pickup Service: Bokun API credentials found. Making API request...');
@@ -109,7 +117,7 @@ class PickupService {
         final bookings = <PickupBooking>[];
         
         // Parse Bokun API response and convert to our model
-        final items = data['items'] as List<dynamic>? ?? []; // Fixed: use 'items' instead of 'bookings'
+        final items = data['items'] as List<dynamic>? ?? [];
         print('📊 Total hits from API: ${data['totalHits']}');
         print('📊 Items array length: ${items.length}');
         
@@ -136,13 +144,27 @@ class PickupService {
       } else {
         print('❌ Pickup API Error: ${response.statusCode}');
         print('📄 Pickup Error Response: ${response.body}');
+        
+        // Don't fall back to mock data - just return empty list
+        if (response.statusCode == 400 && response.body.contains('too far in the past')) {
+          print('ℹ️ Date is too far in the past, returning empty list');
+          return [];
+        }
+        
         throw Exception('Failed to fetch bookings: ${response.statusCode}');
       }
     } catch (e) {
       print('❌ Pickup Service: Error fetching bookings from Bokun API: $e');
-      print('🔄 Pickup Service: Falling back to mock data for development/testing');
-      // Return mock data for development/testing
-      return _getMockBookings(date);
+      
+      // Don't fall back to mock data - just return empty list
+      if (e.toString().contains('too far in the past')) {
+        print('ℹ️ Date is too far in the past, returning empty list');
+        return [];
+      }
+      
+      // For other errors, return empty list instead of mock data
+      print('ℹ️ Returning empty list due to API error');
+      return [];
     }
   }
 
@@ -318,62 +340,6 @@ class PickupService {
       print('📄 Booking data: $booking');
       return null;
     }
-  }
-
-  // Mock data for development/testing
-  List<PickupBooking> _getMockBookings(DateTime date) {
-    return [
-      PickupBooking(
-        id: '1',
-        customerFullName: 'John Smith',
-        pickupPlaceName: 'Hotel Keflavik',
-        pickupTime: DateTime(date.year, date.month, date.day, 8, 30),
-        numberOfGuests: 2,
-        phoneNumber: '+354 123 4567',
-        email: 'john.smith@email.com',
-        createdAt: DateTime.now(),
-      ),
-      PickupBooking(
-        id: '2',
-        customerFullName: 'Maria Garcia',
-        pickupPlaceName: 'Reykjavik Downtown Hostel',
-        pickupTime: DateTime(date.year, date.month, date.day, 9, 0),
-        numberOfGuests: 4,
-        phoneNumber: '+354 234 5678',
-        email: 'maria.garcia@email.com',
-        createdAt: DateTime.now(),
-      ),
-      PickupBooking(
-        id: '3',
-        customerFullName: 'David Johnson',
-        pickupPlaceName: 'Blue Lagoon Hotel',
-        pickupTime: DateTime(date.year, date.month, date.day, 8, 45),
-        numberOfGuests: 3,
-        phoneNumber: '+354 345 6789',
-        email: 'david.johnson@email.com',
-        createdAt: DateTime.now(),
-      ),
-      PickupBooking(
-        id: '4',
-        customerFullName: 'Sarah Wilson',
-        pickupPlaceName: 'Icelandair Hotel Reykjavik Marina',
-        pickupTime: DateTime(date.year, date.month, date.day, 9, 15),
-        numberOfGuests: 2,
-        phoneNumber: '+354 456 7890',
-        email: 'sarah.wilson@email.com',
-        createdAt: DateTime.now(),
-      ),
-      PickupBooking(
-        id: '5',
-        customerFullName: 'Michael Brown',
-        pickupPlaceName: 'CenterHotel Arnarhvoll',
-        pickupTime: DateTime(date.year, date.month, date.day, 8, 0),
-        numberOfGuests: 6,
-        phoneNumber: '+354 567 8901',
-        email: 'michael.brown@email.com',
-        createdAt: DateTime.now(),
-      ),
-    ];
   }
 
   // Assign booking to a guide
