@@ -26,6 +26,30 @@ class TourManagementService {
     final message = utf8.encode('$date$body');
     final hmac = Hmac(sha256, key);
     final digest = hmac.convert(message);
+    
+    print('🔐 HMAC Debug:');
+    print('  Date: $date');
+    print('  Body: $body');
+    print('  Message: $date$body');
+    print('  Signature: ${digest.toString()}');
+    
+    return digest.toString();
+  }
+
+  // Alternative signature generation methods
+  String _generateSignatureAlternative1(String date, String body) {
+    final key = utf8.encode(_secretKey);
+    final message = utf8.encode(body); // Only body, no date
+    final hmac = Hmac(sha256, key);
+    final digest = hmac.convert(message);
+    return digest.toString();
+  }
+
+  String _generateSignatureAlternative2(String date, String body) {
+    final key = utf8.encode(_secretKey);
+    final message = utf8.encode('$body$date'); // Body first, then date
+    final hmac = Hmac(sha256, key);
+    final digest = hmac.convert(message);
     return digest.toString();
   }
 
@@ -40,13 +64,24 @@ class TourManagementService {
     final date = _getBokunDate();
     final signature = _generateSignature(date, body);
     
-    return {
+    final headers = <String, String>{
       'Content-Type': 'application/json',
       'access-key': _accessKey,
       'secret-key': _secretKey,
       'X-Bokun-Date': date,
       'X-Bokun-Signature': signature,
     };
+    
+    print('📋 Headers being sent:');
+    headers.forEach((key, value) {
+      if (key.contains('key') || key.contains('signature')) {
+        print('  $key: ${value.substring(0, value.length > 10 ? 10 : value.length)}...');
+      } else {
+        print('  $key: $value');
+      }
+    });
+    
+    return headers;
   }
 
   // Fetch tour data for a specific month
@@ -288,42 +323,68 @@ class TourManagementService {
       final bodyJson = json.encode(requestBody);
       print('📤 Test Request Body: $bodyJson');
 
-      final response = await http.post(
-        Uri.parse(url),
-        headers: _getHeaders(bodyJson),
-        body: bodyJson,
-      );
+      // Try different signature methods
+      final signatureMethods = [
+        {'name': 'Standard (date+body)', 'method': (String date, String body) => _generateSignature(date, body)},
+        {'name': 'Body only', 'method': (String date, String body) => _generateSignatureAlternative1(date, body)},
+        {'name': 'Body+date reversed', 'method': (String date, String body) => _generateSignatureAlternative2(date, body)},
+      ];
 
-      print('📡 Test API Response Status: ${response.statusCode}');
-      print('📄 Test Response Headers: ${response.headers}');
-
-      if (response.statusCode == 200) {
-        try {
-          final data = json.decode(response.body);
-          print('✅ API call successful!');
-          return {
-            'success': true,
-            'statusCode': response.statusCode,
-            'workingEndpoint': url,
-            'authMethod': 'HMAC Signature',
-            'bookingsCount': (data['bookings'] as List<dynamic>?)?.length ?? 0,
-            'responsePreview': data.toString().substring(0, data.toString().length > 200 ? 200 : data.toString().length),
-          };
-        } catch (e) {
-          return {
-            'success': false,
-            'statusCode': response.statusCode,
-            'error': 'Failed to parse JSON response: $e',
-            'responseBody': response.body,
-          };
-        }
-      } else {
-        return {
-          'success': false,
-          'statusCode': response.statusCode,
-          'error': response.body,
+      for (final method in signatureMethods) {
+        print('🔐 Testing signature method: ${method['name']}');
+        
+        final date = _getBokunDate();
+        final signature = (method['method'] as Function)(date, bodyJson);
+        
+        final headers = <String, String>{
+          'Content-Type': 'application/json',
+          'access-key': _accessKey,
+          'secret-key': _secretKey,
+          'X-Bokun-Date': date,
+          'X-Bokun-Signature': signature,
         };
+
+        try {
+          final response = await http.post(
+            Uri.parse(url),
+            headers: headers,
+            body: bodyJson,
+          );
+
+          print('📡 Test API Response Status: ${response.statusCode}');
+
+          if (response.statusCode == 200) {
+            try {
+              final data = json.decode(response.body);
+              print('✅ API call successful with ${method['name']}!');
+              return {
+                'success': true,
+                'statusCode': response.statusCode,
+                'workingEndpoint': url,
+                'authMethod': 'HMAC Signature - ${method['name']}',
+                'bookingsCount': (data['bookings'] as List<dynamic>?)?.length ?? 0,
+                'responsePreview': data.toString().substring(0, data.toString().length > 200 ? 200 : data.toString().length),
+              };
+            } catch (e) {
+              print('❌ Failed to parse JSON response: $e');
+            }
+          } else if (response.statusCode == 401) {
+            print('❌ Authentication failed with ${method['name']}');
+            print('📄 Error Response: ${response.body}');
+          } else {
+            print('❌ Unexpected status ${response.statusCode} with ${method['name']}');
+          }
+        } catch (e) {
+          print('❌ Error with ${method['name']}: $e');
+        }
       }
+
+      // If we get here, all signature methods failed
+      return {
+        'success': false,
+        'error': 'All signature methods failed. Check API credentials and documentation.',
+        'testedMethods': signatureMethods.map((m) => m['name']).toList(),
+      };
     } catch (e) {
       return {
         'success': false,
