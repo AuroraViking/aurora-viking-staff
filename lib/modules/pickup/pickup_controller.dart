@@ -85,9 +85,12 @@ class PickupController extends ChangeNotifier {
       _bookings = updatedBookings; // Also update admin bookings
       _selectedDate = date;
       _stats = await _pickupService.getPickupListStats(date);
-      _guideLists = _stats?.guideLists ?? [];
+      
+      // Update guide lists from the bookings with assignments
+      _updateGuideLists();
       
       print('📊 Loaded ${updatedBookings.length} bookings with ${assignments.length} assignments');
+      print('👥 Updated guide lists: ${_guideLists.length} guides with assignments');
     } catch (e) {
       _error = e.toString();
     } finally {
@@ -369,24 +372,31 @@ class PickupController extends ChangeNotifier {
 
   // Update guide lists from current bookings
   void _updateGuideLists() {
+    print('🔄 Updating guide lists from ${_bookings.length} bookings...');
+    
     final guideGroups = <String, List<PickupBooking>>{};
     
     for (final booking in _bookings) {
       if (booking.assignedGuideId != null) {
         guideGroups.putIfAbsent(booking.assignedGuideId!, () => []);
         guideGroups[booking.assignedGuideId]!.add(booking);
+        print('📋 Added booking ${booking.customerFullName} to guide ${booking.assignedGuideName}');
       }
     }
 
     _guideLists = guideGroups.entries.map((entry) {
       final totalPassengers = entry.value.fold(0, (sum, booking) => sum + booking.numberOfGuests);
-      return GuidePickupList(
+      final guideList = GuidePickupList(
         guideId: entry.key,
         guideName: entry.value.first.assignedGuideName ?? 'Unknown Guide',
         bookings: entry.value,
         totalPassengers: totalPassengers,
         date: _selectedDate,
       );
+      print('👥 Created guide list for ${guideList.guideName}: ${guideList.bookings.length} bookings, ${guideList.totalPassengers} passengers');
+      return guideList;
     }).toList();
+    
+    print('✅ Updated guide lists: ${_guideLists.length} guides total');
   }
 } 
