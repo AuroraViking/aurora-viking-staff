@@ -16,18 +16,26 @@ class AdminPickupManagementScreen extends StatefulWidget {
   State<AdminPickupManagementScreen> createState() => _AdminPickupManagementScreenState();
 }
 
-class _AdminPickupManagementScreenState extends State<AdminPickupManagementScreen> {
+class _AdminPickupManagementScreenState extends State<AdminPickupManagementScreen> with SingleTickerProviderStateMixin {
   List<AdminGuide> _guides = [];
   bool _isLoadingGuides = false;
+  late TabController _tabController;
 
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 2, vsync: this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final controller = context.read<PickupController>();
       controller.loadBookingsForDate(controller.selectedDate);
       _loadGuides();
     });
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadGuides() async {
@@ -220,43 +228,26 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
   Widget _buildTabBar() {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
-      child: Row(
-        children: [
-          Expanded(
-            child: ElevatedButton(
-              onPressed: () => _showTab(0),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primary,
-                foregroundColor: Colors.white,
-              ),
-              child: const Text('Unassigned'),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: ElevatedButton(
-              onPressed: () => _showTab(1),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.secondary,
-                foregroundColor: Colors.white,
-              ),
-              child: const Text('Guide Lists'),
-            ),
-          ),
+      child: TabBar(
+        controller: _tabController,
+        labelColor: Colors.white,
+        unselectedLabelColor: AppColors.textSecondary,
+        indicatorColor: Colors.white,
+        tabs: const [
+          Tab(text: 'Unassigned'),
+          Tab(text: 'Guide Lists'),
         ],
       ),
     );
   }
 
   Widget _buildTabView(PickupController controller) {
-    return DefaultTabController(
-      length: 2,
-      child: TabBarView(
-        children: [
-          _buildUnassignedTab(controller),
-          _buildGuideListsTab(controller),
-        ],
-      ),
+    return TabBarView(
+      controller: _tabController,
+      children: [
+        _buildUnassignedTab(controller),
+        _buildGuideListsTab(controller),
+      ],
     );
   }
 
@@ -619,9 +610,5 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
         ),
       );
     }
-  }
-
-  void _showTab(int index) {
-    // This would be handled by TabBarView in a real implementation
   }
 } 
