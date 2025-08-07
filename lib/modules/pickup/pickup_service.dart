@@ -151,30 +151,73 @@ class PickupService {
     try {
       print('🔍 Parsing booking: ${booking.keys.toList()}');
       
-      // Extract customer information - check different possible field names
+      // Extract customer information
       final customer = booking['customer'] ?? booking['leadCustomer'] ?? {};
       final customerFullName = '${customer['firstName'] ?? ''} ${customer['lastName'] ?? ''}'.trim();
-      
-      // Extract pickup information - check different possible field names
-      final pickupInfo = booking['pickupInfo'] ?? booking['pickup'] ?? {};
-      final pickupPlaceName = pickupInfo['pickupPlaceName'] ?? pickupInfo['location'] ?? 'Unknown Location';
-      
-      // Handle different date formats
-      String pickupTimeStr = pickupInfo['pickupTime'] ?? pickupInfo['startTime'] ?? DateTime.now().toIso8601String();
-      DateTime pickupTime;
-      try {
-        pickupTime = DateTime.parse(pickupTimeStr);
-      } catch (e) {
-        print('⚠️ Could not parse pickup time: $pickupTimeStr, using current time');
-        pickupTime = DateTime.now();
-      }
-      
-      // Extract guest count
-      final numberOfGuests = booking['numberOfGuests'] ?? booking['pax'] ?? 1;
       
       // Extract contact information
       final phoneNumber = customer['phoneNumber'] ?? customer['phone'] ?? '';
       final email = customer['email'] ?? '';
+      
+      // Parse productBookings array for tour details
+      final List<dynamic> productBookings = booking['productBookings'] ?? [];
+      print('🔍 ProductBookings for $customerFullName: ${productBookings.length} products');
+      
+      if (productBookings.isEmpty) {
+        print('⚠️ No productBookings found for $customerFullName');
+        return null;
+      }
+      
+      // Use the first product booking for pickup details
+      final productBooking = productBookings.first;
+      print('🔍 ProductBooking keys: ${productBooking.keys.toList()}');
+      
+      // Extract tour time
+      final startDateStr = productBooking['startDate'];
+      DateTime pickupTime;
+      if (startDateStr != null) {
+        try {
+          pickupTime = DateTime.parse(startDateStr);
+          print('✅ Parsed tour time: $pickupTime');
+        } catch (e) {
+          print('⚠️ Could not parse tour time: $startDateStr, using current time');
+          pickupTime = DateTime.now();
+        }
+      } else {
+        print('⚠️ No startDate found, using current time');
+        pickupTime = DateTime.now();
+      }
+      
+      // Extract number of guests
+      final numberOfGuests = productBooking['totalParticipants'] ?? 
+                            productBooking['totalPax'] ??
+                            productBooking['pax'] ??
+                            1;
+      print('✅ Parsed guest count: $numberOfGuests');
+      
+      // Extract pickup location
+      String pickupPlaceName = 'Unknown Location';
+      if (productBooking['pickup'] == true) {
+        final pickupPlace = productBooking['pickupPlace'];
+        if (pickupPlace != null) {
+          pickupPlaceName = pickupPlace['title'] ?? pickupPlace['name'] ?? 'Pickup Location';
+          print('✅ Found pickupPlace: $pickupPlaceName');
+        } else if (productBooking['pickupPlaceDescription'] != null) {
+          pickupPlaceName = productBooking['pickupPlaceDescription'];
+          print('✅ Found pickupPlaceDescription: $pickupPlaceName');
+        }
+      }
+      
+      // Debug pickup information
+      if (productBooking['pickup'] != null) {
+        print('🔍 Pickup: ${productBooking['pickup']}');
+      }
+      if (productBooking['pickupPlace'] != null) {
+        print('🔍 PickupPlace: ${productBooking['pickupPlace']}');
+      }
+      if (productBooking['pickupPlaceDescription'] != null) {
+        print('🔍 PickupPlaceDescription: ${productBooking['pickupPlaceDescription']}');
+      }
 
       final pickupBooking = PickupBooking(
         id: booking['id']?.toString() ?? DateTime.now().millisecondsSinceEpoch.toString(),
@@ -187,7 +230,7 @@ class PickupService {
         createdAt: DateTime.now(),
       );
       
-      print('✅ Successfully parsed booking: ${pickupBooking.customerFullName} - ${pickupBooking.pickupPlaceName}');
+      print('✅ Successfully parsed booking: ${pickupBooking.customerFullName} - ${pickupBooking.pickupPlaceName} - ${pickupBooking.numberOfGuests} guests - ${pickupBooking.pickupTime}');
       return pickupBooking;
     } catch (e) {
       print('❌ Error parsing Bokun booking: $e');

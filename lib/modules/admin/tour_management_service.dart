@@ -353,6 +353,14 @@ class TourManagementService {
             
             if (bookings.isNotEmpty) {
               print('📝 First booking sample: ${bookings.first}');
+              
+              // Debug the first booking's productBookings
+              final firstBooking = bookings.first;
+              final productBookings = firstBooking['productBookings'] as List<dynamic>? ?? [];
+              print('🔍 First booking productBookings: ${productBookings.length} products');
+              if (productBookings.isNotEmpty) {
+                print('🔍 First productBooking keys: ${productBookings.first.keys.toList()}');
+              }
             } else {
               print('⚠️ No bookings found for September 1st, 2025');
             }
