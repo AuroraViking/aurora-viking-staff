@@ -23,6 +23,7 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
   
   // State to track reordered booking lists for each guide
   Map<String, List<PickupBooking>> _reorderedBookings = {};
+  int _lastBookingCount = 0; // To track if booking count has changed significantly
 
   @override
   void initState() {
@@ -47,12 +48,49 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
   }
 
   void _onControllerDataChanged() {
-    // Reset reordered bookings when controller data changes
+    // Update reordered bookings when assignments change, but preserve custom order
     if (mounted) {
-      setState(() {
-        _resetReorderedBookings();
-      });
+      final controller = context.read<PickupController>();
+      
+      // Update existing reordered lists with new assignment data
+      _updateReorderedBookings(controller);
     }
+  }
+
+  // Update reordered bookings with new assignment data while preserving custom order
+  void _updateReorderedBookings(PickupController controller) {
+    final updatedReorderedBookings = <String, List<PickupBooking>>{};
+    
+    for (final guideList in controller.guideLists) {
+      final existingReorderedList = _reorderedBookings[guideList.guideId];
+      
+      if (existingReorderedList != null) {
+        // Preserve custom order but update booking data
+        final updatedList = existingReorderedList.map((reorderedBooking) {
+          // Find the updated booking data
+          final updatedBooking = guideList.bookings.firstWhere(
+            (booking) => booking.id == reorderedBooking.id,
+            orElse: () => reorderedBooking,
+          );
+          return updatedBooking;
+        }).toList();
+        
+        // Only keep bookings that still exist in the guide list
+        final validBookings = updatedList.where((booking) => 
+          guideList.bookings.any((b) => b.id == booking.id)
+        ).toList();
+        
+        if (validBookings.isNotEmpty) {
+          updatedReorderedBookings[guideList.guideId] = validBookings;
+        }
+      }
+    }
+    
+    setState(() {
+      _reorderedBookings = updatedReorderedBookings;
+    });
+    
+    print('🔄 Updated reordered bookings for ${updatedReorderedBookings.length} guides');
   }
 
   Future<void> _loadGuides() async {
@@ -65,7 +103,8 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
       setState(() {
         _guides = guides;
         _isLoadingGuides = false;
-        // Reset reordered bookings when guides are reloaded
+        // Only reset reordered bookings when guides are actually reloaded
+        // This happens when the admin service is called, not on every data change
         _resetReorderedBookings();
       });
     } catch (e) {
@@ -552,6 +591,10 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
     );
 
     if (selectedDate != null) {
+      // Reset reordered bookings when date changes
+      setState(() {
+        _resetReorderedBookings();
+      });
       controller.changeDate(selectedDate);
     }
   }
