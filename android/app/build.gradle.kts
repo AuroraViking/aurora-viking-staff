@@ -27,7 +27,7 @@ android {
         applicationId = "com.auroraviking.aurora_viking_staff"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        minSdk = 23  // Updated from flutter.minSdkVersion to 23 for Firebase compatibility
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
