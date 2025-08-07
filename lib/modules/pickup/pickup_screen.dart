@@ -36,13 +36,19 @@ class _PickupScreenState extends State<PickupScreen> {
     final controller = context.read<PickupController>();
     final monthData = controller.monthData;
     
+    print('🔍 Updating guest counts...');
+    print('🔍 Month data keys: ${monthData.keys.toList()}');
+    
     setState(() {
       _guestCounts.clear();
       monthData.forEach((date, bookings) {
         final totalGuests = bookings.fold<int>(0, (sum, booking) => sum + booking.numberOfGuests);
         _guestCounts[date] = totalGuests;
+        print('🔍 Date ${date.toString()}: ${bookings.length} bookings, $totalGuests guests');
       });
     });
+    
+    print('🔍 Final guest counts: $_guestCounts');
   }
 
   @override
@@ -78,6 +84,11 @@ class _PickupScreenState extends State<PickupScreen> {
           final todayKey = DateTime(today.year, today.month, today.day);
           final todayBookings = controller.monthData[todayKey] ?? [];
           final todayGuestCount = todayBookings.fold<int>(0, (sum, booking) => sum + booking.numberOfGuests);
+          
+          // Debug: Print guest counts
+          print('🔍 Today\'s bookings: ${todayBookings.length}');
+          print('🔍 Today\'s guest count: $todayGuestCount');
+          print('🔍 All guest counts: $_guestCounts');
 
           return Column(
             children: [
@@ -162,6 +173,7 @@ class _PickupScreenState extends State<PickupScreen> {
                   calendarFormat: CalendarFormat.month,
                   eventLoader: (day) {
                     final guestCount = _guestCounts[DateTime(day.year, day.month, day.day)];
+                    print('🔍 Calendar event loader for ${day.toString()}: $guestCount guests');
                     return guestCount != null && guestCount > 0 ? [guestCount] : [];
                   },
                   calendarStyle: const CalendarStyle(
