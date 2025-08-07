@@ -7,6 +7,7 @@ import '../../widgets/common/loading_widget.dart';
 import '../../widgets/common/error_widget.dart';
 import '../pickup/pickup_controller.dart';
 import 'admin_service.dart';
+import '../../core/models/admin_models.dart';
 
 class AdminPickupManagementScreen extends StatefulWidget {
   const AdminPickupManagementScreen({Key? key}) : super(key: key);

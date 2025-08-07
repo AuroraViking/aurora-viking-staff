@@ -129,7 +129,7 @@ class AdminService {
           name: user.fullName,
           email: user.email,
           phone: user.phoneNumber,
-          profileImageUrl: user.profilePictureUrl,
+          profileImageUrl: user.profilePictureUrl ?? '',
           status: user.isActive ? 'active' : 'inactive',
           joinDate: user.createdAt,
           totalShifts: 0, // TODO: Calculate from shifts collection
@@ -161,7 +161,7 @@ class AdminService {
         name: user.fullName,
         email: user.email,
         phone: user.phoneNumber,
-        profileImageUrl: user.profilePictureUrl,
+        profileImageUrl: user.profilePictureUrl ?? '',
         status: user.isActive ? 'active' : 'inactive',
         joinDate: user.createdAt,
         totalShifts: 0, // TODO: Calculate from shifts collection
@@ -405,7 +405,10 @@ class AdminService {
           .where('date', isLessThanOrEqualTo: endDate)
           .get();
       
-      final shifts = shiftsSnapshot.docs.map((doc) => Shift.fromJson(doc.data())).toList();
+      final shifts = shiftsSnapshot.docs.map((doc) {
+        final data = doc.data() as Map<String, dynamic>;
+        return Shift.fromJson(data);
+      }).toList();
       
       // Get guides
       final guidesSnapshot = await _firestore.collection('users').where('role', isEqualTo: 'guide').get();
@@ -467,11 +470,15 @@ class AdminService {
       }
       
       final shiftsSnapshot = await query.get();
-      final shifts = shiftsSnapshot.docs.map((doc) => Shift.fromJson(doc.data())).toList();
+      final shifts = shiftsSnapshot.docs.map((doc) {
+        final data = doc.data() as Map<String, dynamic>;
+        return Shift.fromJson(data);
+      }).toList();
       
       // Get guide info
       final guideDoc = await _firestore.collection('users').doc(guideId).get();
-      final guide = User.fromJson(guideDoc.data()!);
+      final guideData = guideDoc.data() as Map<String, dynamic>;
+      final guide = User.fromJson(guideData);
       
       // Calculate statistics
       final totalShifts = shifts.length;
