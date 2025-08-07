@@ -548,15 +548,30 @@ class _AdminDashboardState extends State<AdminDashboard> {
                 Text('Status: ${result['success'] ? 'SUCCESS' : 'FAILED'}'),
                 if (result['statusCode'] != null) Text('Status Code: ${result['statusCode']}'),
                 if (result['bookingsCount'] != null) Text('Bookings Found: ${result['bookingsCount']}'),
+                if (result['responsePreview'] != null) ...[
+                  const SizedBox(height: 8),
+                  const Text('Response Preview:', style: TextStyle(fontWeight: FontWeight.bold)),
+                  Text(result['responsePreview']),
+                ],
                 if (result['error'] != null) ...[
                   const SizedBox(height: 8),
                   const Text('Error:', style: TextStyle(fontWeight: FontWeight.bold)),
                   Text(result['error']),
                 ],
-                if (result['responsePreview'] != null) ...[
+                if (result['responseBody'] != null) ...[
                   const SizedBox(height: 8),
-                  const Text('Response Preview:', style: TextStyle(fontWeight: FontWeight.bold)),
-                  Text(result['responsePreview']),
+                  const Text('Response Body:', style: TextStyle(fontWeight: FontWeight.bold)),
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[100],
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      result['responseBody'],
+                      style: const TextStyle(fontSize: 10, fontFamily: 'monospace'),
+                    ),
+                  ),
                 ],
                 if (result['accessKey'] != null) Text('Access Key: ${result['accessKey']}'),
                 if (result['secretKey'] != null) Text('Secret Key: ${result['secretKey']}'),

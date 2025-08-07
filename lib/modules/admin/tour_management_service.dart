@@ -247,15 +247,36 @@ class TourManagementService {
       );
 
       print('📡 Test API Response Status: ${response.statusCode}');
+      print('📄 Full Response Body: ${response.body}');
 
       if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        return {
-          'success': true,
-          'statusCode': response.statusCode,
-          'bookingsCount': (data['bookings'] as List<dynamic>?)?.length ?? 0,
-          'responsePreview': data.toString().substring(0, data.toString().length > 200 ? 200 : data.toString().length),
-        };
+        // Check if response is JSON or HTML
+        final responseText = response.body.trim();
+        if (responseText.startsWith('<!DOCTYPE') || responseText.startsWith('<html')) {
+          return {
+            'success': false,
+            'statusCode': response.statusCode,
+            'error': 'API returned HTML instead of JSON. This usually means the endpoint is incorrect or authentication failed.',
+            'responseBody': response.body,
+          };
+        }
+        
+        try {
+          final data = json.decode(response.body);
+          return {
+            'success': true,
+            'statusCode': response.statusCode,
+            'bookingsCount': (data['bookings'] as List<dynamic>?)?.length ?? 0,
+            'responsePreview': data.toString().substring(0, data.toString().length > 200 ? 200 : data.toString().length),
+          };
+        } catch (e) {
+          return {
+            'success': false,
+            'statusCode': response.statusCode,
+            'error': 'Failed to parse JSON response: $e',
+            'responseBody': response.body,
+          };
+        }
       } else {
         return {
           'success': false,
