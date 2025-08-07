@@ -1,11 +1,12 @@
 import 'dart:convert';
+import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../../core/models/pickup_models.dart';
 import '../../core/models/user_model.dart';
 
 class PickupService {
-  static const String _baseUrl = 'https://api.bokun.io/api';
+  static const String _baseUrl = 'https://api.bokun.io';
   
   // Get Bokun API credentials from environment
   String get _accessKey => dotenv.env['BOKUN_ACCESS_KEY'] ?? '';
@@ -14,6 +15,35 @@ class PickupService {
 
   // Check if API credentials are available
   bool get _hasApiCredentials => _accessKey.isNotEmpty && _secretKey.isNotEmpty;
+
+  // Generate HMAC signature for Bokun API
+  String _generateSignature(String date, String body) {
+    final key = utf8.encode(_secretKey);
+    final message = utf8.encode('$date$body');
+    final hmac = Hmac(sha256, key);
+    final digest = hmac.convert(message);
+    return digest.toString();
+  }
+
+  // Get current date in Bokun format
+  String _getBokunDate() {
+    final now = DateTime.now();
+    return '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}';
+  }
+
+  // Get proper headers for Bokun API
+  Map<String, String> _getHeaders(String body) {
+    final date = _getBokunDate();
+    final signature = _generateSignature(date, body);
+    
+    return {
+      'Content-Type': 'application/json',
+      'access-key': _accessKey,
+      'secret-key': _secretKey,
+      'X-Bokun-Date': date,
+      'X-Bokun-Signature': signature,
+    };
+  }
 
   // Fetch bookings from Bokun API for a specific date
   Future<List<PickupBooking>> fetchBookingsForDate(DateTime date) async {
@@ -32,16 +62,23 @@ class PickupService {
       final startDate = DateTime(date.year, date.month, date.day);
       final endDate = startDate.add(const Duration(days: 1));
 
-      final url = '$_baseUrl/bookings?startDate=${startDate.toIso8601String()}&endDate=${endDate.toIso8601String()}';
+      final url = '$_baseUrl/booking.json/booking-search';
       print('🌐 Pickup API URL: $url');
 
-      final response = await http.get(
+      final requestBody = {
+        'startDateRange': {
+          'from': startDate.toUtc().toIso8601String(),
+          'to': endDate.toUtc().toIso8601String(),
+        }
+      };
+
+      final bodyJson = json.encode(requestBody);
+      print('📤 Pickup Request Body: $bodyJson');
+
+      final response = await http.post(
         Uri.parse(url),
-        headers: {
-          'X-Bokun-AccessKey': _accessKey,
-          'X-Bokun-SecretKey': _secretKey,
-          'Content-Type': 'application/json',
-        },
+        headers: _getHeaders(bodyJson),
+        body: bodyJson,
       );
 
       print('📡 Pickup API Response Status: ${response.statusCode}');

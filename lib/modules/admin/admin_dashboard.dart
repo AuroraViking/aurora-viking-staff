@@ -540,42 +540,54 @@ class _AdminDashboardState extends State<AdminDashboard> {
         context: context,
         builder: (context) => AlertDialog(
           title: Text(result['success'] ? '✅ API Test Successful' : '❌ API Test Failed'),
-          content: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text('Status: ${result['success'] ? 'SUCCESS' : 'FAILED'}'),
-                if (result['statusCode'] != null) Text('Status Code: ${result['statusCode']}'),
-                if (result['bookingsCount'] != null) Text('Bookings Found: ${result['bookingsCount']}'),
-                if (result['responsePreview'] != null) ...[
-                  const SizedBox(height: 8),
-                  const Text('Response Preview:', style: TextStyle(fontWeight: FontWeight.bold)),
-                  Text(result['responsePreview']),
-                ],
-                if (result['error'] != null) ...[
-                  const SizedBox(height: 8),
-                  const Text('Error:', style: TextStyle(fontWeight: FontWeight.bold)),
-                  Text(result['error']),
-                ],
-                if (result['responseBody'] != null) ...[
-                  const SizedBox(height: 8),
-                  const Text('Response Body:', style: TextStyle(fontWeight: FontWeight.bold)),
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.grey[100],
-                      borderRadius: BorderRadius.circular(4),
+          content: SizedBox(
+            width: double.maxFinite,
+            height: 400, // Fixed height
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('Status: ${result['success'] ? 'SUCCESS' : 'FAILED'}'),
+                  if (result['statusCode'] != null) Text('Status Code: ${result['statusCode']}'),
+                  if (result['workingEndpoint'] != null) Text('Working Endpoint: ${result['workingEndpoint']}'),
+                  if (result['authMethod'] != null) Text('Auth Method: ${result['authMethod']}'),
+                  if (result['bookingsCount'] != null) Text('Bookings Found: ${result['bookingsCount']}'),
+                  if (result['responsePreview'] != null) ...[
+                    const SizedBox(height: 8),
+                    const Text('Response Preview:', style: TextStyle(fontWeight: FontWeight.bold)),
+                    Text(result['responsePreview']),
+                  ],
+                  if (result['error'] != null) ...[
+                    const SizedBox(height: 8),
+                    const Text('Error:', style: TextStyle(fontWeight: FontWeight.bold)),
+                    Text(result['error']),
+                  ],
+                  if (result['responseBody'] != null) ...[
+                    const SizedBox(height: 8),
+                    const Text('Response Body:', style: TextStyle(fontWeight: FontWeight.bold)),
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.grey[100],
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        result['responseBody'],
+                        style: const TextStyle(fontSize: 10, fontFamily: 'monospace'),
+                      ),
                     ),
-                    child: Text(
-                      result['responseBody'],
-                      style: const TextStyle(fontSize: 10, fontFamily: 'monospace'),
-                    ),
-                  ),
+                  ],
+                  if (result['accessKey'] != null) Text('Access Key: ${result['accessKey']}'),
+                  if (result['secretKey'] != null) Text('Secret Key: ${result['secretKey']}'),
+                  if (result['octoToken'] != null) Text('OCTO Token: ${result['octoToken']}'),
+                  if (result['testedEndpoints'] != null) ...[
+                    const SizedBox(height: 8),
+                    const Text('Tested Endpoints:', style: TextStyle(fontWeight: FontWeight.bold)),
+                    ...(result['testedEndpoints'] as List<String>).map((endpoint) => Text('• $endpoint')),
+                  ],
                 ],
-                if (result['accessKey'] != null) Text('Access Key: ${result['accessKey']}'),
-                if (result['secretKey'] != null) Text('Secret Key: ${result['secretKey']}'),
-              ],
+              ),
             ),
           ),
           actions: [

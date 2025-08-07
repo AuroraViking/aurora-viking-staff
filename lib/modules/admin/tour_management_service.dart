@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:math';
+import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../../core/models/tour_models.dart';
@@ -6,7 +8,7 @@ import '../../core/models/pickup_models.dart';
 import '../../core/models/user_model.dart';
 
 class TourManagementService {
-  static const String _baseUrl = 'https://api.bokun.io/api';
+  static const String _baseUrl = 'https://api.bokun.io';
   
   // Get Bokun API credentials from environment
   String get _accessKey => dotenv.env['BOKUN_ACCESS_KEY'] ?? '';
@@ -17,6 +19,35 @@ class TourManagementService {
   // Check if API credentials are available
   bool get _hasApiCredentials => _accessKey.isNotEmpty && _secretKey.isNotEmpty;
   bool get _hasOctoToken => _octoToken.isNotEmpty;
+
+  // Generate HMAC signature for Bokun API
+  String _generateSignature(String date, String body) {
+    final key = utf8.encode(_secretKey);
+    final message = utf8.encode('$date$body');
+    final hmac = Hmac(sha256, key);
+    final digest = hmac.convert(message);
+    return digest.toString();
+  }
+
+  // Get current date in Bokun format
+  String _getBokunDate() {
+    final now = DateTime.now();
+    return '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}';
+  }
+
+  // Get proper headers for Bokun API
+  Map<String, String> _getHeaders(String body) {
+    final date = _getBokunDate();
+    final signature = _generateSignature(date, body);
+    
+    return {
+      'Content-Type': 'application/json',
+      'access-key': _accessKey,
+      'secret-key': _secretKey,
+      'X-Bokun-Date': date,
+      'X-Bokun-Signature': signature,
+    };
+  }
 
   // Fetch tour data for a specific month
   Future<Map<DateTime, TourDate>> fetchTourDataForMonth(DateTime month) async {
@@ -34,16 +65,23 @@ class TourManagementService {
       final startDate = DateTime(month.year, month.month, 1);
       final endDate = DateTime(month.year, month.month + 1, 0);
 
-      final url = '$_baseUrl/bookings?startDate=${startDate.toIso8601String()}&endDate=${endDate.toIso8601String()}';
+      final url = '$_baseUrl/booking.json/booking-search';
       print('🌐 API URL: $url');
 
-      final response = await http.get(
+      final requestBody = {
+        'startDateRange': {
+          'from': startDate.toUtc().toIso8601String(),
+          'to': endDate.toUtc().toIso8601String(),
+        }
+      };
+
+      final bodyJson = json.encode(requestBody);
+      print('📤 Request Body: $bodyJson');
+
+      final response = await http.post(
         Uri.parse(url),
-        headers: {
-          'X-Bokun-AccessKey': _accessKey,
-          'X-Bokun-SecretKey': _secretKey,
-          'Content-Type': 'application/json',
-        },
+        headers: _getHeaders(bodyJson),
+        body: bodyJson,
       );
 
       print('📡 API Response Status: ${response.statusCode}');
@@ -233,140 +271,59 @@ class TourManagementService {
 
       print('🧪 Testing Bokun API connection...');
       
-      // Test multiple possible endpoints
-      final endpoints = [
-        'https://api.bokun.io/api/bookings',
-        'https://api.bokun.io/rest/v2/bookings',
-        'https://api.bokun.io/v2/bookings',
-        'https://api.bokun.io/rest/bookings',
-        'https://api.bokun.io/bookings',
-        'https://api.bokun.io/api/v2/bookings',
-        'https://api.bokun.io/api/rest/bookings',
-        'https://extranet.bokun.io/api/bookings',
-        'https://extranet.bokun.io/rest/v2/bookings',
-      ];
+      final testDate = DateTime.now();
+      final startDate = DateTime(testDate.year, testDate.month, testDate.day);
+      final endDate = startDate.add(const Duration(days: 1));
 
-      for (final endpoint in endpoints) {
-        print('🔍 Testing endpoint: $endpoint');
-        
-        final testDate = DateTime.now();
-        final startDate = DateTime(testDate.year, testDate.month, testDate.day);
-        final endDate = startDate.add(const Duration(days: 1));
+      final url = '$_baseUrl/booking.json/booking-search';
+      print('🌐 Test API URL: $url');
 
-        final url = '$endpoint?startDate=${startDate.toIso8601String()}&endDate=${endDate.toIso8601String()}';
-        print('🌐 Test API URL: $url');
-
-        try {
-          final response = await http.get(
-            Uri.parse(url),
-            headers: {
-              'X-Bokun-AccessKey': _accessKey,
-              'X-Bokun-SecretKey': _secretKey,
-              'Content-Type': 'application/json',
-            },
-          );
-
-          print('📡 Test API Response Status: ${response.statusCode}');
-
-          if (response.statusCode == 200) {
-            // Check if response is JSON or HTML
-            final responseText = response.body.trim();
-            if (responseText.startsWith('<!DOCTYPE') || responseText.startsWith('<html')) {
-              print('❌ Endpoint returned HTML: $endpoint');
-              
-              // Try with different authentication headers
-              print('🔑 Trying alternative authentication headers...');
-              final altResponse = await http.get(
-                Uri.parse(url),
-                headers: {
-                  'Authorization': 'Bearer $_accessKey',
-                  'Content-Type': 'application/json',
-                },
-              );
-              
-              if (altResponse.statusCode == 200) {
-                final altResponseText = altResponse.body.trim();
-                if (!altResponseText.startsWith('<!DOCTYPE') && !altResponseText.startsWith('<html')) {
-                  try {
-                    final data = json.decode(altResponse.body);
-                    print('✅ Found working endpoint with Bearer auth: $endpoint');
-                    return {
-                      'success': true,
-                      'statusCode': altResponse.statusCode,
-                      'workingEndpoint': endpoint,
-                      'authMethod': 'Bearer Token',
-                      'bookingsCount': (data['bookings'] as List<dynamic>?)?.length ?? 0,
-                      'responsePreview': data.toString().substring(0, data.toString().length > 200 ? 200 : data.toString().length),
-                    };
-                  } catch (e) {
-                    print('❌ Failed to parse JSON with Bearer auth from: $endpoint');
-                  }
-                }
-              }
-              
-              // Try with OCTO token if available
-              if (_hasOctoToken) {
-                print('🔑 Trying OCTO token authentication...');
-                final octoResponse = await http.get(
-                  Uri.parse(url),
-                  headers: {
-                    'Authorization': 'Bearer $_octoToken',
-                    'Content-Type': 'application/json',
-                  },
-                );
-                
-                if (octoResponse.statusCode == 200) {
-                  final octoResponseText = octoResponse.body.trim();
-                  if (!octoResponseText.startsWith('<!DOCTYPE') && !octoResponseText.startsWith('<html')) {
-                    try {
-                      final data = json.decode(octoResponse.body);
-                      print('✅ Found working endpoint with OCTO token: $endpoint');
-                      return {
-                        'success': true,
-                        'statusCode': octoResponse.statusCode,
-                        'workingEndpoint': endpoint,
-                        'authMethod': 'OCTO Token',
-                        'bookingsCount': (data['bookings'] as List<dynamic>?)?.length ?? 0,
-                        'responsePreview': data.toString().substring(0, data.toString().length > 200 ? 200 : data.toString().length),
-                      };
-                    } catch (e) {
-                      print('❌ Failed to parse JSON with OCTO token from: $endpoint');
-                    }
-                  }
-                }
-              }
-              
-              continue; // Try next endpoint
-            }
-            
-            try {
-              final data = json.decode(response.body);
-              print('✅ Found working endpoint: $endpoint');
-              return {
-                'success': true,
-                'statusCode': response.statusCode,
-                'workingEndpoint': endpoint,
-                'bookingsCount': (data['bookings'] as List<dynamic>?)?.length ?? 0,
-                'responsePreview': data.toString().substring(0, data.toString().length > 200 ? 200 : data.toString().length),
-              };
-            } catch (e) {
-              print('❌ Failed to parse JSON from: $endpoint');
-              continue; // Try next endpoint
-            }
-          } else {
-            print('❌ Endpoint failed with status ${response.statusCode}: $endpoint');
-          }
-        } catch (e) {
-          print('❌ Error testing endpoint $endpoint: $e');
+      final requestBody = {
+        'startDateRange': {
+          'from': startDate.toUtc().toIso8601String(),
+          'to': endDate.toUtc().toIso8601String(),
         }
-      }
-
-      // If we get here, no endpoints worked
-      return {
-        'success': false,
-        'error': 'All tested endpoints failed. Check API documentation for correct endpoint.',
-        'testedEndpoints': endpoints,
       };
+
+      final bodyJson = json.encode(requestBody);
+      print('📤 Test Request Body: $bodyJson');
+
+      final response = await http.post(
+        Uri.parse(url),
+        headers: _getHeaders(bodyJson),
+        body: bodyJson,
+      );
+
+      print('📡 Test API Response Status: ${response.statusCode}');
+      print('📄 Test Response Headers: ${response.headers}');
+
+      if (response.statusCode == 200) {
+        try {
+          final data = json.decode(response.body);
+          print('✅ API call successful!');
+          return {
+            'success': true,
+            'statusCode': response.statusCode,
+            'workingEndpoint': url,
+            'authMethod': 'HMAC Signature',
+            'bookingsCount': (data['bookings'] as List<dynamic>?)?.length ?? 0,
+            'responsePreview': data.toString().substring(0, data.toString().length > 200 ? 200 : data.toString().length),
+          };
+        } catch (e) {
+          return {
+            'success': false,
+            'statusCode': response.statusCode,
+            'error': 'Failed to parse JSON response: $e',
+            'responseBody': response.body,
+          };
+        }
+      } else {
+        return {
+          'success': false,
+          'statusCode': response.statusCode,
+          'error': response.body,
+        };
+      }
     } catch (e) {
       return {
         'success': false,
