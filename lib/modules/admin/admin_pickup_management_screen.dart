@@ -6,6 +6,7 @@ import '../../core/theme/colors.dart';
 import '../../widgets/common/loading_widget.dart';
 import '../../widgets/common/error_widget.dart';
 import '../pickup/pickup_controller.dart';
+import 'admin_service.dart';
 
 class AdminPickupManagementScreen extends StatefulWidget {
   const AdminPickupManagementScreen({Key? key}) : super(key: key);
@@ -15,13 +16,43 @@ class AdminPickupManagementScreen extends StatefulWidget {
 }
 
 class _AdminPickupManagementScreenState extends State<AdminPickupManagementScreen> {
+  List<AdminGuide> _guides = [];
+  bool _isLoadingGuides = false;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final controller = context.read<PickupController>();
       controller.loadBookingsForDate(controller.selectedDate);
+      _loadGuides();
     });
+  }
+
+  Future<void> _loadGuides() async {
+    setState(() {
+      _isLoadingGuides = true;
+    });
+
+    try {
+      final guides = await AdminService.getGuides();
+      setState(() {
+        _guides = guides;
+        _isLoadingGuides = false;
+      });
+    } catch (e) {
+      setState(() {
+        _isLoadingGuides = false;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to load guides: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   @override
@@ -274,14 +305,27 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
   }
 
   List<PopupMenuEntry<String>> _buildGuideMenuItems(PickupController controller) {
-    // Mock guides - in real app, get from user service
-    final guides = [
-      User(id: '1', fullName: 'John Guide', email: 'john@auroraviking.com', phoneNumber: '+354 123 4567', role: 'staff', createdAt: DateTime.now()),
-      User(id: '2', fullName: 'Sarah Guide', email: 'sarah@auroraviking.com', phoneNumber: '+354 234 5678', role: 'staff', createdAt: DateTime.now()),
-      User(id: '3', fullName: 'Mike Guide', email: 'mike@auroraviking.com', phoneNumber: '+354 345 6789', role: 'staff', createdAt: DateTime.now()),
-    ];
+    if (_isLoadingGuides) {
+      return [
+        const PopupMenuItem(
+          value: '',
+          enabled: false,
+          child: Text('Loading guides...'),
+        ),
+      ];
+    }
 
-    return guides.map((guide) {
+    if (_guides.isEmpty) {
+      return [
+        const PopupMenuItem(
+          value: '',
+          enabled: false,
+          child: Text('No guides available'),
+        ),
+      ];
+    }
+
+    return _guides.map((guide) {
       final guideList = controller.getGuideList(guide.id);
       final currentPassengers = guideList?.totalPassengers ?? 0;
       final canAdd = controller.validatePassengerCount(guide.id, 1); // Assuming 1 passenger for menu check
@@ -291,7 +335,7 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
         enabled: canAdd,
         child: Row(
           children: [
-            Expanded(child: Text(guide.fullName)),
+            Expanded(child: Text(guide.name)),
             Text('$currentPassengers/19'),
             if (!canAdd) const Icon(Icons.warning, color: AppColors.error, size: 16),
           ],
@@ -428,12 +472,29 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
   void _autoDistribute() async {
     final controller = context.read<PickupController>();
     
-    // Mock guides - in real app, get from user service
-    final guides = [
-      User(id: '1', fullName: 'John Guide', email: 'john@auroraviking.com', phoneNumber: '+354 123 4567', role: 'staff', createdAt: DateTime.now()),
-      User(id: '2', fullName: 'Sarah Guide', email: 'sarah@auroraviking.com', phoneNumber: '+354 234 5678', role: 'staff', createdAt: DateTime.now()),
-      User(id: '3', fullName: 'Mike Guide', email: 'mike@auroraviking.com', phoneNumber: '+354 345 6789', role: 'staff', createdAt: DateTime.now()),
-    ];
+    if (_guides.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No guides available for distribution'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+
+    // Convert AdminGuide to User for the controller
+    final guides = _guides.map((adminGuide) => User(
+      id: adminGuide.id,
+      fullName: adminGuide.name,
+      email: adminGuide.email,
+      phoneNumber: adminGuide.phone,
+      role: 'guide',
+      profilePictureUrl: adminGuide.profileImageUrl,
+      createdAt: adminGuide.joinDate,
+      isActive: adminGuide.status == 'active',
+    )).toList();
 
     await controller.distributeBookings(guides);
     
@@ -448,15 +509,27 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
   }
 
   void _assignBookingToGuide(PickupBooking booking, String guideId, PickupController controller) async {
-    // Mock guide name - in real app, get from user service
-    final guideName = 'Guide $guideId';
+    // Find the guide name from loaded guides
+    final guide = _guides.firstWhere((g) => g.id == guideId, orElse: () => AdminGuide(
+      id: guideId,
+      name: 'Unknown Guide',
+      email: '',
+      phone: '',
+      profileImageUrl: '',
+      status: 'inactive',
+      joinDate: DateTime.now(),
+      totalShifts: 0,
+      rating: 0.0,
+      certifications: [],
+      preferences: {},
+    ));
     
-    final success = await controller.assignBookingToGuide(booking.id, guideId, guideName);
+    final success = await controller.assignBookingToGuide(booking.id, guideId, guide.name);
     
     if (success && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('${booking.customerFullName} assigned to $guideName'),
+          content: Text('${booking.customerFullName} assigned to ${guide.name}'),
           backgroundColor: AppColors.success,
         ),
       );
@@ -475,12 +548,17 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
   }
 
   void _showMoveBookingDialog(PickupBooking booking, GuidePickupList currentGuideList, PickupController controller) {
-    // Mock guides - in real app, get from user service
-    final guides = [
-      User(id: '1', fullName: 'John Guide', email: 'john@auroraviking.com', phoneNumber: '+354 123 4567', role: 'staff', createdAt: DateTime.now()),
-      User(id: '2', fullName: 'Sarah Guide', email: 'sarah@auroraviking.com', phoneNumber: '+354 234 5678', role: 'staff', createdAt: DateTime.now()),
-      User(id: '3', fullName: 'Mike Guide', email: 'mike@auroraviking.com', phoneNumber: '+354 345 6789', role: 'staff', createdAt: DateTime.now()),
-    ];
+    if (_guides.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No guides available'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
 
     showDialog(
       context: context,
@@ -488,7 +566,7 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
         title: const Text('Move Booking'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
-          children: guides
+          children: _guides
               .where((guide) => guide.id != currentGuideList.guideId)
               .map((guide) {
             final guideList = controller.getGuideList(guide.id);
@@ -496,12 +574,12 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
             final canAdd = controller.validatePassengerCount(guide.id, booking.numberOfGuests);
             
             return ListTile(
-              title: Text(guide.fullName),
+              title: Text(guide.name),
               subtitle: Text('$currentPassengers/19 passengers'),
               trailing: canAdd ? null : const Icon(Icons.warning, color: AppColors.error),
               onTap: canAdd ? () {
                 Navigator.of(context).pop();
-                _moveBooking(booking, currentGuideList.guideId, guide.id, guide.fullName, controller);
+                _moveBooking(booking, currentGuideList.guideId, guide.id, guide.name, controller);
               } : null,
             );
           }).toList(),
