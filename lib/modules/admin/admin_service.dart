@@ -2,11 +2,17 @@
 
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../core/models/admin_models.dart';
+import '../../core/models/user_model.dart';
+import '../../core/models/pickup_models.dart';
+import '../../core/models/shift_model.dart';
 import '../../core/utils/constants.dart';
+import '../../core/services/firebase_service.dart';
 
 class AdminService {
   static const String baseUrl = AppConstants.apiBaseUrl;
+  static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   
   // Headers for API requests
   static Map<String, String> get _headers => {
@@ -17,55 +23,67 @@ class AdminService {
 
   // ==================== STATISTICS & DASHBOARD ====================
   
-  /// Get admin dashboard statistics
+  /// Get admin dashboard statistics from Firebase
   static Future<AdminStats> getDashboardStats() async {
     try {
-      // TODO: Replace with actual API call
-      // final response = await http.get(
-      //   Uri.parse('$baseUrl/admin/stats'),
-      //   headers: _headers,
-      // );
+      // Get real data from Firebase
+      final usersSnapshot = await _firestore.collection('users').get();
+      final shiftsSnapshot = await _firestore.collection('shifts').get();
+      final pickupAssignmentsSnapshot = await _firestore.collection('pickup_assignments').get();
       
-      // if (response.statusCode == 200) {
-      //   return AdminStats.fromJson(json.decode(response.body));
-      // } else {
-      //   throw Exception('Failed to load dashboard stats');
-      // }
+      // Calculate statistics
+      final allUsers = usersSnapshot.docs.map((doc) => User.fromJson(doc.data())).toList();
+      final guides = allUsers.where((user) => user.role == 'guide').toList();
+      final activeGuides = guides.where((guide) => guide.isActive).length;
       
-      // Mock data for now
-      await Future.delayed(const Duration(milliseconds: 500));
+      final allShifts = shiftsSnapshot.docs.map((doc) => Shift.fromJson(doc.data())).toList();
+      final pendingShifts = allShifts.where((shift) => shift.status == 'pending').length;
+      
+      // Get today's date
+      final today = DateTime.now();
+      final todayString = '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+      
+      // Get today's pickup assignments
+      final todayPickups = pickupAssignmentsSnapshot.docs
+          .where((doc) => doc.data()['date'] == todayString)
+          .length;
+      
+      // Calculate alerts (simplified for now)
+      final alerts = 0; // TODO: Implement real alert system
+      
+      // Calculate average rating
+      final totalRating = guides.fold<double>(0.0, (sum, guide) => sum + 4.5); // Placeholder
+      final averageRating = guides.isNotEmpty ? totalRating / guides.length : 0.0;
+      
+      // Calculate shifts by type
+      final shiftsByType = <String, int>{};
+      for (final shift in allShifts) {
+        shiftsByType[shift.type.name] = (shiftsByType[shift.type.name] ?? 0) + 1;
+      }
+      
+      // Calculate shifts by status
+      final shiftsByStatus = <String, int>{};
+      for (final shift in allShifts) {
+        shiftsByStatus[shift.status.name] = (shiftsByStatus[shift.status.name] ?? 0) + 1;
+      }
+      
       return AdminStats(
-        totalGuides: 15,
-        activeGuides: 12,
-        pendingShifts: 8,
-        todayTours: 5,
-        alerts: 2,
-        averageRating: 0.0,
-        shiftsByType: {
-          'day_tour': 45,
-          'northern_lights': 32,
-        },
-        shiftsByStatus: {
-          'pending': 8,
-          'approved': 15,
-          'completed': 54,
-        },
+        totalGuides: guides.length,
+        activeGuides: activeGuides,
+        pendingShifts: pendingShifts,
+        todayTours: todayPickups,
+        alerts: alerts,
+        averageRating: averageRating,
+        shiftsByType: shiftsByType,
+        shiftsByStatus: shiftsByStatus,
         monthlyStats: [
           MonthlyStats(
-            month: 'January',
-            totalShifts: 45,
-            dayTours: 28,
-            northernLights: 17,
-            averageRating: 0.0,
-            totalGuides: 12,
-          ),
-          MonthlyStats(
-            month: 'February',
-            totalShifts: 52,
-            dayTours: 31,
-            northernLights: 21,
-            averageRating: 0.0,
-            totalGuides: 14,
+            month: 'Current Month',
+            totalShifts: allShifts.length,
+            dayTours: shiftsByType['dayTour'] ?? 0,
+            northernLights: shiftsByType['northernLights'] ?? 0,
+            averageRating: averageRating,
+            totalGuides: guides.length,
           ),
         ],
       );
@@ -76,7 +94,7 @@ class AdminService {
 
   // ==================== GUIDE MANAGEMENT ====================
   
-  /// Get all guides with pagination and filters
+  /// Get all guides from Firebase with pagination and filters
   static Future<List<AdminGuide>> getGuides({
     int page = 1,
     int limit = 20,
@@ -84,113 +102,86 @@ class AdminService {
     String? search,
   }) async {
     try {
-      // TODO: Replace with actual API call
-      // final queryParams = {
-      //   'page': page.toString(),
-      //   'limit': limit.toString(),
-      //   if (status != null) 'status': status,
-      //   if (search != null) 'search': search,
-      // };
-      // 
-      // final response = await http.get(
-      //   Uri.parse('$baseUrl/admin/guides').replace(queryParameters: queryParams),
-      //   headers: _headers,
-      // );
+      Query query = _firestore.collection('users').where('role', isEqualTo: 'guide');
       
-      // if (response.statusCode == 200) {
-      //   final List<dynamic> guidesJson = json.decode(response.body)['guides'];
-      //   return guidesJson.map((json) => AdminGuide.fromJson(json)).toList();
-      // } else {
-      //   throw Exception('Failed to load guides');
-      // }
+      // Apply status filter
+      if (status != null) {
+        query = query.where('isActive', isEqualTo: status == 'active');
+      }
       
-      // Mock data for now
-      await Future.delayed(const Duration(milliseconds: 300));
-      return [
-        AdminGuide(
-          id: '1',
-          name: 'John Smith',
-          email: 'john.smith@auroraviking.com',
-          phone: '+1 (555) 123-4567',
-          profileImageUrl: 'https://example.com/john.jpg',
-          status: 'active',
-          joinDate: DateTime(2023, 1, 15),
-          totalShifts: 45,
-          rating: 0.0,
-          certifications: ['First Aid', 'Tour Guide License'],
-          preferences: {'preferred_shift': 'day_tour'},
-          lastActive: DateTime.now().subtract(const Duration(hours: 2)),
-        ),
-        AdminGuide(
-          id: '2',
-          name: 'Sarah Johnson',
-          email: 'sarah.johnson@auroraviking.com',
-          phone: '+1 (555) 234-5678',
-          profileImageUrl: 'https://example.com/sarah.jpg',
-          status: 'active',
-          joinDate: DateTime(2023, 3, 10),
-          totalShifts: 38,
-          rating: 0.0,
-          certifications: ['First Aid', 'Tour Guide License', 'Wilderness Safety'],
-          preferences: {'preferred_shift': 'northern_lights'},
-          lastActive: DateTime.now().subtract(const Duration(minutes: 30)),
-        ),
-      ];
+      // Apply search filter
+      if (search != null && search.isNotEmpty) {
+        query = query.where('fullName', isGreaterThanOrEqualTo: search)
+                    .where('fullName', isLessThan: search + '\uf8ff');
+      }
+      
+      // Apply pagination
+      query = query.limit(limit);
+      
+      final snapshot = await query.get();
+      
+      return snapshot.docs.map((doc) {
+        final userData = doc.data() as Map<String, dynamic>;
+        final user = User.fromJson(userData);
+        
+        return AdminGuide(
+          id: user.id,
+          name: user.fullName,
+          email: user.email,
+          phone: user.phoneNumber,
+          profileImageUrl: user.profilePictureUrl,
+          status: user.isActive ? 'active' : 'inactive',
+          joinDate: user.createdAt,
+          totalShifts: 0, // TODO: Calculate from shifts collection
+          rating: 4.5, // TODO: Calculate from ratings
+          certifications: [], // TODO: Add certifications field to User model
+          preferences: {}, // TODO: Add preferences field to User model
+          lastActive: user.createdAt, // TODO: Add lastActive field to User model
+        );
+      }).toList();
     } catch (e) {
       throw Exception('Failed to load guides: $e');
     }
   }
 
-  /// Get a specific guide by ID
+  /// Get a specific guide by ID from Firebase
   static Future<AdminGuide> getGuideById(String guideId) async {
     try {
-      // TODO: Replace with actual API call
-      // final response = await http.get(
-      //   Uri.parse('$baseUrl/admin/guides/$guideId'),
-      //   headers: _headers,
-      // );
+      final doc = await _firestore.collection('users').doc(guideId).get();
       
-      // if (response.statusCode == 200) {
-      //   return AdminGuide.fromJson(json.decode(response.body));
-      // } else {
-      //   throw Exception('Failed to load guide');
-      // }
+      if (!doc.exists) {
+        throw Exception('Guide not found');
+      }
       
-      // Mock data for now
-      await Future.delayed(const Duration(milliseconds: 200));
+      final userData = doc.data() as Map<String, dynamic>;
+      final user = User.fromJson(userData);
+      
       return AdminGuide(
-        id: guideId,
-        name: 'John Smith',
-        email: 'john.smith@auroraviking.com',
-        phone: '+1 (555) 123-4567',
-        profileImageUrl: 'https://example.com/john.jpg',
-        status: 'active',
-        joinDate: DateTime(2023, 1, 15),
-        totalShifts: 45,
-        rating: 0.0,
-        certifications: ['First Aid', 'Tour Guide License'],
-        preferences: {'preferred_shift': 'day_tour'},
-        lastActive: DateTime.now().subtract(const Duration(hours: 2)),
+        id: user.id,
+        name: user.fullName,
+        email: user.email,
+        phone: user.phoneNumber,
+        profileImageUrl: user.profilePictureUrl,
+        status: user.isActive ? 'active' : 'inactive',
+        joinDate: user.createdAt,
+        totalShifts: 0, // TODO: Calculate from shifts collection
+        rating: 4.5, // TODO: Calculate from ratings
+        certifications: [], // TODO: Add certifications field to User model
+        preferences: {}, // TODO: Add preferences field to User model
+        lastActive: user.createdAt, // TODO: Add lastActive field to User model
       );
     } catch (e) {
       throw Exception('Failed to load guide: $e');
     }
   }
 
-  /// Update guide status
+  /// Update guide status in Firebase
   static Future<bool> updateGuideStatus(String guideId, String status) async {
     try {
-      // TODO: Replace with actual API call
-      // final response = await http.patch(
-      //   Uri.parse('$baseUrl/admin/guides/$guideId/status'),
-      //   headers: _headers,
-      //   body: json.encode({'status': status}),
-      // );
-      
-      // return response.statusCode == 200;
-      
-      // Mock success for now
-      await Future.delayed(const Duration(milliseconds: 300));
+      await _firestore.collection('users').doc(guideId).update({
+        'isActive': status == 'active',
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
       return true;
     } catch (e) {
       throw Exception('Failed to update guide status: $e');
@@ -199,7 +190,7 @@ class AdminService {
 
   // ==================== SHIFT MANAGEMENT ====================
   
-  /// Get all shifts with filters
+  /// Get all shifts from Firebase with filters
   static Future<List<AdminShift>> getShifts({
     String? status,
     String? type,
@@ -208,91 +199,105 @@ class AdminService {
     String? guideId,
   }) async {
     try {
-      // TODO: Replace with actual API call
-      // final queryParams = {
-      //   if (status != null) 'status': status,
-      //   if (type != null) 'type': type,
-      //   if (startDate != null) 'startDate': startDate.toIso8601String(),
-      //   if (endDate != null) 'endDate': endDate.toIso8601String(),
-      //   if (guideId != null) 'guideId': guideId,
-      // };
-      // 
-      // final response = await http.get(
-      //   Uri.parse('$baseUrl/admin/shifts').replace(queryParameters: queryParams),
-      //   headers: _headers,
-      // );
+      Query query = _firestore.collection('shifts');
       
-      // if (response.statusCode == 200) {
-      //   final List<dynamic> shiftsJson = json.decode(response.body)['shifts'];
-      //   return shiftsJson.map((json) => AdminShift.fromJson(json)).toList();
-      // } else {
-      //   throw Exception('Failed to load shifts');
-      // }
+      // Apply filters
+      if (status != null) {
+        query = query.where('status', isEqualTo: status);
+      }
+      if (type != null) {
+        query = query.where('type', isEqualTo: type);
+      }
+      if (guideId != null) {
+        query = query.where('guideId', isEqualTo: guideId);
+      }
+      if (startDate != null) {
+        query = query.where('date', isGreaterThanOrEqualTo: startDate);
+      }
+      if (endDate != null) {
+        query = query.where('date', isLessThanOrEqualTo: endDate);
+      }
       
-      // Mock data for now
-      await Future.delayed(const Duration(milliseconds: 400));
-      return [
-        AdminShift(
-          id: '1',
-          guideId: '1',
-          guideName: 'John Smith',
-          type: 'day_tour',
-          date: DateTime.now().add(const Duration(days: 2)),
-          status: 'pending',
-          appliedAt: DateTime.now().subtract(const Duration(hours: 3)),
-        ),
-        AdminShift(
-          id: '2',
-          guideId: '2',
-          guideName: 'Sarah Johnson',
-          type: 'northern_lights',
-          date: DateTime.now().add(const Duration(days: 1)),
-          status: 'pending',
-          appliedAt: DateTime.now().subtract(const Duration(hours: 1)),
-        ),
-      ];
+      final snapshot = await query.get();
+      
+      return snapshot.docs.map((doc) {
+        final shiftData = doc.data() as Map<String, dynamic>;
+        final shift = Shift.fromJson(shiftData);
+        
+        // Get guide name from users collection
+        String guideName = 'Unknown Guide';
+        if (shift.guideId != null) {
+          // TODO: Get guide name from users collection
+          guideName = 'Guide ${shift.guideId}';
+        }
+        
+        return AdminShift(
+          id: shift.id,
+          guideId: shift.guideId ?? '',
+          guideName: guideName,
+          type: shift.type.name,
+          date: shift.date,
+          status: shift.status.name,
+          appliedAt: shift.createdAt ?? DateTime.now(),
+        );
+      }).toList();
     } catch (e) {
       throw Exception('Failed to load shifts: $e');
     }
   }
 
-  /// Approve a shift application
+  /// Approve a shift application in Firebase
   static Future<bool> approveShift(String shiftId, {String? notes}) async {
     try {
-      // TODO: Replace with actual API call
-      // final response = await http.post(
-      //   Uri.parse('$baseUrl/admin/shifts/$shiftId/approve'),
-      //   headers: _headers,
-      //   body: json.encode({'notes': notes}),
-      // );
-      
-      // return response.statusCode == 200;
-      
-      // Mock success for now
-      await Future.delayed(const Duration(milliseconds: 500));
+      await _firestore.collection('shifts').doc(shiftId).update({
+        'status': 'approved',
+        'approvedAt': FieldValue.serverTimestamp(),
+        'notes': notes,
+      });
       return true;
     } catch (e) {
       throw Exception('Failed to approve shift: $e');
     }
   }
 
-  /// Reject a shift application
+  /// Reject a shift application in Firebase
   static Future<bool> rejectShift(String shiftId, String reason) async {
     try {
-      // TODO: Replace with actual API call
-      // final response = await http.post(
-      //   Uri.parse('$baseUrl/admin/shifts/$shiftId/reject'),
-      //   headers: _headers,
-      //   body: json.encode({'reason': reason}),
-      // );
-      
-      // return response.statusCode == 200;
-      
-      // Mock success for now
-      await Future.delayed(const Duration(milliseconds: 500));
+      await _firestore.collection('shifts').doc(shiftId).update({
+        'status': 'rejected',
+        'rejectedAt': FieldValue.serverTimestamp(),
+        'rejectionReason': reason,
+      });
       return true;
     } catch (e) {
       throw Exception('Failed to reject shift: $e');
+    }
+  }
+
+  // ==================== PICKUP MANAGEMENT ====================
+  
+  /// Get pickup assignments for a specific date
+  static Future<List<GuidePickupList>> getPickupAssignments(String date) async {
+    try {
+      return await FirebaseService.getPickupAssignments(date);
+    } catch (e) {
+      throw Exception('Failed to load pickup assignments: $e');
+    }
+  }
+  
+  /// Save pickup assignments to Firebase
+  static Future<bool> savePickupAssignments({
+    required String date,
+    required List<GuidePickupList> guideLists,
+  }) async {
+    try {
+      await FirebaseService.savePickupAssignments(
+        date: date,
+        guideLists: guideLists,
+      );
+      return true;
+    } catch (e) {
+      throw Exception('Failed to save pickup assignments: $e');
     }
   }
 
@@ -301,20 +306,8 @@ class AdminService {
   /// Get live tracking data for all active guides
   static Future<List<LiveTrackingData>> getLiveTrackingData() async {
     try {
-      // TODO: Replace with actual API call
-      // final response = await http.get(
-      //   Uri.parse('$baseUrl/admin/tracking/live'),
-      //   headers: _headers,
-      // );
-      
-      // if (response.statusCode == 200) {
-      //   final List<dynamic> trackingJson = json.decode(response.body)['tracking'];
-      //   return trackingJson.map((json) => LiveTrackingData.fromJson(json)).toList();
-      // } else {
-      //   throw Exception('Failed to load tracking data');
-      // }
-      
-      // Mock data for now
+      // TODO: Implement real tracking data from location service
+      // For now, return mock data
       await Future.delayed(const Duration(milliseconds: 200));
       return [
         LiveTrackingData(
@@ -356,24 +349,8 @@ class AdminService {
   /// Get all alerts
   static Future<List<AdminAlert>> getAlerts({bool? unreadOnly}) async {
     try {
-      // TODO: Replace with actual API call
-      // final queryParams = {
-      //   if (unreadOnly != null) 'unreadOnly': unreadOnly.toString(),
-      // };
-      // 
-      // final response = await http.get(
-      //   Uri.parse('$baseUrl/admin/alerts').replace(queryParameters: queryParams),
-      //   headers: _headers,
-      // );
-      
-      // if (response.statusCode == 200) {
-      //   final List<dynamic> alertsJson = json.decode(response.body)['alerts'];
-      //   return alertsJson.map((json) => AdminAlert.fromJson(json)).toList();
-      // } else {
-      //   throw Exception('Failed to load alerts');
-      // }
-      
-      // Mock data for now
+      // TODO: Implement real alert system
+      // For now, return mock data
       await Future.delayed(const Duration(milliseconds: 300));
       return [
         AdminAlert(
@@ -405,15 +382,7 @@ class AdminService {
   /// Mark alert as read
   static Future<bool> markAlertAsRead(String alertId) async {
     try {
-      // TODO: Replace with actual API call
-      // final response = await http.patch(
-      //   Uri.parse('$baseUrl/admin/alerts/$alertId/read'),
-      //   headers: _headers,
-      // );
-      
-      // return response.statusCode == 200;
-      
-      // Mock success for now
+      // TODO: Implement real alert system
       await Future.delayed(const Duration(milliseconds: 200));
       return true;
     } catch (e) {
@@ -423,83 +392,126 @@ class AdminService {
 
   // ==================== REPORTS & ANALYTICS ====================
   
-  /// Get monthly report
+  /// Get monthly report from Firebase data
   static Future<Map<String, dynamic>> getMonthlyReport(int year, int month) async {
     try {
-      // TODO: Replace with actual API call
-      // final response = await http.get(
-      //   Uri.parse('$baseUrl/admin/reports/monthly/$year/$month'),
-      //   headers: _headers,
-      // );
+      // Get shifts for the specified month
+      final startDate = DateTime(year, month, 1);
+      final endDate = DateTime(year, month + 1, 0);
       
-      // if (response.statusCode == 200) {
-      //   return json.decode(response.body);
-      // } else {
-      //   throw Exception('Failed to load monthly report');
-      // }
+      final shiftsSnapshot = await _firestore
+          .collection('shifts')
+          .where('date', isGreaterThanOrEqualTo: startDate)
+          .where('date', isLessThanOrEqualTo: endDate)
+          .get();
       
-      // Mock data for now
-      await Future.delayed(const Duration(milliseconds: 600));
+      final shifts = shiftsSnapshot.docs.map((doc) => Shift.fromJson(doc.data())).toList();
+      
+      // Get guides
+      final guidesSnapshot = await _firestore.collection('users').where('role', isEqualTo: 'guide').get();
+      final guides = guidesSnapshot.docs.map((doc) => User.fromJson(doc.data())).toList();
+      
+      // Calculate statistics
+      final totalShifts = shifts.length;
+      final dayTours = shifts.where((shift) => shift.type == ShiftType.dayTour).length;
+      final northernLights = shifts.where((shift) => shift.type == ShiftType.northernLights).length;
+      final totalGuides = guides.length;
+      
+      // Calculate top guides
+      final guideShifts = <String, int>{};
+      for (final shift in shifts) {
+        if (shift.guideId != null) {
+          guideShifts[shift.guideId!] = (guideShifts[shift.guideId!] ?? 0) + 1;
+        }
+      }
+      
+      final topGuides = guideShifts.entries
+          .take(5)
+          .map((entry) => {
+                'name': guides.firstWhere((g) => g.id == entry.key).fullName,
+                'shifts': entry.value,
+                'rating': 4.5, // TODO: Calculate real rating
+              })
+          .toList();
+      
       return {
         'month': '$year-$month',
-        'totalShifts': 45,
-        'dayTours': 28,
-        'northernLights': 17,
-        'totalGuides': 12,
-        'averageRating': 0.0,
-        'topGuides': [
-          {'name': 'John Smith', 'shifts': 8, 'rating': 0.0},
-          {'name': 'Sarah Johnson', 'shifts': 7, 'rating': 0.0},
-        ],
-        'revenue': 125000,
-        'expenses': 45000,
-        'profit': 80000,
+        'totalShifts': totalShifts,
+        'dayTours': dayTours,
+        'northernLights': northernLights,
+        'totalGuides': totalGuides,
+        'averageRating': 4.5, // TODO: Calculate real average
+        'topGuides': topGuides,
+        'revenue': 125000, // TODO: Calculate from bookings
+        'expenses': 45000, // TODO: Calculate from expenses
+        'profit': 80000, // TODO: Calculate profit
       };
     } catch (e) {
       throw Exception('Failed to load monthly report: $e');
     }
   }
 
-  /// Get guide performance report
+  /// Get guide performance report from Firebase
   static Future<Map<String, dynamic>> getGuidePerformanceReport(String guideId, {
     DateTime? startDate,
     DateTime? endDate,
   }) async {
     try {
-      // TODO: Replace with actual API call
-      // final queryParams = {
-      //   if (startDate != null) 'startDate': startDate.toIso8601String(),
-      //   if (endDate != null) 'endDate': endDate.toIso8601String(),
-      // };
-      // 
-      // final response = await http.get(
-      //   Uri.parse('$baseUrl/admin/reports/guides/$guideId/performance')
-      //       .replace(queryParameters: queryParams),
-      //   headers: _headers,
-      // );
+      Query query = _firestore.collection('shifts').where('guideId', isEqualTo: guideId);
       
-      // if (response.statusCode == 200) {
-      //   return json.decode(response.body);
-      // } else {
-      //   throw Exception('Failed to load guide performance report');
-      // }
+      if (startDate != null) {
+        query = query.where('date', isGreaterThanOrEqualTo: startDate);
+      }
+      if (endDate != null) {
+        query = query.where('date', isLessThanOrEqualTo: endDate);
+      }
       
-      // Mock data for now
-      await Future.delayed(const Duration(milliseconds: 400));
+      final shiftsSnapshot = await query.get();
+      final shifts = shiftsSnapshot.docs.map((doc) => Shift.fromJson(doc.data())).toList();
+      
+      // Get guide info
+      final guideDoc = await _firestore.collection('users').doc(guideId).get();
+      final guide = User.fromJson(guideDoc.data()!);
+      
+      // Calculate statistics
+      final totalShifts = shifts.length;
+      final dayTours = shifts.where((shift) => shift.type == ShiftType.dayTour).length;
+      final northernLights = shifts.where((shift) => shift.type == ShiftType.northernLights).length;
+      final totalHours = totalShifts * 8; // Assuming 8 hours per shift
+      
+      // Calculate monthly breakdown
+      final monthlyBreakdown = <Map<String, dynamic>>[];
+      final months = <String>{};
+      
+      for (final shift in shifts) {
+        final monthKey = '${shift.date.year}-${shift.date.month.toString().padLeft(2, '0')}';
+        months.add(monthKey);
+      }
+      
+      for (final month in months) {
+        final monthShifts = shifts.where((shift) {
+          final shiftMonth = '${shift.date.year}-${shift.date.month.toString().padLeft(2, '0')}';
+          return shiftMonth == month;
+        }).length;
+        
+        monthlyBreakdown.add({
+          'month': month,
+          'shifts': monthShifts,
+          'rating': 4.5, // TODO: Calculate real rating
+        });
+      }
+      
       return {
         'guideId': guideId,
-        'guideName': 'John Smith',
-        'totalShifts': 45,
-        'dayTours': 28,
-        'northernLights': 17,
-        'averageRating': 0.0,
-        'totalHours': 360,
-        'onTimePercentage': 95.5,
-        'customerSatisfaction': 0.0,
-        'monthlyBreakdown': [
-          {'month': 'January', 'shifts': 8, 'rating': 0.0},
-          {'month': 'February', 'shifts': 7, 'rating': 0.0},
-        ],
+        'guideName': guide.fullName,
+        'totalShifts': totalShifts,
+        'dayTours': dayTours,
+        'northernLights': northernLights,
+        'averageRating': 4.5, // TODO: Calculate real rating
+        'totalHours': totalHours,
+        'onTimePercentage': 95.5, // TODO: Calculate from tracking data
+        'customerSatisfaction': 4.5, // TODO: Calculate from ratings
+        'monthlyBreakdown': monthlyBreakdown,
       };
     } catch (e) {
       throw Exception('Failed to load guide performance report: $e');
@@ -511,19 +523,7 @@ class AdminService {
   /// Send notification to guide
   static Future<bool> sendNotificationToGuide(String guideId, String message) async {
     try {
-      // TODO: Replace with actual API call
-      // final response = await http.post(
-      //   Uri.parse('$baseUrl/admin/notifications/send'),
-      //   headers: _headers,
-      //   body: json.encode({
-      //     'guideId': guideId,
-      //     'message': message,
-      //   }),
-      // );
-      
-      // return response.statusCode == 200;
-      
-      // Mock success for now
+      // TODO: Implement real notification system
       await Future.delayed(const Duration(milliseconds: 300));
       return true;
     } catch (e) {
@@ -538,26 +538,7 @@ class AdminService {
     String? format,
   }) async {
     try {
-      // TODO: Replace with actual API call
-      // final queryParams = {
-      //   'dataType': dataType,
-      //   if (startDate != null) 'startDate': startDate.toIso8601String(),
-      //   if (endDate != null) 'endDate': endDate.toIso8601String(),
-      //   'format': format ?? 'csv',
-      // };
-      // 
-      // final response = await http.get(
-      //   Uri.parse('$baseUrl/admin/export').replace(queryParameters: queryParams),
-      //   headers: _headers,
-      // );
-      
-      // if (response.statusCode == 200) {
-      //   return response.body;
-      // } else {
-      //   throw Exception('Failed to export data');
-      // }
-      
-      // Mock success for now
+      // TODO: Implement real export functionality
       await Future.delayed(const Duration(milliseconds: 1000));
       return 'export_${dataType}_${DateTime.now().millisecondsSinceEpoch}.csv';
     } catch (e) {
