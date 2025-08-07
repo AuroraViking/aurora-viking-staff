@@ -5,7 +5,7 @@ import '../../core/models/pickup_models.dart';
 import '../../core/models/user_model.dart';
 
 class PickupService {
-  static const String _baseUrl = 'https://api.bokun.io/rest/v2';
+  static const String _baseUrl = 'https://api.bokun.io/api';
   
   // Get Bokun API credentials from environment
   String get _accessKey => dotenv.env['BOKUN_ACCESS_KEY'] ?? '';

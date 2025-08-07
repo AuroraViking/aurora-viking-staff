@@ -6,7 +6,7 @@ import '../../core/models/pickup_models.dart';
 import '../../core/models/user_model.dart';
 
 class TourManagementService {
-  static const String _baseUrl = 'https://api.bokun.io/rest/v2';
+  static const String _baseUrl = 'https://api.bokun.io/api';
   
   // Get Bokun API credentials from environment
   String get _accessKey => dotenv.env['BOKUN_ACCESS_KEY'] ?? '';
@@ -230,60 +230,73 @@ class TourManagementService {
 
       print('🧪 Testing Bokun API connection...');
       
-      final testDate = DateTime.now();
-      final startDate = DateTime(testDate.year, testDate.month, testDate.day);
-      final endDate = startDate.add(const Duration(days: 1));
+      // Test multiple possible endpoints
+      final endpoints = [
+        'https://api.bokun.io/api/bookings',
+        'https://api.bokun.io/rest/v2/bookings',
+        'https://api.bokun.io/v2/bookings',
+        'https://api.bokun.io/rest/bookings',
+        'https://api.bokun.io/bookings',
+      ];
 
-      final url = '$_baseUrl/bookings?startDate=${startDate.toIso8601String()}&endDate=${endDate.toIso8601String()}';
-      print('🌐 Test API URL: $url');
-
-      final response = await http.get(
-        Uri.parse(url),
-        headers: {
-          'X-Bokun-AccessKey': _accessKey,
-          'X-Bokun-SecretKey': _secretKey,
-          'Content-Type': 'application/json',
-        },
-      );
-
-      print('📡 Test API Response Status: ${response.statusCode}');
-      print('📄 Full Response Body: ${response.body}');
-
-      if (response.statusCode == 200) {
-        // Check if response is JSON or HTML
-        final responseText = response.body.trim();
-        if (responseText.startsWith('<!DOCTYPE') || responseText.startsWith('<html')) {
-          return {
-            'success': false,
-            'statusCode': response.statusCode,
-            'error': 'API returned HTML instead of JSON. This usually means the endpoint is incorrect or authentication failed.',
-            'responseBody': response.body,
-          };
-        }
+      for (final endpoint in endpoints) {
+        print('🔍 Testing endpoint: $endpoint');
         
+        final testDate = DateTime.now();
+        final startDate = DateTime(testDate.year, testDate.month, testDate.day);
+        final endDate = startDate.add(const Duration(days: 1));
+
+        final url = '$endpoint?startDate=${startDate.toIso8601String()}&endDate=${endDate.toIso8601String()}';
+        print('🌐 Test API URL: $url');
+
         try {
-          final data = json.decode(response.body);
-          return {
-            'success': true,
-            'statusCode': response.statusCode,
-            'bookingsCount': (data['bookings'] as List<dynamic>?)?.length ?? 0,
-            'responsePreview': data.toString().substring(0, data.toString().length > 200 ? 200 : data.toString().length),
-          };
+          final response = await http.get(
+            Uri.parse(url),
+            headers: {
+              'X-Bokun-AccessKey': _accessKey,
+              'X-Bokun-SecretKey': _secretKey,
+              'Content-Type': 'application/json',
+            },
+          );
+
+          print('📡 Test API Response Status: ${response.statusCode}');
+
+          if (response.statusCode == 200) {
+            // Check if response is JSON or HTML
+            final responseText = response.body.trim();
+            if (responseText.startsWith('<!DOCTYPE') || responseText.startsWith('<html')) {
+              print('❌ Endpoint returned HTML: $endpoint');
+              continue; // Try next endpoint
+            }
+            
+            try {
+              final data = json.decode(response.body);
+              print('✅ Found working endpoint: $endpoint');
+              return {
+                'success': true,
+                'statusCode': response.statusCode,
+                'workingEndpoint': endpoint,
+                'bookingsCount': (data['bookings'] as List<dynamic>?)?.length ?? 0,
+                'responsePreview': data.toString().substring(0, data.toString().length > 200 ? 200 : data.toString().length),
+              };
+            } catch (e) {
+              print('❌ Failed to parse JSON from: $endpoint');
+              continue; // Try next endpoint
+            }
+          } else {
+            print('❌ Endpoint failed with status ${response.statusCode}: $endpoint');
+          }
         } catch (e) {
-          return {
-            'success': false,
-            'statusCode': response.statusCode,
-            'error': 'Failed to parse JSON response: $e',
-            'responseBody': response.body,
-          };
+          print('❌ Error testing endpoint $endpoint: $e');
         }
-      } else {
-        return {
-          'success': false,
-          'statusCode': response.statusCode,
-          'error': response.body,
-        };
       }
+
+      // If we get here, no endpoints worked
+      return {
+        'success': false,
+        'error': 'All tested endpoints failed. Check API documentation for correct endpoint.',
+        'testedEndpoints': endpoints,
+      };
     } catch (e) {
       return {
         'success': false,
