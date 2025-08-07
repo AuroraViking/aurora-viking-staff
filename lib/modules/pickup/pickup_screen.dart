@@ -43,8 +43,10 @@ class _PickupScreenState extends State<PickupScreen> {
       _guestCounts.clear();
       monthData.forEach((date, bookings) {
         final totalGuests = bookings.fold<int>(0, (sum, booking) => sum + booking.numberOfGuests);
-        _guestCounts[date] = totalGuests;
-        print('🔍 Date ${date.toString()}: ${bookings.length} bookings, $totalGuests guests');
+        // Use consistent date key format (year, month, day only)
+        final dateKey = DateTime(date.year, date.month, date.day);
+        _guestCounts[dateKey] = totalGuests;
+        print('🔍 Date ${dateKey.toString()}: ${bookings.length} bookings, $totalGuests guests');
       });
     });
     
@@ -172,7 +174,8 @@ class _PickupScreenState extends State<PickupScreen> {
                   selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
                   calendarFormat: CalendarFormat.month,
                   eventLoader: (day) {
-                    final guestCount = _guestCounts[DateTime(day.year, day.month, day.day)];
+                    final dateKey = DateTime(day.year, day.month, day.day);
+                    final guestCount = _guestCounts[dateKey];
                     print('🔍 Calendar event loader for ${day.toString()}: $guestCount guests');
                     return guestCount != null && guestCount > 0 ? [guestCount] : [];
                   },
@@ -215,6 +218,7 @@ class _PickupScreenState extends State<PickupScreen> {
                     markerBuilder: (context, date, events) {
                       if (events.isNotEmpty) {
                         final guestCount = events.first as int;
+                        print('🔍 Building marker for ${date.toString()}: $guestCount guests');
                         return Positioned(
                           bottom: 1,
                           right: 1,
