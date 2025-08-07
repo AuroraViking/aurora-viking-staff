@@ -335,6 +335,42 @@ class FirebaseService {
     }
   }
 
+  // Get individual pickup assignments for a date
+  static Future<Map<String, Map<String, dynamic>>> getIndividualPickupAssignments(String date) async {
+    if (!_initialized || _firestore == null) {
+      print('⚠️ Firebase not initialized - returning empty individual pickup assignments');
+      return {};
+    }
+    
+    try {
+      // Query for documents that start with the date
+      final querySnapshot = await _firestore!
+          .collection('pickup_assignments')
+          .where(FieldPath.documentId, isGreaterThanOrEqualTo: '${date}_')
+          .where(FieldPath.documentId, isLessThan: '${date}_\uf8ff')
+          .get();
+
+      final assignments = <String, Map<String, dynamic>>{};
+      for (final doc in querySnapshot.docs) {
+        final data = doc.data();
+        final bookingId = data['bookingId'] as String?;
+        if (bookingId != null) {
+          assignments[bookingId] = {
+            'guideId': data['guideId'],
+            'guideName': data['guideName'],
+            'date': data['date'],
+          };
+        }
+      }
+      
+      print('✅ Loaded ${assignments.length} individual pickup assignments for date: $date');
+      return assignments;
+    } catch (e) {
+      print('❌ Failed to get individual pickup assignments: $e');
+      return {};
+    }
+  }
+
   // Save individual pickup assignment
   static Future<void> savePickupAssignment({
     required String bookingId,

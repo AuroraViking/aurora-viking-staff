@@ -348,14 +348,17 @@ class PickupService {
   Future<bool> assignBookingToGuide(String bookingId, String guideId, String guideName, {DateTime? date}) async {
     try {
       final assignmentDate = date ?? DateTime.now();
+      print('🔄 Assigning booking $bookingId to guide $guideName ($guideId) for date $assignmentDate');
       
       if (guideId.isEmpty) {
         // Unassigning - remove from Firebase
+        print('❌ Unassigning booking $bookingId');
         await FirebaseService.removePickupAssignment(bookingId);
         return true;
       }
       
       // Save assignment to Firebase
+      print('💾 Saving assignment to Firebase...');
       await FirebaseService.savePickupAssignment(
         bookingId: bookingId,
         guideId: guideId,
@@ -363,9 +366,10 @@ class PickupService {
         date: assignmentDate,
       );
       
+      print('✅ Assignment saved successfully');
       return true;
     } catch (e) {
-      print('Error assigning booking: $e');
+      print('❌ Error assigning booking: $e');
       return false;
     }
   }

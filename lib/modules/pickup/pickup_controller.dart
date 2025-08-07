@@ -53,8 +53,8 @@ class PickupController extends ChangeNotifier {
       final dateStr = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
       final statuses = await FirebaseService.getBookingStatuses(dateStr);
       
-      // Load assignments from Firebase
-      final assignments = await FirebaseService.getPickupAssignments(dateStr);
+      // Load individual assignments from Firebase
+      final assignments = await FirebaseService.getIndividualPickupAssignments(dateStr);
       
       // Apply statuses and assignments to bookings
       final updatedBookings = bookings.map((booking) {
@@ -69,18 +69,13 @@ class PickupController extends ChangeNotifier {
         }
         
         // Apply assignment
-        for (final assignment in assignments) {
-          final assignedBooking = assignment.bookings.firstWhere(
-            (b) => b.id == booking.id,
-            orElse: () => booking,
+        final assignment = assignments[booking.id];
+        if (assignment != null) {
+          updatedBooking = updatedBooking.copyWith(
+            assignedGuideId: assignment['guideId'],
+            assignedGuideName: assignment['guideName'],
           );
-          if (assignedBooking.id == booking.id && assignedBooking.assignedGuideId != null) {
-            updatedBooking = updatedBooking.copyWith(
-              assignedGuideId: assignedBooking.assignedGuideId,
-              assignedGuideName: assignedBooking.assignedGuideName,
-            );
-            break;
-          }
+          print('✅ Applied assignment for booking ${booking.id}: ${assignment['guideName']}');
         }
         
         return updatedBooking;
@@ -91,6 +86,8 @@ class PickupController extends ChangeNotifier {
       _selectedDate = date;
       _stats = await _pickupService.getPickupListStats(date);
       _guideLists = _stats?.guideLists ?? [];
+      
+      print('📊 Loaded ${updatedBookings.length} bookings with ${assignments.length} assignments');
     } catch (e) {
       _error = e.toString();
     } finally {
