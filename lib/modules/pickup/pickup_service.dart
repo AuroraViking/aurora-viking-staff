@@ -211,17 +211,49 @@ class PickupService {
       // Extract tour time
       final startDateStr = productBooking['startDate'];
       DateTime pickupTime;
-      if (startDateStr != null) {
-        try {
-          pickupTime = DateTime.parse(startDateStr);
-          print('✅ Parsed tour time: $pickupTime');
-        } catch (e) {
-          print('⚠️ Could not parse tour time: $startDateStr, using current time');
+      
+      // First try to use the detailed time from fields
+      final fields = productBooking['fields'] ?? {};
+      if (fields['startHour'] != null && fields['startMinute'] != null) {
+        final startHour = fields['startHour'];
+        final startMinute = fields['startMinute'];
+        
+        // Create time for the booking date with specific hour/minute
+        final startDateMs = productBooking['startDate'];
+        if (startDateMs != null) {
+          try {
+            final baseDate = DateTime.fromMillisecondsSinceEpoch(startDateMs);
+            pickupTime = DateTime(baseDate.year, baseDate.month, baseDate.day, startHour, startMinute);
+            print('✅ Parsed detailed tour time: $pickupTime');
+          } catch (e) {
+            print('⚠️ Error parsing detailed time: $e');
+            pickupTime = DateTime.now();
+          }
+        } else {
           pickupTime = DateTime.now();
         }
       } else {
-        print('⚠️ No startDate found, using current time');
-        pickupTime = DateTime.now();
+        // Fallback to startDateTime or startDate
+        final startDateTime = productBooking['startDateTime'] ?? productBooking['startDate'];
+        if (startDateTime != null) {
+          try {
+            // Handle both string and integer timestamps
+            if (startDateTime is String) {
+              pickupTime = DateTime.parse(startDateTime);
+            } else if (startDateTime is int) {
+              pickupTime = DateTime.fromMillisecondsSinceEpoch(startDateTime);
+            } else {
+              pickupTime = DateTime.now();
+            }
+            print('✅ Parsed fallback time: $pickupTime');
+          } catch (e) {
+            print('⚠️ Could not parse tour time: $startDateTime, error: $e');
+            pickupTime = DateTime.now(); // Use current time as last resort
+          }
+        } else {
+          print('⚠️ No startDate found, using current time');
+          pickupTime = DateTime.now();
+        }
       }
       
       // Extract number of guests
@@ -231,42 +263,30 @@ class PickupService {
                             1;
       print('✅ Parsed guest count: $numberOfGuests');
       
-      // Extract pickup location
-      String pickupPlaceName = 'Unknown Location';
-      if (productBooking['pickup'] == true) {
-        final pickupPlace = productBooking['pickupPlace'];
-        if (pickupPlace != null) {
-          pickupPlaceName = pickupPlace['title'] ?? pickupPlace['name'] ?? 'Pickup Location';
-          print('✅ Found pickupPlace: $pickupPlaceName');
-        } else if (productBooking['pickupPlaceDescription'] != null) {
-          pickupPlaceName = productBooking['pickupPlaceDescription'];
+      // Extract pickup location from fields object
+      String pickupPlaceName = 'Meet on location';
+      if (fields['pickup'] == true) {
+        // Check for specific pickup description
+        if (fields['pickupPlaceDescription'] != null && fields['pickupPlaceDescription'].toString().isNotEmpty) {
+          pickupPlaceName = fields['pickupPlaceDescription'];
           print('✅ Found pickupPlaceDescription: $pickupPlaceName');
-        } else {
-          // Try to get detailed activity booking info
-          final productConfirmationCode = productBooking['productConfirmationCode'] ?? 
-                                         productBooking['confirmationCode'];
-          if (productConfirmationCode != null) {
-            print('🔍 Trying detailed activity booking for pickup info...');
-            final detailedBooking = await _getDetailedActivityBooking(productConfirmationCode);
-            
-            if (detailedBooking != null) {
-              final pickup = detailedBooking['pickup'] ?? false;
-              if (pickup) {
-                final detailedPickupPlace = detailedBooking['pickupPlace'];
-                if (detailedPickupPlace != null) {
-                  pickupPlaceName = detailedPickupPlace['title'] ?? 'Pickup location';
-                  print('🎯 Found pickup info from detailed booking: $pickupPlaceName');
-                } else if (detailedBooking['pickupPlaceDescription'] != null) {
-                  pickupPlaceName = detailedBooking['pickupPlaceDescription'];
-                  print('🎯 Found pickup description from detailed booking: $pickupPlaceName');
-                } else {
-                  pickupPlaceName = 'Pickup arranged';
-                  print('🎯 Pickup is arranged but no specific location');
-                }
-              }
-            }
+        }
+        // Check for pickup in the start time label
+        else if (fields['startTimeLabel'] != null) {
+          final startTimeLabel = fields['startTimeLabel'];
+          if (startTimeLabel.contains('Pickup')) {
+            pickupPlaceName = 'Pickup at ${fields['startTimeStr'] ?? 'scheduled time'}';
+            print('✅ Found pickup in startTimeLabel: $pickupPlaceName');
           }
         }
+        // Fallback for general pickup
+        else {
+          pickupPlaceName = 'Pickup arranged';
+          print('✅ General pickup arranged');
+        }
+      } else {
+        pickupPlaceName = 'Meet on location';
+        print('✅ Meet on location');
       }
       
       // Debug pickup information
@@ -502,43 +522,4 @@ class PickupService {
 
   // Get maximum passengers per bus
   int get maxPassengersPerBus => _maxPassengersPerBus;
-
-  // Fetch detailed activity booking information
-  Future<Map<String, dynamic>?> _getDetailedActivityBooking(String productConfirmationCode) async {
-    try {
-      final url = '$_baseUrl/booking.json/activity-booking/$productConfirmationCode';
-      print('🔍 Fetching detailed activity booking: $url');
-      
-      final date = _getBokunDate();
-      final signature = _generateSignature(date, _accessKey, 'GET', '/booking.json/activity-booking/$productConfirmationCode');
-      
-      final headers = <String, String>{
-        'Content-Type': 'application/json',
-        'X-Bokun-AccessKey': _accessKey,
-        'X-Bokun-Date': date,
-        'X-Bokun-Signature': signature,
-      };
-      
-      final response = await http.get(
-        Uri.parse(url),
-        headers: headers,
-      );
-      
-      print('📡 Detailed activity booking response status: ${response.statusCode}');
-      
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        print('✅ Detailed activity booking fetched successfully');
-        print('📄 Detailed booking data: $data');
-        return data;
-      } else {
-        print('❌ Failed to fetch detailed activity booking: ${response.statusCode}');
-        print('📄 Error response: ${response.body}');
-        return null;
-      }
-    } catch (e) {
-      print('❌ Error fetching detailed activity booking: $e');
-      return null;
-    }
-  }
 } 
