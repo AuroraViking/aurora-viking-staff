@@ -356,6 +356,10 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
   }
 
   Widget _buildGuideListCard(GuidePickupList guideList, PickupController controller) {
+    // Sort bookings alphabetically by pickup place name
+    final sortedBookings = List<PickupBooking>.from(guideList.bookings)
+      ..sort((a, b) => a.pickupPlaceName.compareTo(b.pickupPlaceName));
+    
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
       child: ExpansionTile(
@@ -385,25 +389,69 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
           ],
         ),
         subtitle: Text('${guideList.bookings.length} pickups'),
-        children: guideList.bookings.map((booking) => _buildAssignedBookingTile(booking, guideList, controller)).toList(),
+        children: [
+          Container(
+            height: 300, // Fixed height for scrollable area
+            child: ReorderableListView.builder(
+              itemCount: sortedBookings.length,
+              onReorder: (oldIndex, newIndex) {
+                // Handle reordering logic here if needed
+                print('🔄 Reordered booking from index $oldIndex to $newIndex');
+              },
+              itemBuilder: (context, index) {
+                final booking = sortedBookings[index];
+                return _buildAssignedBookingTile(booking, guideList, controller, key: ValueKey(booking.id));
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildAssignedBookingTile(PickupBooking booking, GuidePickupList guideList, PickupController controller) {
+  Widget _buildAssignedBookingTile(PickupBooking booking, GuidePickupList guideList, PickupController controller, {Key? key}) {
     return ListTile(
-      title: Text(
-        booking.customerFullName,
-        style: TextStyle(
-          decoration: booking.isNoShow ? TextDecoration.lineThrough : null,
-          color: booking.isNoShow ? AppColors.error : null,
-        ),
+      key: key,
+      title: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            booking.pickupPlaceName,
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 16,
+              color: AppColors.primary,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            booking.customerFullName,
+            style: TextStyle(
+              fontSize: 14,
+              decoration: booking.isNoShow ? TextDecoration.lineThrough : null,
+              color: booking.isNoShow ? AppColors.error : AppColors.textPrimary,
+            ),
+          ),
+        ],
       ),
       subtitle: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(booking.pickupPlaceName),
-          Text('${_formatTime(booking.pickupTime)} - ${booking.numberOfGuests} guests'),
+          const SizedBox(height: 4),
+          Text(
+            '${_formatTime(booking.pickupTime)} - ${booking.numberOfGuests} guest${booking.numberOfGuests > 1 ? 's' : ''}',
+            style: TextStyle(
+              fontSize: 12,
+              color: AppColors.textSecondary,
+            ),
+          ),
+          Text(
+            booking.phoneNumber,
+            style: TextStyle(
+              fontSize: 12,
+              color: AppColors.textSecondary,
+            ),
+          ),
         ],
       ),
       trailing: Row(
