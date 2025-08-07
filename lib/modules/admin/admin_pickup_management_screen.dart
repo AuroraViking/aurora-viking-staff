@@ -64,7 +64,7 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
     for (final guideList in controller.guideLists) {
       final existingReorderedList = _reorderedBookings[guideList.guideId];
       
-      if (existingReorderedList != null) {
+      if (existingReorderedList != null && guideList.bookings.isNotEmpty) {
         // Preserve custom order but update booking data
         final updatedList = existingReorderedList.map((reorderedBooking) {
           // Find the updated booking data
@@ -83,6 +83,11 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
         if (validBookings.isNotEmpty) {
           updatedReorderedBookings[guideList.guideId] = validBookings;
         }
+      } else if (guideList.bookings.isNotEmpty) {
+        // Initialize new reordered list for this guide
+        final sortedList = List<PickupBooking>.from(guideList.bookings)
+          ..sort((a, b) => a.pickupPlaceName.compareTo(b.pickupPlaceName));
+        updatedReorderedBookings[guideList.guideId] = sortedList;
       }
     }
     
@@ -420,10 +425,17 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
   }
 
   Widget _buildGuideListCard(GuidePickupList guideList, PickupController controller) {
-    // Get the reordered list for this guide, or create from original sorted list
-    final reorderedList = _reorderedBookings[guideList.guideId] ?? 
-        List<PickupBooking>.from(guideList.bookings)
-          ..sort((a, b) => a.pickupPlaceName.compareTo(b.pickupPlaceName));
+    // Initialize reordered list if it doesn't exist for this guide
+    if (!_reorderedBookings.containsKey(guideList.guideId)) {
+      final sortedList = List<PickupBooking>.from(guideList.bookings)
+        ..sort((a, b) => a.pickupPlaceName.compareTo(b.pickupPlaceName));
+      _reorderedBookings[guideList.guideId] = sortedList;
+      print('🔄 Initialized reordered list for guide ${guideList.guideName}: ${sortedList.length} bookings');
+    }
+    
+    // Get the reordered list for this guide
+    final reorderedList = _reorderedBookings[guideList.guideId]!;
+    print('📋 Using reordered list for guide ${guideList.guideName}: ${reorderedList.map((b) => b.customerFullName).toList()}');
     
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
@@ -478,10 +490,11 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
                   final item = reorderedList.removeAt(oldIndex);
                   reorderedList.insert(newIndex, item);
                   
-                  // Update the reordered bookings map
+                  // Update the reordered bookings map with the modified list
                   _reorderedBookings[guideList.guideId] = List.from(reorderedList);
                   
                   print('🔄 Reordered booking "${item.customerFullName}" from index $oldIndex to $newIndex for guide ${guideList.guideName}');
+                  print('📋 New order: ${reorderedList.map((b) => b.customerFullName).toList()}');
                 });
               },
               itemBuilder: (context, index) {
