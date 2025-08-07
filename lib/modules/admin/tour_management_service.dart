@@ -317,7 +317,9 @@ class TourManagementService {
       // Test with correct signature format
       print('🔐 Testing correct signature format');
       
-      final date = _getBokunDate();
+      // Use a consistent date for both request and signature
+      final testDateForSignature = DateTime(2025, 9, 1, 12, 0, 0); // September 1st, 2025 at 12:00:00
+      final date = '${testDateForSignature.year}-${testDateForSignature.month.toString().padLeft(2, '0')}-${testDateForSignature.day.toString().padLeft(2, '0')} ${testDateForSignature.hour.toString().padLeft(2, '0')}:${testDateForSignature.minute.toString().padLeft(2, '0')}:${testDateForSignature.second.toString().padLeft(2, '0')}';
       final signature = _generateSignature(date, _accessKey, 'POST', '/booking.json/booking-search');
       
       final headers = <String, String>{

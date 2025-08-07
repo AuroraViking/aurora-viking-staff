@@ -48,8 +48,10 @@ class PickupService {
   }
 
   // Get proper headers for Bokun API
-  Map<String, String> _getHeaders(String body) {
-    final date = _getBokunDate();
+  Map<String, String> _getHeaders(String body, {DateTime? requestDate}) {
+    // Use the request date if provided, otherwise use current time
+    final dateToUse = requestDate ?? DateTime.now();
+    final date = '${dateToUse.year}-${dateToUse.month.toString().padLeft(2, '0')}-${dateToUse.day.toString().padLeft(2, '0')} ${dateToUse.hour.toString().padLeft(2, '0')}:${dateToUse.minute.toString().padLeft(2, '0')}:${dateToUse.second.toString().padLeft(2, '0')}';
     final signature = _generateSignature(date, _accessKey, 'POST', '/booking.json/booking-search');
     
     return {
@@ -92,7 +94,7 @@ class PickupService {
 
       final response = await http.post(
         Uri.parse(url),
-        headers: _getHeaders(bodyJson),
+        headers: _getHeaders(bodyJson, requestDate: date),
         body: bodyJson,
       );
 
