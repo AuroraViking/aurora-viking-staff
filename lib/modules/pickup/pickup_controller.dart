@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../core/models/pickup_models.dart';
 import '../../core/models/user_model.dart';
 import 'pickup_service.dart';
+import '../../core/services/firebase_service.dart';
 
 class PickupController extends ChangeNotifier {
   final PickupService _pickupService = PickupService();
@@ -41,18 +42,32 @@ class PickupController extends ChangeNotifier {
   List<PickupBooking> get unassignedBookings => 
       _bookings.where((booking) => booking.assignedGuideId == null).toList();
 
-  // Load bookings for a specific date
+  // Load bookings for a specific date with Firebase statuses
   Future<void> loadBookingsForDate(DateTime date) async {
     _setLoading(true);
     _error = null;
-    
     try {
       final bookings = await _pickupService.fetchBookingsForDate(date);
-      _currentUserBookings = bookings;
-      _bookings = bookings; // Also update admin bookings
-      _selectedDate = date;
       
-      // Update stats and guide lists for admin
+      // Load statuses from Firebase
+      final dateStr = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+      final statuses = await FirebaseService.getBookingStatuses(dateStr);
+      
+      // Apply statuses to bookings
+      final updatedBookings = bookings.map((booking) {
+        final status = statuses[booking.id];
+        if (status != null) {
+          return booking.copyWith(
+            isArrived: status['isArrived'] ?? false,
+            isNoShow: status['isNoShow'] ?? false,
+          );
+        }
+        return booking;
+      }).toList();
+      
+      _currentUserBookings = updatedBookings;
+      _bookings = updatedBookings; // Also update admin bookings
+      _selectedDate = date;
       _stats = await _pickupService.getPickupListStats(date);
       _guideLists = _stats?.guideLists ?? [];
     } catch (e) {
@@ -153,6 +168,14 @@ class PickupController extends ChangeNotifier {
           _updateGuideLists();
           notifyListeners();
         }
+
+        // Save to Firebase
+        final dateStr = '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}';
+        await FirebaseService.updateBookingStatus(
+          bookingId: bookingId,
+          date: dateStr,
+          isNoShow: true,
+        );
       }
       return success;
     } catch (e) {
@@ -179,6 +202,14 @@ class PickupController extends ChangeNotifier {
         _currentUserBookings[currentUserBookingIndex] = _currentUserBookings[currentUserBookingIndex].copyWith(isArrived: arrived);
         notifyListeners();
       }
+
+      // Save to Firebase
+      final dateStr = '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}';
+      FirebaseService.updateBookingStatus(
+        bookingId: bookingId,
+        date: dateStr,
+        isArrived: arrived,
+      );
     } catch (e) {
       _error = 'Failed to mark booking as arrived: $e';
       notifyListeners();

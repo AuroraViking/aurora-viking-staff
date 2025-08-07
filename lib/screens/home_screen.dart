@@ -9,6 +9,7 @@ import '../modules/profile/profile_screen.dart';
 import '../modules/pickup/pickup_screen.dart';
 import '../modules/admin/admin_dashboard.dart';
 import '../modules/admin/admin_controller.dart';
+import '../core/auth/auth_controller.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -91,12 +92,18 @@ class _HomeScreenState extends State<HomeScreen> {
             ListTile(
               leading: const Icon(Icons.logout),
               title: const Text('Logout'),
-              onTap: () {
+              onTap: () async {
                 Navigator.pop(context);
-                // TODO: Implement logout
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Logout - Coming Soon')),
-                );
+                final authController = context.read<AuthController>();
+                await authController.signOut();
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Successfully logged out'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                }
               },
             ),
             const SizedBox(height: 20),
