@@ -8,6 +8,7 @@ class FirebaseService {
   static firebase_auth.FirebaseAuth? _auth;
   static FirebaseFirestore? _firestore;
   static bool _initialized = false;
+  static bool _initializing = false;
 
   // Authentication methods
   static firebase_auth.User? get currentUser => _auth?.currentUser;
@@ -15,8 +16,25 @@ class FirebaseService {
   static Stream<firebase_auth.User?> get authStateChanges => 
       _auth?.authStateChanges() ?? Stream.value(null);
 
-  // Initialize Firebase
+  // Initialize Firebase - only once
   static Future<void> initialize() async {
+    // Prevent multiple simultaneous initializations
+    if (_initializing) {
+      print('⚠️ Firebase initialization already in progress, waiting...');
+      while (_initializing) {
+        await Future.delayed(const Duration(milliseconds: 100));
+      }
+      return;
+    }
+    
+    // Prevent multiple initializations
+    if (_initialized) {
+      print('✅ Firebase already initialized, skipping...');
+      return;
+    }
+    
+    _initializing = true;
+    
     try {
       await Firebase.initializeApp();
       _auth = firebase_auth.FirebaseAuth.instance;
@@ -27,6 +45,8 @@ class FirebaseService {
       print('❌ Failed to initialize Firebase: $e');
       _initialized = false;
       // Don't rethrow - allow app to continue without Firebase
+    } finally {
+      _initializing = false;
     }
   }
 
@@ -98,7 +118,7 @@ class FirebaseService {
     }
   }
 
-  // Get user data from Firestore
+  // Get user data from Firestore - create if doesn't exist
   static Future<User?> getUserData(String uid) async {
     if (!_initialized || _firestore == null) {
       return null; // Return null if Firebase isn't initialized
@@ -107,11 +127,35 @@ class FirebaseService {
     try {
       final doc = await _firestore!.collection('users').doc(uid).get();
       if (doc.exists) {
+        print('✅ User document found for: $uid');
         return User.fromJson(doc.data()!);
+      } else {
+        print('⚠️ No user document found for: $uid, creating one...');
+        // Create user document from Firebase Auth user
+        final firebaseUser = _auth!.currentUser;
+        if (firebaseUser != null && firebaseUser.uid == uid) {
+          final newUser = User(
+            id: uid,
+            fullName: firebaseUser.displayName ?? firebaseUser.email?.split('@').first ?? 'Unknown User',
+            email: firebaseUser.email ?? '',
+            phoneNumber: firebaseUser.phoneNumber ?? '',
+            role: 'guide', // Default role
+            profilePictureUrl: firebaseUser.photoURL,
+            createdAt: DateTime.now(),
+            isActive: true,
+          );
+          
+          // Save the new user document
+          await saveUserData(newUser);
+          print('✅ Created new user document for: ${firebaseUser.email}');
+          return newUser;
+        } else {
+          print('❌ Firebase user not found or UID mismatch');
+          return null;
+        }
       }
-      return null;
     } catch (e) {
-      print('❌ Failed to get user data: $e');
+      print('❌ Failed to get/create user data: $e');
       return null;
     }
   }
@@ -125,6 +169,7 @@ class FirebaseService {
     
     try {
       await _firestore!.collection('users').doc(user.id).set(user.toJson());
+      print('✅ User data saved successfully for: ${user.email}');
     } catch (e) {
       print('❌ Failed to save user data: $e');
     }

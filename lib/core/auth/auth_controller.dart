@@ -122,24 +122,11 @@ class AuthController extends ChangeNotifier {
       print('📥 Loading user data for: $uid');
       final userData = await FirebaseService.getUserData(uid);
       if (userData != null) {
-        print('✅ User data loaded: ${userData.fullName}');
+        print('✅ User data loaded: ${userData.fullName} (${userData.role})');
         _currentUser = userData;
       } else {
-        print('⚠️ No user data found, creating temporary user');
-        // Don't create default user data here - it should be created during signup
-        // Just set a temporary user with basic info from Firebase Auth
-        final firebaseUser = FirebaseService.currentUser;
-        _currentUser = User(
-          id: uid,
-          fullName: firebaseUser?.displayName ?? 'New User',
-          email: firebaseUser?.email ?? '',
-          phoneNumber: firebaseUser?.phoneNumber ?? '',
-          role: 'guide', // Default role
-          profilePictureUrl: firebaseUser?.photoURL,
-          createdAt: DateTime.now(),
-          isActive: true,
-        );
-        // Don't save this to Firestore - it should be created during signup
+        print('❌ Failed to load or create user data for: $uid');
+        _error = 'Failed to load user data';
       }
       _error = null;
     } catch (e) {
