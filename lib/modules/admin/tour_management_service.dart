@@ -11,10 +11,12 @@ class TourManagementService {
   // Get Bokun API credentials from environment
   String get _accessKey => dotenv.env['BOKUN_ACCESS_KEY'] ?? '';
   String get _secretKey => dotenv.env['BOKUN_SECRET_KEY'] ?? '';
+  String get _octoToken => dotenv.env['BOKUN_OCTO_TOKEN'] ?? '';
   int get _maxPassengersPerBus => int.tryParse(dotenv.env['MAX_PASSENGERS_PER_BUS'] ?? '19') ?? 19;
 
   // Check if API credentials are available
   bool get _hasApiCredentials => _accessKey.isNotEmpty && _secretKey.isNotEmpty;
+  bool get _hasOctoToken => _octoToken.isNotEmpty;
 
   // Fetch tour data for a specific month
   Future<Map<DateTime, TourDate>> fetchTourDataForMonth(DateTime month) async {
@@ -225,6 +227,7 @@ class TourManagementService {
           'error': 'API credentials not found',
           'accessKey': _accessKey.isEmpty ? 'MISSING' : 'FOUND',
           'secretKey': _secretKey.isEmpty ? 'MISSING' : 'FOUND',
+          'octoToken': _octoToken.isEmpty ? 'MISSING' : 'FOUND',
         };
       }
 
@@ -237,6 +240,10 @@ class TourManagementService {
         'https://api.bokun.io/v2/bookings',
         'https://api.bokun.io/rest/bookings',
         'https://api.bokun.io/bookings',
+        'https://api.bokun.io/api/v2/bookings',
+        'https://api.bokun.io/api/rest/bookings',
+        'https://extranet.bokun.io/api/bookings',
+        'https://extranet.bokun.io/rest/v2/bookings',
       ];
 
       for (final endpoint in endpoints) {
@@ -266,6 +273,69 @@ class TourManagementService {
             final responseText = response.body.trim();
             if (responseText.startsWith('<!DOCTYPE') || responseText.startsWith('<html')) {
               print('❌ Endpoint returned HTML: $endpoint');
+              
+              // Try with different authentication headers
+              print('🔑 Trying alternative authentication headers...');
+              final altResponse = await http.get(
+                Uri.parse(url),
+                headers: {
+                  'Authorization': 'Bearer $_accessKey',
+                  'Content-Type': 'application/json',
+                },
+              );
+              
+              if (altResponse.statusCode == 200) {
+                final altResponseText = altResponse.body.trim();
+                if (!altResponseText.startsWith('<!DOCTYPE') && !altResponseText.startsWith('<html')) {
+                  try {
+                    final data = json.decode(altResponse.body);
+                    print('✅ Found working endpoint with Bearer auth: $endpoint');
+                    return {
+                      'success': true,
+                      'statusCode': altResponse.statusCode,
+                      'workingEndpoint': endpoint,
+                      'authMethod': 'Bearer Token',
+                      'bookingsCount': (data['bookings'] as List<dynamic>?)?.length ?? 0,
+                      'responsePreview': data.toString().substring(0, data.toString().length > 200 ? 200 : data.toString().length),
+                    };
+                  } catch (e) {
+                    print('❌ Failed to parse JSON with Bearer auth from: $endpoint');
+                  }
+                }
+              }
+              
+              // Try with OCTO token if available
+              if (_hasOctoToken) {
+                print('🔑 Trying OCTO token authentication...');
+                final octoResponse = await http.get(
+                  Uri.parse(url),
+                  headers: {
+                    'Authorization': 'Bearer $_octoToken',
+                    'Content-Type': 'application/json',
+                  },
+                );
+                
+                if (octoResponse.statusCode == 200) {
+                  final octoResponseText = octoResponse.body.trim();
+                  if (!octoResponseText.startsWith('<!DOCTYPE') && !octoResponseText.startsWith('<html')) {
+                    try {
+                      final data = json.decode(octoResponse.body);
+                      print('✅ Found working endpoint with OCTO token: $endpoint');
+                      return {
+                        'success': true,
+                        'statusCode': octoResponse.statusCode,
+                        'workingEndpoint': endpoint,
+                        'authMethod': 'OCTO Token',
+                        'bookingsCount': (data['bookings'] as List<dynamic>?)?.length ?? 0,
+                        'responsePreview': data.toString().substring(0, data.toString().length > 200 ? 200 : data.toString().length),
+                      };
+                    } catch (e) {
+                      print('❌ Failed to parse JSON with OCTO token from: $endpoint');
+                    }
+                  }
+                }
+              }
+              
               continue; // Try next endpoint
             }
             
