@@ -86,11 +86,12 @@ class AuthController extends ChangeNotifier {
       if (userData != null) {
         _currentUser = userData;
       } else {
-        // Create default user data if not exists
+        // Don't create default user data here - it should be created during signup
+        // Just set a temporary user with basic info from Firebase Auth
         final firebaseUser = FirebaseService.currentUser;
         _currentUser = User(
           id: uid,
-          fullName: firebaseUser?.displayName ?? 'Unknown User',
+          fullName: firebaseUser?.displayName ?? 'New User',
           email: firebaseUser?.email ?? '',
           phoneNumber: firebaseUser?.phoneNumber ?? '',
           role: 'guide', // Default role
@@ -98,7 +99,7 @@ class AuthController extends ChangeNotifier {
           createdAt: DateTime.now(),
           isActive: true,
         );
-        await FirebaseService.saveUserData(_currentUser!);
+        // Don't save this to Firestore - it should be created during signup
       }
       _error = null;
     } catch (e) {
@@ -162,23 +163,28 @@ class AuthController extends ChangeNotifier {
       
       final credential = await FirebaseService.createUserWithEmailAndPassword(email, password);
       
-      // Create user profile
-      final user = User(
-        id: credential.user?.uid ?? '',
-        fullName: fullName,
-        email: email,
-        phoneNumber: '',
-        role: 'guide', // Default role
-        profilePictureUrl: null,
-        createdAt: DateTime.now(),
-        isActive: true,
-      );
-      
-      await FirebaseService.saveUserData(user);
-      _currentUser = user;
-      notifyListeners();
-      
-      return true;
+      if (credential.user != null) {
+        // Create user profile
+        final user = User(
+          id: credential.user!.uid,
+          fullName: fullName,
+          email: email,
+          phoneNumber: '',
+          role: 'guide', // Default role
+          profilePictureUrl: null,
+          createdAt: DateTime.now(),
+          isActive: true,
+        );
+        
+        await FirebaseService.saveUserData(user);
+        _currentUser = user;
+        notifyListeners();
+        
+        return true;
+      } else {
+        _error = 'Failed to create user account';
+        return false;
+      }
     } catch (e) {
       _error = _getAuthErrorMessage(e);
       return false;

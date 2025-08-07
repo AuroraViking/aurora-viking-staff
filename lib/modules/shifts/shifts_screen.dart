@@ -64,6 +64,7 @@ class _ShiftsScreenState extends State<ShiftsScreen> {
         children: [
           // Calendar Section
           Container(
+            height: 400, // Fixed height to prevent calendar from taking too much space
             decoration: BoxDecoration(
               color: Colors.white,
               boxShadow: [
@@ -150,72 +151,79 @@ class _ShiftsScreenState extends State<ShiftsScreen> {
     
     return Container(
       padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Selected Date Header
-          Row(
-            children: [
-              Icon(
-                Icons.calendar_today,
-                color: Theme.of(context).colorScheme.primary,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                dateFormat.format(_selectedDay),
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Selected Date Header
+            Row(
+              children: [
+                Icon(
+                  Icons.calendar_today,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    dateFormat.format(_selectedDay),
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            
+            // Show existing applications if any
+            if (selectedDayShifts.isNotEmpty) ...[
+              const Text(
+                'Your Applications',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
+              const SizedBox(height: 8),
+              ...selectedDayShifts.map((shift) => _buildAppliedShiftCard(shift)),
+              const SizedBox(height: 16),
             ],
-          ),
-          const SizedBox(height: 24),
-          
-          // Show existing applications if any
-          if (selectedDayShifts.isNotEmpty) ...[
+            
+            // Application Options
             const Text(
-              'Your Applications',
+              'Apply for Shifts',
               style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w600,
               ),
             ),
             const SizedBox(height: 12),
-            ...selectedDayShifts.map((shift) => _buildAppliedShiftCard(shift)),
+            
+            // Day Tour Option
+            _buildShiftOption(
+              'Day Tour',
+              Icons.wb_sunny,
+              Colors.orange,
+              selectedDayShifts.any((shift) => shift.type == ShiftType.dayTour),
+              () => _applyForShift(ShiftType.dayTour),
+            ),
+            
+            const SizedBox(height: 8),
+            
+            // Northern Lights Option
+            _buildShiftOption(
+              'Northern Lights',
+              Icons.nightlight,
+              Colors.indigo,
+              selectedDayShifts.any((shift) => shift.type == ShiftType.northernLights),
+              () => _applyForShift(ShiftType.northernLights),
+            ),
+            
+            // Add some bottom padding for better scrolling
             const SizedBox(height: 20),
           ],
-          
-          // Application Options
-          const Text(
-            'Apply for Shifts',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 16),
-          
-          // Day Tour Option
-          _buildShiftOption(
-            'Day Tour',
-            Icons.wb_sunny,
-            Colors.orange,
-            selectedDayShifts.any((shift) => shift.type == ShiftType.dayTour),
-            () => _applyForShift(ShiftType.dayTour),
-          ),
-          
-          const SizedBox(height: 12),
-          
-          // Northern Lights Option
-          _buildShiftOption(
-            'Northern Lights',
-            Icons.nightlight,
-            Colors.indigo,
-            selectedDayShifts.any((shift) => shift.type == ShiftType.northernLights),
-            () => _applyForShift(ShiftType.northernLights),
-          ),
-        ],
+        ),
       ),
     );
   }
