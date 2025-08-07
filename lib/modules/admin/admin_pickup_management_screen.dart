@@ -20,6 +20,9 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
   List<AdminGuide> _guides = [];
   bool _isLoadingGuides = false;
   late TabController _tabController;
+  
+  // State to track reordered booking lists for each guide
+  Map<String, List<PickupBooking>> _reorderedBookings = {};
 
   @override
   void initState() {
@@ -29,13 +32,27 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
       final controller = context.read<PickupController>();
       controller.loadBookingsForDate(controller.selectedDate);
       _loadGuides();
+      
+      // Add listener to reset reordered bookings when data changes
+      controller.addListener(_onControllerDataChanged);
     });
   }
 
   @override
   void dispose() {
+    final controller = context.read<PickupController>();
+    controller.removeListener(_onControllerDataChanged);
     _tabController.dispose();
     super.dispose();
+  }
+
+  void _onControllerDataChanged() {
+    // Reset reordered bookings when controller data changes
+    if (mounted) {
+      setState(() {
+        _resetReorderedBookings();
+      });
+    }
   }
 
   Future<void> _loadGuides() async {
@@ -48,6 +65,8 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
       setState(() {
         _guides = guides;
         _isLoadingGuides = false;
+        // Reset reordered bookings when guides are reloaded
+        _resetReorderedBookings();
       });
     } catch (e) {
       setState(() {
@@ -62,6 +81,12 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
         );
       }
     }
+  }
+
+  // Reset reordered bookings when data changes
+  void _resetReorderedBookings() {
+    _reorderedBookings.clear();
+    print('🔄 Reset reordered bookings');
   }
 
   @override
@@ -356,9 +381,10 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
   }
 
   Widget _buildGuideListCard(GuidePickupList guideList, PickupController controller) {
-    // Sort bookings alphabetically by pickup place name
-    final sortedBookings = List<PickupBooking>.from(guideList.bookings)
-      ..sort((a, b) => a.pickupPlaceName.compareTo(b.pickupPlaceName));
+    // Get the reordered list for this guide, or create from original sorted list
+    final reorderedList = _reorderedBookings[guideList.guideId] ?? 
+        List<PickupBooking>.from(guideList.bookings)
+          ..sort((a, b) => a.pickupPlaceName.compareTo(b.pickupPlaceName));
     
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
@@ -386,6 +412,17 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
                 ),
               ),
             ),
+            const SizedBox(width: 8),
+            IconButton(
+              icon: const Icon(Icons.sort, size: 20),
+              onPressed: () {
+                setState(() {
+                  _reorderedBookings.remove(guideList.guideId);
+                  print('🔄 Reset order for guide ${guideList.guideName}');
+                });
+              },
+              tooltip: 'Reset to alphabetical order',
+            ),
           ],
         ),
         subtitle: Text('${guideList.bookings.length} pickups'),
@@ -393,13 +430,23 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
           Container(
             height: 300, // Fixed height for scrollable area
             child: ReorderableListView.builder(
-              itemCount: sortedBookings.length,
+              itemCount: reorderedList.length,
               onReorder: (oldIndex, newIndex) {
-                // Handle reordering logic here if needed
-                print('🔄 Reordered booking from index $oldIndex to $newIndex');
+                setState(() {
+                  if (oldIndex < newIndex) {
+                    newIndex -= 1;
+                  }
+                  final item = reorderedList.removeAt(oldIndex);
+                  reorderedList.insert(newIndex, item);
+                  
+                  // Update the reordered bookings map
+                  _reorderedBookings[guideList.guideId] = List.from(reorderedList);
+                  
+                  print('🔄 Reordered booking "${item.customerFullName}" from index $oldIndex to $newIndex for guide ${guideList.guideName}');
+                });
               },
               itemBuilder: (context, index) {
-                final booking = sortedBookings[index];
+                final booking = reorderedList[index];
                 return _buildAssignedBookingTile(booking, guideList, controller, key: ValueKey(booking.id));
               },
             ),
