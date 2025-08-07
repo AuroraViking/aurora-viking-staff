@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
-import 'package:http/http.dart' as http;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:http/http.dart' as http;
 import '../../core/models/pickup_models.dart';
 import '../../core/models/user_model.dart';
 
@@ -16,13 +16,29 @@ class PickupService {
   // Check if API credentials are available
   bool get _hasApiCredentials => _accessKey.isNotEmpty && _secretKey.isNotEmpty;
 
-  // Generate HMAC signature for Bokun API
-  String _generateSignature(String date, String body) {
+  // Generate HMAC signature for Bokun API (correct format)
+  String _generateSignature(String date, String accessKey, String method, String path) {
+    // Concatenate: date + accessKey + method + path
+    final message = date + accessKey + method + path;
+    
+    // Create HMAC-SHA1 signature
     final key = utf8.encode(_secretKey);
-    final message = utf8.encode('$date$body');
-    final hmac = Hmac(sha256, key);
-    final digest = hmac.convert(message);
-    return digest.toString();
+    final bytes = utf8.encode(message);
+    final hmacSha1 = Hmac(sha1, key);
+    final digest = hmacSha1.convert(bytes);
+    
+    // Base64 encode the result
+    final signature = base64.encode(digest.bytes);
+    
+    print('🔐 Pickup HMAC Debug (Correct Format):');
+    print('  Date: $date');
+    print('  AccessKey: $accessKey');
+    print('  Method: $method');
+    print('  Path: $path');
+    print('  Message: $message');
+    print('  Signature: $signature');
+    
+    return signature;
   }
 
   // Get current date in Bokun format
@@ -34,12 +50,11 @@ class PickupService {
   // Get proper headers for Bokun API
   Map<String, String> _getHeaders(String body) {
     final date = _getBokunDate();
-    final signature = _generateSignature(date, body);
+    final signature = _generateSignature(date, _accessKey, 'POST', '/booking.json/booking-search');
     
     return {
       'Content-Type': 'application/json',
-      'access-key': _accessKey,
-      'secret-key': _secretKey,
+      'X-Bokun-AccessKey': _accessKey,
       'X-Bokun-Date': date,
       'X-Bokun-Signature': signature,
     };

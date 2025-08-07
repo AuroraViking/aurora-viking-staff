@@ -1,10 +1,9 @@
 import 'dart:convert';
 import 'dart:math';
 import 'package:crypto/crypto.dart';
-import 'package:http/http.dart' as http;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:http/http.dart' as http;
 import '../../core/models/tour_models.dart';
-import '../../core/models/pickup_models.dart';
 import '../../core/models/user_model.dart';
 
 class TourManagementService {
@@ -13,44 +12,36 @@ class TourManagementService {
   // Get Bokun API credentials from environment
   String get _accessKey => dotenv.env['BOKUN_ACCESS_KEY'] ?? '';
   String get _secretKey => dotenv.env['BOKUN_SECRET_KEY'] ?? '';
-  String get _octoToken => dotenv.env['BOKUN_OCTO_TOKEN'] ?? '';
+  String get _octoToken => dotenv.env['OCTO_TOKEN'] ?? '';
   int get _maxPassengersPerBus => int.tryParse(dotenv.env['MAX_PASSENGERS_PER_BUS'] ?? '19') ?? 19;
 
   // Check if API credentials are available
   bool get _hasApiCredentials => _accessKey.isNotEmpty && _secretKey.isNotEmpty;
   bool get _hasOctoToken => _octoToken.isNotEmpty;
 
-  // Generate HMAC signature for Bokun API
-  String _generateSignature(String date, String body) {
-    final key = utf8.encode(_secretKey);
-    final message = utf8.encode('$date$body');
-    final hmac = Hmac(sha256, key);
-    final digest = hmac.convert(message);
+  // Generate HMAC signature for Bokun API (correct format)
+  String _generateSignature(String date, String accessKey, String method, String path) {
+    // Concatenate: date + accessKey + method + path
+    final message = date + accessKey + method + path;
     
-    print('🔐 HMAC Debug:');
+    // Create HMAC-SHA1 signature
+    final key = utf8.encode(_secretKey);
+    final bytes = utf8.encode(message);
+    final hmacSha1 = Hmac(sha1, key);
+    final digest = hmacSha1.convert(bytes);
+    
+    // Base64 encode the result
+    final signature = base64.encode(digest.bytes);
+    
+    print('🔐 HMAC Debug (Correct Format):');
     print('  Date: $date');
-    print('  Body: $body');
-    print('  Message: $date$body');
-    print('  Signature: ${digest.toString()}');
+    print('  AccessKey: $accessKey');
+    print('  Method: $method');
+    print('  Path: $path');
+    print('  Message: $message');
+    print('  Signature: $signature');
     
-    return digest.toString();
-  }
-
-  // Alternative signature generation methods
-  String _generateSignatureAlternative1(String date, String body) {
-    final key = utf8.encode(_secretKey);
-    final message = utf8.encode(body); // Only body, no date
-    final hmac = Hmac(sha256, key);
-    final digest = hmac.convert(message);
-    return digest.toString();
-  }
-
-  String _generateSignatureAlternative2(String date, String body) {
-    final key = utf8.encode(_secretKey);
-    final message = utf8.encode('$body$date'); // Body first, then date
-    final hmac = Hmac(sha256, key);
-    final digest = hmac.convert(message);
-    return digest.toString();
+    return signature;
   }
 
   // Get current date in Bokun format
@@ -62,12 +53,12 @@ class TourManagementService {
   // Get proper headers for Bokun API
   Map<String, String> _getHeaders(String body) {
     final date = _getBokunDate();
-    final signature = _generateSignature(date, body);
+    final signature = _generateSignature(date, _accessKey, 'POST', '/booking.json/booking-search');
     
     final headers = <String, String>{
       'Content-Type': 'application/json',
-      'access-key': _accessKey,
-      'secret-key': _secretKey,
+      'X-Bokun-AccessKey': _accessKey,
+      'X-Bokun-SecretKey': _secretKey,
       'X-Bokun-Date': date,
       'X-Bokun-Signature': signature,
     };
@@ -323,68 +314,64 @@ class TourManagementService {
       final bodyJson = json.encode(requestBody);
       print('📤 Test Request Body: $bodyJson');
 
-      // Try different signature methods
-      final signatureMethods = [
-        {'name': 'Standard (date+body)', 'method': (String date, String body) => _generateSignature(date, body)},
-        {'name': 'Body only', 'method': (String date, String body) => _generateSignatureAlternative1(date, body)},
-        {'name': 'Body+date reversed', 'method': (String date, String body) => _generateSignatureAlternative2(date, body)},
-      ];
-
-      for (final method in signatureMethods) {
-        print('🔐 Testing signature method: ${method['name']}');
-        
-        final date = _getBokunDate();
-        final signature = (method['method'] as Function)(date, bodyJson);
-        
-        final headers = <String, String>{
-          'Content-Type': 'application/json',
-          'access-key': _accessKey,
-          'secret-key': _secretKey,
-          'X-Bokun-Date': date,
-          'X-Bokun-Signature': signature,
-        };
-
-        try {
-          final response = await http.post(
-            Uri.parse(url),
-            headers: headers,
-            body: bodyJson,
-          );
-
-          print('📡 Test API Response Status: ${response.statusCode}');
-
-          if (response.statusCode == 200) {
-            try {
-              final data = json.decode(response.body);
-              print('✅ API call successful with ${method['name']}!');
-              return {
-                'success': true,
-                'statusCode': response.statusCode,
-                'workingEndpoint': url,
-                'authMethod': 'HMAC Signature - ${method['name']}',
-                'bookingsCount': (data['bookings'] as List<dynamic>?)?.length ?? 0,
-                'responsePreview': data.toString().substring(0, data.toString().length > 200 ? 200 : data.toString().length),
-              };
-            } catch (e) {
-              print('❌ Failed to parse JSON response: $e');
-            }
-          } else if (response.statusCode == 401) {
-            print('❌ Authentication failed with ${method['name']}');
-            print('📄 Error Response: ${response.body}');
-          } else {
-            print('❌ Unexpected status ${response.statusCode} with ${method['name']}');
-          }
-        } catch (e) {
-          print('❌ Error with ${method['name']}: $e');
-        }
-      }
-
-      // If we get here, all signature methods failed
-      return {
-        'success': false,
-        'error': 'All signature methods failed. Check API credentials and documentation.',
-        'testedMethods': signatureMethods.map((m) => m['name']).toList(),
+      // Test with correct signature format
+      print('🔐 Testing correct signature format');
+      
+      final date = _getBokunDate();
+      final signature = _generateSignature(date, _accessKey, 'POST', '/booking.json/booking-search');
+      
+      final headers = <String, String>{
+        'Content-Type': 'application/json',
+        'X-Bokun-AccessKey': _accessKey,
+        'X-Bokun-Date': date,
+        'X-Bokun-Signature': signature,
       };
+
+      try {
+        final response = await http.post(
+          Uri.parse(url),
+          headers: headers,
+          body: bodyJson,
+        );
+
+        print('📡 Test API Response Status: ${response.statusCode}');
+
+        if (response.statusCode == 200) {
+          try {
+            final data = json.decode(response.body);
+            print('✅ API call successful with correct signature format!');
+            return {
+              'success': true,
+              'statusCode': response.statusCode,
+              'workingEndpoint': url,
+              'authMethod': 'HMAC Signature - Correct Format',
+              'bookingsCount': (data['bookings'] as List<dynamic>?)?.length ?? 0,
+              'responsePreview': data.toString().substring(0, data.toString().length > 200 ? 200 : data.toString().length),
+            };
+          } catch (e) {
+            print('❌ Failed to parse JSON response: $e');
+            return {
+              'success': false,
+              'error': 'Failed to parse JSON response: $e',
+              'responseBody': response.body,
+            };
+          }
+        } else {
+          print('❌ API call failed with status ${response.statusCode}');
+          print('📄 Error Response: ${response.body}');
+          return {
+            'success': false,
+            'statusCode': response.statusCode,
+            'error': response.body,
+          };
+        }
+      } catch (e) {
+        print('❌ Error with API call: $e');
+        return {
+          'success': false,
+          'error': e.toString(),
+        };
+      }
     } catch (e) {
       return {
         'success': false,
