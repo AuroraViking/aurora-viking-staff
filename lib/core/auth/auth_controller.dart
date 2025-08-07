@@ -9,6 +9,7 @@ class AuthController extends ChangeNotifier {
   bool _isLoading = false;
   String? _error;
   bool _firebaseInitialized = false;
+  bool _disposed = false;
   StreamSubscription<firebase_auth.User?>? _authStateSubscription;
 
   User? get currentUser => _currentUser;
@@ -18,30 +19,53 @@ class AuthController extends ChangeNotifier {
   bool get isAdmin => _currentUser?.role == 'admin';
   bool get isGuide => _currentUser?.role == 'guide';
   bool get firebaseInitialized => _firebaseInitialized;
+  bool get isDisposed => _disposed;
 
   AuthController() {
+    print('🔐 AuthController created');
     _initializeAuth();
   }
 
   @override
   void dispose() {
+    print('🗑️ AuthController disposed');
+    _disposed = true;
     _authStateSubscription?.cancel();
     super.dispose();
   }
 
+  // Safe state update method
+  void _safeNotifyListeners() {
+    if (!_disposed) {
+      try {
+        notifyListeners();
+      } catch (e) {
+        print('❌ Failed to notify listeners: $e');
+      }
+    }
+  }
+
   void _initializeAuth() async {
+    print('🔐 Initializing auth...');
     try {
       // Check if Firebase is available
       _firebaseInitialized = FirebaseService.currentUser != null || 
                             await _testFirebaseConnection();
       
       if (_firebaseInitialized) {
+        print('✅ Firebase initialized, setting up auth listener');
         _authStateSubscription = FirebaseService.authStateChanges.listen((firebase_auth.User? firebaseUser) async {
+          if (_disposed) {
+            print('❌ AuthController disposed during auth state change');
+            return;
+          }
+          
+          print('🔄 Auth state changed: ${firebaseUser?.email ?? 'null'}');
           if (firebaseUser != null) {
             await _loadUserData(firebaseUser.uid);
           } else {
             _currentUser = null;
-            notifyListeners();
+            _safeNotifyListeners();
           }
         });
       } else {
@@ -57,7 +81,7 @@ class AuthController extends ChangeNotifier {
           createdAt: DateTime.now(),
           isActive: true,
         );
-        notifyListeners();
+        _safeNotifyListeners();
       }
     } catch (e) {
       print('❌ Auth initialization error: $e');
@@ -73,7 +97,7 @@ class AuthController extends ChangeNotifier {
         createdAt: DateTime.now(),
         isActive: true,
       );
-      notifyListeners();
+      _safeNotifyListeners();
     }
   }
 
@@ -88,12 +112,20 @@ class AuthController extends ChangeNotifier {
   }
 
   Future<void> _loadUserData(String uid) async {
+    if (_disposed) {
+      print('❌ AuthController disposed during user data load');
+      return;
+    }
+    
     try {
       _setLoading(true);
+      print('📥 Loading user data for: $uid');
       final userData = await FirebaseService.getUserData(uid);
       if (userData != null) {
+        print('✅ User data loaded: ${userData.fullName}');
         _currentUser = userData;
       } else {
+        print('⚠️ No user data found, creating temporary user');
         // Don't create default user data here - it should be created during signup
         // Just set a temporary user with basic info from Firebase Auth
         final firebaseUser = FirebaseService.currentUser;
@@ -111,6 +143,7 @@ class AuthController extends ChangeNotifier {
       }
       _error = null;
     } catch (e) {
+      print('❌ Failed to load user data: $e');
       _error = 'Failed to load user data: $e';
     } finally {
       _setLoading(false);
@@ -118,6 +151,13 @@ class AuthController extends ChangeNotifier {
   }
 
   Future<bool> signIn(String email, String password) async {
+    if (_disposed) {
+      print('❌ AuthController disposed during sign in');
+      return false;
+    }
+    
+    print('🔐 Starting sign in for: $email');
+    
     if (!_firebaseInitialized) {
       // In development mode, allow any login
       _currentUser = User(
@@ -130,7 +170,8 @@ class AuthController extends ChangeNotifier {
         createdAt: DateTime.now(),
         isActive: true,
       );
-      notifyListeners();
+      _safeNotifyListeners();
+      print('✅ Development mode sign in successful');
       return true;
     }
 
@@ -139,8 +180,10 @@ class AuthController extends ChangeNotifier {
       _error = null;
       
       await FirebaseService.signInWithEmailAndPassword(email, password);
+      print('✅ Firebase sign in successful');
       return true;
     } catch (e) {
+      print('❌ Sign in failed: $e');
       _error = _getAuthErrorMessage(e);
       return false;
     } finally {
@@ -149,6 +192,13 @@ class AuthController extends ChangeNotifier {
   }
 
   Future<bool> signUp(String email, String password, String fullName) async {
+    if (_disposed) {
+      print('❌ AuthController disposed during sign up');
+      return false;
+    }
+    
+    print('📝 Starting sign up for: $email ($fullName)');
+    
     if (!_firebaseInitialized) {
       // In development mode, create a local user
       _currentUser = User(
@@ -161,7 +211,8 @@ class AuthController extends ChangeNotifier {
         createdAt: DateTime.now(),
         isActive: true,
       );
-      notifyListeners();
+      _safeNotifyListeners();
+      print('✅ Development mode sign up successful');
       return true;
     }
 
@@ -172,6 +223,7 @@ class AuthController extends ChangeNotifier {
       final credential = await FirebaseService.createUserWithEmailAndPassword(email, password);
       
       if (credential.user != null) {
+        print('✅ Firebase user created, saving user data');
         // Create user profile
         final user = User(
           id: credential.user!.uid,
@@ -186,14 +238,17 @@ class AuthController extends ChangeNotifier {
         
         await FirebaseService.saveUserData(user);
         _currentUser = user;
-        notifyListeners();
+        _safeNotifyListeners();
         
+        print('✅ Sign up successful: ${user.fullName}');
         return true;
       } else {
+        print('❌ Failed to create user account');
         _error = 'Failed to create user account';
         return false;
       }
     } catch (e) {
+      print('❌ Sign up failed: $e');
       _error = _getAuthErrorMessage(e);
       return false;
     } finally {
@@ -202,8 +257,16 @@ class AuthController extends ChangeNotifier {
   }
 
   Future<bool> forgotPassword(String email) async {
+    if (_disposed) {
+      print('❌ AuthController disposed during password reset');
+      return false;
+    }
+    
+    print('🔑 Starting password reset for: $email');
+    
     if (!_firebaseInitialized) {
       // In development mode, simulate success
+      print('✅ Development mode password reset successful');
       return true;
     }
 
@@ -212,8 +275,10 @@ class AuthController extends ChangeNotifier {
       _error = null;
       
       await FirebaseService.sendPasswordResetEmail(email);
+      print('✅ Password reset email sent');
       return true;
     } catch (e) {
+      print('❌ Password reset failed: $e');
       _error = _getAuthErrorMessage(e);
       return false;
     } finally {
@@ -222,10 +287,18 @@ class AuthController extends ChangeNotifier {
   }
 
   Future<void> signOut() async {
+    if (_disposed) {
+      print('❌ AuthController disposed during sign out');
+      return;
+    }
+    
+    print('🚪 Starting sign out');
+    
     if (!_firebaseInitialized) {
       // In development mode, just clear the user
       _currentUser = null;
-      notifyListeners();
+      _safeNotifyListeners();
+      print('✅ Development mode sign out successful');
       return;
     }
 
@@ -234,7 +307,9 @@ class AuthController extends ChangeNotifier {
       await FirebaseService.signOut();
       _currentUser = null;
       _error = null;
+      print('✅ Firebase sign out successful');
     } catch (e) {
+      print('❌ Sign out failed: $e');
       _error = 'Failed to sign out: $e';
     } finally {
       _setLoading(false);
@@ -242,28 +317,39 @@ class AuthController extends ChangeNotifier {
   }
 
   Future<void> updateUserRole(String role) async {
+    if (_disposed) {
+      print('❌ AuthController disposed during role update');
+      return;
+    }
+    
     if (_currentUser != null) {
       try {
         _currentUser = _currentUser!.copyWith(role: role);
         if (_firebaseInitialized) {
           await FirebaseService.saveUserData(_currentUser!);
         }
-        notifyListeners();
+        _safeNotifyListeners();
+        print('✅ User role updated to: $role');
       } catch (e) {
+        print('❌ Failed to update user role: $e');
         _error = 'Failed to update user role: $e';
-        notifyListeners();
+        _safeNotifyListeners();
       }
     }
   }
 
   void clearError() {
-    _error = null;
-    notifyListeners();
+    if (!_disposed) {
+      _error = null;
+      _safeNotifyListeners();
+    }
   }
 
   void _setLoading(bool loading) {
-    _isLoading = loading;
-    notifyListeners();
+    if (!_disposed) {
+      _isLoading = loading;
+      _safeNotifyListeners();
+    }
   }
 
   String _getAuthErrorMessage(dynamic error) {

@@ -40,7 +40,13 @@ class _LoginScreenState extends State<LoginScreen> {
         _passwordController.text,
       );
       
-      if (!success && mounted) {
+      // Check if widget is still mounted before updating UI
+      if (!mounted) {
+        print('⚠️ Login screen disposed during sign in');
+        return;
+      }
+      
+      if (!success) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(authController.error ?? 'Login failed'),
@@ -60,7 +66,13 @@ class _LoginScreenState extends State<LoginScreen> {
         _fullNameController.text.trim(),
       );
       
-      if (success && mounted) {
+      // Check if widget is still mounted before updating UI
+      if (!mounted) {
+        print('⚠️ Login screen disposed during sign up');
+        return;
+      }
+      
+      if (success) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Account created successfully! Please check your email to verify your account.'),
@@ -70,7 +82,7 @@ class _LoginScreenState extends State<LoginScreen> {
         setState(() {
           _isSignUp = false;
         });
-      } else if (mounted) {
+      } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(authController.error ?? 'Sign up failed'),
@@ -95,7 +107,13 @@ class _LoginScreenState extends State<LoginScreen> {
     final authController = context.read<AuthController>();
     final success = await authController.forgotPassword(_emailController.text.trim());
     
-    if (success && mounted) {
+    // Check if widget is still mounted before updating UI
+    if (!mounted) {
+      print('⚠️ Login screen disposed during password reset');
+      return;
+    }
+    
+    if (success) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Password reset email sent! Please check your inbox.'),
@@ -105,7 +123,7 @@ class _LoginScreenState extends State<LoginScreen> {
       setState(() {
         _isForgotPassword = false;
       });
-    } else if (mounted) {
+    } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(authController.error ?? 'Failed to send reset email'),
