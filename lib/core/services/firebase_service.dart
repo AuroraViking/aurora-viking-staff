@@ -334,4 +334,63 @@ class FirebaseService {
       return [];
     }
   }
+
+  // Save individual pickup assignment
+  static Future<void> savePickupAssignment({
+    required String bookingId,
+    required String guideId,
+    required String guideName,
+    required DateTime date,
+  }) async {
+    if (!_initialized || _firestore == null) {
+      print('⚠️ Firebase not initialized - skipping pickup assignment save');
+      return;
+    }
+    
+    try {
+      final dateStr = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+      
+      await _firestore!
+          .collection('pickup_assignments')
+          .doc('${dateStr}_$bookingId')
+          .set({
+        'bookingId': bookingId,
+        'guideId': guideId,
+        'guideName': guideName,
+        'date': dateStr,
+        'assignedAt': FieldValue.serverTimestamp(),
+        'assignedBy': currentUser?.uid,
+      }, SetOptions(merge: true));
+      
+      print('✅ Pickup assignment saved: $bookingId -> $guideName');
+    } catch (e) {
+      print('❌ Failed to save pickup assignment: $e');
+    }
+  }
+
+  // Remove pickup assignment
+  static Future<void> removePickupAssignment(String bookingId) async {
+    if (!_initialized || _firestore == null) {
+      print('⚠️ Firebase not initialized - skipping pickup assignment removal');
+      return;
+    }
+    
+    try {
+      // Find and delete the assignment document
+      final querySnapshot = await _firestore!
+          .collection('pickup_assignments')
+          .where('bookingId', isEqualTo: bookingId)
+          .get();
+      
+      final batch = _firestore!.batch();
+      for (final doc in querySnapshot.docs) {
+        batch.delete(doc.reference);
+      }
+      await batch.commit();
+      
+      print('✅ Pickup assignment removed: $bookingId');
+    } catch (e) {
+      print('❌ Failed to remove pickup assignment: $e');
+    }
+  }
 } 

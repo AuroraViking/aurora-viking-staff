@@ -1,9 +1,11 @@
 import 'dart:convert';
-import 'package:crypto/crypto.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'dart:io';
 import 'package:http/http.dart' as http;
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:crypto/crypto.dart';
 import '../../core/models/pickup_models.dart';
 import '../../core/models/user_model.dart';
+import '../../core/services/firebase_service.dart';
 
 class PickupService {
   static const String _baseUrl = 'https://api.bokun.io';
@@ -343,11 +345,24 @@ class PickupService {
   }
 
   // Assign booking to a guide
-  Future<bool> assignBookingToGuide(String bookingId, String guideId, String guideName) async {
+  Future<bool> assignBookingToGuide(String bookingId, String guideId, String guideName, {DateTime? date}) async {
     try {
-      // In a real implementation, this would update the backend
-      // For now, we'll just return success
-      await Future.delayed(const Duration(milliseconds: 500));
+      final assignmentDate = date ?? DateTime.now();
+      
+      if (guideId.isEmpty) {
+        // Unassigning - remove from Firebase
+        await FirebaseService.removePickupAssignment(bookingId);
+        return true;
+      }
+      
+      // Save assignment to Firebase
+      await FirebaseService.savePickupAssignment(
+        bookingId: bookingId,
+        guideId: guideId,
+        guideName: guideName,
+        date: assignmentDate,
+      );
+      
       return true;
     } catch (e) {
       print('Error assigning booking: $e');

@@ -53,16 +53,37 @@ class PickupController extends ChangeNotifier {
       final dateStr = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
       final statuses = await FirebaseService.getBookingStatuses(dateStr);
       
-      // Apply statuses to bookings
+      // Load assignments from Firebase
+      final assignments = await FirebaseService.getPickupAssignments(dateStr);
+      
+      // Apply statuses and assignments to bookings
       final updatedBookings = bookings.map((booking) {
+        // Apply status
         final status = statuses[booking.id];
+        var updatedBooking = booking;
         if (status != null) {
-          return booking.copyWith(
+          updatedBooking = updatedBooking.copyWith(
             isArrived: status['isArrived'] ?? false,
             isNoShow: status['isNoShow'] ?? false,
           );
         }
-        return booking;
+        
+        // Apply assignment
+        for (final assignment in assignments) {
+          final assignedBooking = assignment.bookings.firstWhere(
+            (b) => b.id == booking.id,
+            orElse: () => booking,
+          );
+          if (assignedBooking.id == booking.id && assignedBooking.assignedGuideId != null) {
+            updatedBooking = updatedBooking.copyWith(
+              assignedGuideId: assignedBooking.assignedGuideId,
+              assignedGuideName: assignedBooking.assignedGuideName,
+            );
+            break;
+          }
+        }
+        
+        return updatedBooking;
       }).toList();
       
       _currentUserBookings = updatedBookings;
@@ -133,7 +154,7 @@ class PickupController extends ChangeNotifier {
   // Admin methods
   Future<bool> assignBookingToGuide(String bookingId, String guideId, String guideName) async {
     try {
-      final success = await _pickupService.assignBookingToGuide(bookingId, guideId, guideName);
+      final success = await _pickupService.assignBookingToGuide(bookingId, guideId, guideName, date: _selectedDate);
       if (success) {
         // Update local state
         final bookingIndex = _bookings.indexWhere((booking) => booking.id == bookingId);
