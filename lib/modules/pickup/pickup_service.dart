@@ -109,7 +109,11 @@ class PickupService {
         final bookings = <PickupBooking>[];
         
         // Parse Bokun API response and convert to our model
-        for (final booking in data['bookings'] ?? []) {
+        final items = data['items'] as List<dynamic>? ?? []; // Fixed: use 'items' instead of 'bookings'
+        print('📊 Total hits from API: ${data['totalHits']}');
+        print('📊 Items array length: ${items.length}');
+        
+        for (final booking in items) {
           try {
             final pickupBooking = _parseBokunBooking(booking);
             if (pickupBooking != null) {
@@ -145,25 +149,36 @@ class PickupService {
   // Parse Bokun API booking data
   PickupBooking? _parseBokunBooking(Map<String, dynamic> booking) {
     try {
-      // Extract customer information
-      final customer = booking['customer'] ?? {};
+      print('🔍 Parsing booking: ${booking.keys.toList()}');
+      
+      // Extract customer information - check different possible field names
+      final customer = booking['customer'] ?? booking['leadCustomer'] ?? {};
       final customerFullName = '${customer['firstName'] ?? ''} ${customer['lastName'] ?? ''}'.trim();
       
-      // Extract pickup information
-      final pickupInfo = booking['pickupInfo'] ?? {};
-      final pickupPlaceName = pickupInfo['pickupPlaceName'] ?? 'Unknown Location';
-      final pickupTime = DateTime.parse(pickupInfo['pickupTime'] ?? DateTime.now().toIso8601String());
+      // Extract pickup information - check different possible field names
+      final pickupInfo = booking['pickupInfo'] ?? booking['pickup'] ?? {};
+      final pickupPlaceName = pickupInfo['pickupPlaceName'] ?? pickupInfo['location'] ?? 'Unknown Location';
+      
+      // Handle different date formats
+      String pickupTimeStr = pickupInfo['pickupTime'] ?? pickupInfo['startTime'] ?? DateTime.now().toIso8601String();
+      DateTime pickupTime;
+      try {
+        pickupTime = DateTime.parse(pickupTimeStr);
+      } catch (e) {
+        print('⚠️ Could not parse pickup time: $pickupTimeStr, using current time');
+        pickupTime = DateTime.now();
+      }
       
       // Extract guest count
-      final numberOfGuests = booking['numberOfGuests'] ?? 1;
+      final numberOfGuests = booking['numberOfGuests'] ?? booking['pax'] ?? 1;
       
       // Extract contact information
-      final phoneNumber = customer['phoneNumber'] ?? '';
+      final phoneNumber = customer['phoneNumber'] ?? customer['phone'] ?? '';
       final email = customer['email'] ?? '';
 
-      return PickupBooking(
-        id: booking['id'] ?? DateTime.now().millisecondsSinceEpoch.toString(),
-        customerFullName: customerFullName,
+      final pickupBooking = PickupBooking(
+        id: booking['id']?.toString() ?? DateTime.now().millisecondsSinceEpoch.toString(),
+        customerFullName: customerFullName.isNotEmpty ? customerFullName : 'Unknown Customer',
         pickupPlaceName: pickupPlaceName,
         pickupTime: pickupTime,
         numberOfGuests: numberOfGuests,
@@ -171,8 +186,12 @@ class PickupService {
         email: email,
         createdAt: DateTime.now(),
       );
+      
+      print('✅ Successfully parsed booking: ${pickupBooking.customerFullName} - ${pickupBooking.pickupPlaceName}');
+      return pickupBooking;
     } catch (e) {
-      print('Error parsing Bokun booking: $e');
+      print('❌ Error parsing Bokun booking: $e');
+      print('📄 Booking data: $booking');
       return null;
     }
   }

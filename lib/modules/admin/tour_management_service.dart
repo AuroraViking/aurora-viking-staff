@@ -347,8 +347,9 @@ class TourManagementService {
             print('📄 Full API Response Body: ${response.body}');
             print('📊 Parsed Data Keys: ${data.keys.toList()}');
             
-            final bookings = data['bookings'] as List<dynamic>? ?? [];
+            final bookings = data['items'] as List<dynamic>? ?? []; // Fixed: use 'items' instead of 'bookings'
             print('📋 Number of bookings found: ${bookings.length}');
+            print('📊 Total hits from API: ${data['totalHits']}');
             
             if (bookings.isNotEmpty) {
               print('📝 First booking sample: ${bookings.first}');
