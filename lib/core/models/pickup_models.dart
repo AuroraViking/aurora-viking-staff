@@ -9,6 +9,7 @@ class PickupBooking {
   final String? assignedGuideId;
   final String? assignedGuideName;
   final bool isNoShow;
+  final bool isArrived;
   final DateTime createdAt;
 
   PickupBooking({
@@ -22,6 +23,7 @@ class PickupBooking {
     this.assignedGuideId,
     this.assignedGuideName,
     this.isNoShow = false,
+    this.isArrived = false,
     required this.createdAt,
   });
 
@@ -37,6 +39,7 @@ class PickupBooking {
       assignedGuideId: json['assignedGuideId'],
       assignedGuideName: json['assignedGuideName'],
       isNoShow: json['isNoShow'] ?? false,
+      isArrived: json['isArrived'] ?? false,
       createdAt: DateTime.parse(json['createdAt'] ?? DateTime.now().toIso8601String()),
     );
   }
@@ -53,6 +56,7 @@ class PickupBooking {
       'assignedGuideId': assignedGuideId,
       'assignedGuideName': assignedGuideName,
       'isNoShow': isNoShow,
+      'isArrived': isArrived,
       'createdAt': createdAt.toIso8601String(),
     };
   }
@@ -68,6 +72,7 @@ class PickupBooking {
     String? assignedGuideId,
     String? assignedGuideName,
     bool? isNoShow,
+    bool? isArrived,
     DateTime? createdAt,
   }) {
     return PickupBooking(
@@ -81,6 +86,7 @@ class PickupBooking {
       assignedGuideId: assignedGuideId ?? this.assignedGuideId,
       assignedGuideName: assignedGuideName ?? this.assignedGuideName,
       isNoShow: isNoShow ?? this.isNoShow,
+      isArrived: isArrived ?? this.isArrived,
       createdAt: createdAt ?? this.createdAt,
     );
   }

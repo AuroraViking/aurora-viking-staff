@@ -48,7 +48,7 @@ dependencies:
   permission_handler: ^11.3.0
   
   # State management
-  provider: ^6.1.1
+  provider: ^6.0.5
   
   # HTTP requests
   http: ^1.1.0
@@ -61,6 +61,7 @@ dependencies:
 
   # Calendar widget
   table_calendar: ^3.0.9
+  url_launcher: ^6.2.1
 
 dev_dependencies:
   flutter_test:

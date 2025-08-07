@@ -162,6 +162,29 @@ class PickupController extends ChangeNotifier {
     }
   }
 
+  // Mark booking as arrived
+  void markBookingAsArrived(String bookingId, bool arrived) {
+    try {
+      // Update local state
+      final bookingIndex = _bookings.indexWhere((booking) => booking.id == bookingId);
+      if (bookingIndex != -1) {
+        _bookings[bookingIndex] = _bookings[bookingIndex].copyWith(isArrived: arrived);
+        _updateGuideLists();
+        notifyListeners();
+      }
+      
+      // Also update current user bookings if this is for the current user
+      final currentUserBookingIndex = _currentUserBookings.indexWhere((booking) => booking.id == bookingId);
+      if (currentUserBookingIndex != -1) {
+        _currentUserBookings[currentUserBookingIndex] = _currentUserBookings[currentUserBookingIndex].copyWith(isArrived: arrived);
+        notifyListeners();
+      }
+    } catch (e) {
+      _error = 'Failed to mark booking as arrived: $e';
+      notifyListeners();
+    }
+  }
+
   // Distribute bookings among guides
   Future<void> distributeBookings(List<User> guides) async {
     _setLoading(true);

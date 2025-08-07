@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../core/theme/colors.dart';
 import '../../widgets/common/loading_widget.dart';
 import '../../widgets/common/error_widget.dart';
@@ -126,19 +127,62 @@ class _PickupScreenState extends State<PickupScreen> {
                         final booking = bookings[index];
                         return Card(
                           margin: const EdgeInsets.only(bottom: 12),
-                          child: ListTile(
-                            contentPadding: const EdgeInsets.all(16),
-                            title: Text(
-                              booking.customerFullName,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
-                              ),
-                            ),
-                            subtitle: Column(
+                          child: Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const SizedBox(height: 8),
+                                // Header with customer name and status
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        booking.customerFullName,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 16,
+                                        ),
+                                      ),
+                                    ),
+                                    // Status indicators
+                                    if (booking.isNoShow)
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                        decoration: BoxDecoration(
+                                          color: Colors.red,
+                                          borderRadius: BorderRadius.circular(12),
+                                        ),
+                                        child: const Text(
+                                          'NO SHOW',
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      )
+                                    else if (booking.isArrived)
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                        decoration: BoxDecoration(
+                                          color: Colors.green,
+                                          borderRadius: BorderRadius.circular(12),
+                                        ),
+                                        child: const Text(
+                                          'ARRIVED',
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                                
+                                const SizedBox(height: 12),
+                                
+                                // Pickup details
                                 _buildInfoRow(Icons.location_on, booking.pickupPlaceName),
                                 _buildInfoRow(Icons.access_time, _formatTime(booking.pickupTime)),
                                 _buildInfoRow(Icons.people, '${booking.numberOfGuests} guests'),
@@ -146,29 +190,55 @@ class _PickupScreenState extends State<PickupScreen> {
                                   _buildInfoRow(Icons.phone, booking.phoneNumber),
                                 if (booking.email.isNotEmpty)
                                   _buildInfoRow(Icons.email, booking.email),
+                                
+                                const SizedBox(height: 16),
+                                
+                                // Action buttons
+                                Row(
+                                  children: [
+                                    // Arrived checkbox
+                                    Expanded(
+                                      child: Row(
+                                        children: [
+                                          Checkbox(
+                                            value: booking.isArrived,
+                                            onChanged: (value) => _markAsArrived(booking.id, value ?? false),
+                                            activeColor: AppColors.primary,
+                                          ),
+                                          const Text(
+                                            'Arrived',
+                                            style: TextStyle(fontSize: 14),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    
+                                    // Action buttons
+                                    if (booking.phoneNumber.isNotEmpty)
+                                      IconButton(
+                                        icon: const Icon(Icons.call, color: Colors.green),
+                                        onPressed: () => _makePhoneCall(booking.phoneNumber),
+                                        tooltip: 'Call customer',
+                                      ),
+                                    
+                                    if (booking.email.isNotEmpty)
+                                      IconButton(
+                                        icon: const Icon(Icons.email, color: Colors.blue),
+                                        onPressed: () => _sendArrivalEmail(booking.email, booking.customerFullName),
+                                        tooltip: 'Send arrival email',
+                                      ),
+                                    
+                                    // No show button (only if not arrived)
+                                    if (!booking.isArrived)
+                                      IconButton(
+                                        icon: const Icon(Icons.no_transfer, color: Colors.red),
+                                        onPressed: () => _markAsNoShow(booking.id),
+                                        tooltip: 'Mark as No Show',
+                                      ),
+                                  ],
+                                ),
                               ],
                             ),
-                            trailing: booking.isNoShow
-                              ? Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                  decoration: BoxDecoration(
-                                    color: Colors.red,
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: const Text(
-                                    'NO SHOW',
-                                    style: TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                )
-                              : IconButton(
-                                  icon: const Icon(Icons.no_transfer, color: Colors.red),
-                                  onPressed: () => _markAsNoShow(booking.id),
-                                  tooltip: 'Mark as No Show',
-                                ),
                           ),
                         );
                       },
@@ -239,6 +309,20 @@ class _PickupScreenState extends State<PickupScreen> {
     return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
   }
 
+  void _markAsArrived(String bookingId, bool arrived) {
+    final controller = context.read<PickupController>();
+    controller.markBookingAsArrived(bookingId, arrived);
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(arrived ? 'Customer marked as arrived' : 'Arrival status removed'),
+          backgroundColor: arrived ? Colors.green : Colors.orange,
+        ),
+      );
+    }
+  }
+
   void _markAsNoShow(String bookingId) {
     showDialog(
       context: context,
@@ -273,5 +357,64 @@ class _PickupScreenState extends State<PickupScreen> {
         ],
       ),
     );
+  }
+
+  void _makePhoneCall(String phoneNumber) async {
+    final Uri phoneUri = Uri(scheme: 'tel', path: phoneNumber);
+    try {
+      if (await canLaunchUrl(phoneUri)) {
+        await launchUrl(phoneUri);
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Could not launch phone app'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error making call: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  void _sendArrivalEmail(String email, String customerName) async {
+    final Uri emailUri = Uri(
+      scheme: 'mailto',
+      path: email,
+      query: 'subject=Pickup Arrival - ${customerName}&body=Hi ${customerName},\n\nI have arrived at the pickup location but cannot find you. Please contact me as soon as possible.\n\nBest regards,\nYour Guide',
+    );
+    
+    try {
+      if (await canLaunchUrl(emailUri)) {
+        await launchUrl(emailUri);
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Could not launch email app'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error sending email: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 } 
