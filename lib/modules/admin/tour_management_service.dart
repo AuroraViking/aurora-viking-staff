@@ -297,9 +297,10 @@ class TourManagementService {
 
       print('🧪 Testing Bokun API connection...');
       
+      // Test with September 1st, 2025
       final testDate = DateTime(2025, 9, 1); // Use September 1st, 2025
       final startDate = DateTime(testDate.year, testDate.month, testDate.day);
-      final endDate = startDate.add(const Duration(days: 1));
+      final endDate = DateTime(2025, 9, 30, 23, 59, 59); // End of September 2025
 
       final url = '$_baseUrl/booking.json/booking-search';
       print('🌐 Test API URL: $url');
@@ -313,6 +314,7 @@ class TourManagementService {
 
       final bodyJson = json.encode(requestBody);
       print('📤 Test Request Body: $bodyJson');
+      print('📅 Testing date range: ${startDate.toIso8601String()} to ${endDate.toIso8601String()}');
 
       // Test with correct signature format
       print('🔐 Testing correct signature format');
@@ -342,13 +344,26 @@ class TourManagementService {
           try {
             final data = json.decode(response.body);
             print('✅ API call successful with correct signature format!');
+            print('📄 Full API Response Body: ${response.body}');
+            print('📊 Parsed Data Keys: ${data.keys.toList()}');
+            
+            final bookings = data['bookings'] as List<dynamic>? ?? [];
+            print('📋 Number of bookings found: ${bookings.length}');
+            
+            if (bookings.isNotEmpty) {
+              print('📝 First booking sample: ${bookings.first}');
+            } else {
+              print('⚠️ No bookings found for September 1st, 2025');
+            }
+            
             return {
               'success': true,
               'statusCode': response.statusCode,
               'workingEndpoint': url,
               'authMethod': 'HMAC Signature - Correct Format',
-              'bookingsCount': (data['bookings'] as List<dynamic>?)?.length ?? 0,
+              'bookingsCount': bookings.length,
               'responsePreview': data.toString().substring(0, data.toString().length > 200 ? 200 : data.toString().length),
+              'fullResponse': response.body,
             };
           } catch (e) {
             print('❌ Failed to parse JSON response: $e');
