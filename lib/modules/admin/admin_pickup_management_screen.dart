@@ -529,13 +529,18 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
   }
 
   void _handleBookingAction(String action, PickupBooking booking, GuidePickupList guideList, PickupController controller) {
+    print('🔧 Handling booking action: $action for booking: ${booking.customerFullName}');
     switch (action) {
       case 'move':
+        print('📤 Moving booking to another guide...');
         _showMoveBookingDialog(booking, guideList, controller);
         break;
       case 'unassign':
+        print('❌ Unassigning booking...');
         _unassignBooking(booking, controller);
         break;
+      default:
+        print('⚠️ Unknown action: $action');
     }
   }
 
@@ -587,7 +592,10 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
   }
 
   void _moveBooking(PickupBooking booking, String fromGuideId, String toGuideId, String toGuideName, PickupController controller) async {
+    print('🔄 Starting move process for: ${booking.customerFullName}');
+    print('📤 From guide: $fromGuideId to guide: $toGuideId ($toGuideName)');
     final success = await controller.moveBookingBetweenGuides(booking.id, fromGuideId, toGuideId, toGuideName);
+    print('✅ Move result: $success');
     
     if (success && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -596,17 +604,33 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
           backgroundColor: AppColors.success,
         ),
       );
+    } else if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to move ${booking.customerFullName}'),
+          backgroundColor: AppColors.error,
+        ),
+      );
     }
   }
 
   void _unassignBooking(PickupBooking booking, PickupController controller) async {
+    print('🔄 Starting unassign process for: ${booking.customerFullName}');
     final success = await controller.assignBookingToGuide(booking.id, '', '');
+    print('✅ Unassign result: $success');
     
     if (success && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('${booking.customerFullName} unassigned'),
           backgroundColor: AppColors.warning,
+        ),
+      );
+    } else if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to unassign ${booking.customerFullName}'),
+          backgroundColor: AppColors.error,
         ),
       );
     }
