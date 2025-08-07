@@ -147,26 +147,31 @@ class _HomeScreenState extends State<HomeScreen> {
             },
           ),
           // Profile button as username
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8.0),
-            child: TextButton.icon(
-              onPressed: _showProfileMenu,
-              icon: const CircleAvatar(
-                radius: 12,
-                backgroundColor: Colors.white24,
-                child: Icon(Icons.person, size: 16, color: Colors.white),
-              ),
-              label: const Text(
-                'John Doe',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w500,
+          Consumer<AuthController>(
+            builder: (context, authController, child) {
+              final userName = authController.currentUser?.fullName ?? 'User';
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                child: TextButton.icon(
+                  onPressed: _showProfileMenu,
+                  icon: const CircleAvatar(
+                    radius: 12,
+                    backgroundColor: Colors.white24,
+                    child: Icon(Icons.person, size: 16, color: Colors.white),
+                  ),
+                  label: Text(
+                    userName,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  ),
                 ),
-              ),
-              style: TextButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              ),
-            ),
+              );
+            },
           ),
         ],
       ),

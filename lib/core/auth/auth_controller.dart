@@ -325,6 +325,34 @@ class AuthController extends ChangeNotifier {
     }
   }
 
+  Future<void> updateUserProfile(User updatedUser) async {
+    if (_disposed) {
+      print('❌ AuthController disposed during profile update');
+      return;
+    }
+    
+    try {
+      print('📝 Updating user profile for: ${updatedUser.email}');
+      
+      if (_firebaseInitialized) {
+        await FirebaseService.saveUserData(updatedUser);
+        _currentUser = updatedUser;
+        _safeNotifyListeners();
+        print('✅ User profile updated successfully');
+      } else {
+        // In development mode, just update locally
+        _currentUser = updatedUser;
+        _safeNotifyListeners();
+        print('✅ User profile updated locally (development mode)');
+      }
+    } catch (e) {
+      print('❌ Failed to update user profile: $e');
+      _error = 'Failed to update user profile: $e';
+      _safeNotifyListeners();
+      throw e; // Re-throw so the UI can handle it
+    }
+  }
+
   void clearError() {
     if (!_disposed) {
       _error = null;

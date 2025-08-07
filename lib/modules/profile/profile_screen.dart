@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../../core/theme/colors.dart';
+import '../../core/auth/auth_controller.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -41,6 +43,30 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String _userEmail = 'john.doe@auroraviking.com';
   String _userPhone = '+1 (555) 123-4567';
   String _emergencyContact = 'Jane Doe - +1 (555) 987-6543';
+
+  @override
+  void initState() {
+    super.initState();
+    // Load user data from AuthController
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadUserData();
+    });
+  }
+
+  void _loadUserData() {
+    final authController = context.read<AuthController>();
+    final user = authController.currentUser;
+    
+    if (user != null) {
+      setState(() {
+        _userName = user.fullName;
+        _userRole = user.role == 'admin' ? 'Administrator' : 'Tour Guide';
+        _userEmail = user.email;
+        _userPhone = user.phoneNumber.isNotEmpty ? user.phoneNumber : 'Not provided';
+        _emergencyContact = 'Not provided'; // This would come from additional user data
+      });
+    }
+  }
 
   Widget _buildStatCard(String title, String value, IconData icon, Color color) {
     return Container(
@@ -101,18 +127,38 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _emergencyContact = result['emergency'] ?? _emergencyContact;
       });
 
-      // TODO: Update Firebase with new profile data
-      // await FirebaseAuth.instance.currentUser?.updateDisplayName(_userName);
-      // await FirebaseFirestore.instance.collection('users').doc(userId).update({
-      //   'role': _userRole,
-      //   'email': _userEmail,
-      //   'phone': _userPhone,
-      //   'emergencyContact': _emergencyContact,
-      // });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Profile updated successfully!')),
-      );
+      // Update Firebase with new profile data
+      try {
+        final authController = context.read<AuthController>();
+        final currentUser = authController.currentUser;
+        
+        if (currentUser != null) {
+          // Create updated user object
+          final updatedUser = currentUser.copyWith(
+            fullName: _userName,
+            email: _userEmail,
+            phoneNumber: _userPhone,
+            role: _userRole.toLowerCase().contains('admin') ? 'admin' : 'guide',
+          );
+          
+          // Save to Firebase
+          await authController.updateUserProfile(updatedUser);
+          
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Profile updated successfully!'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to update profile: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -197,6 +243,38 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             fontWeight: FontWeight.bold,
                             color: AppColors.primary,
                           ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _userRole,
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: Colors.grey[600],
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.star,
+                              size: 16,
+                              color: Colors.amber[600],
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              _userRating.toString(),
+                              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                fontWeight: FontWeight.w600,
+                                color: Colors.amber[600],
+                              ),
+                            ),
+                            Text(
+                              ' Rating',
+                              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
