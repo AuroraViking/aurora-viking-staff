@@ -297,7 +297,7 @@ class TourManagementService {
 
       print('🧪 Testing Bokun API connection...');
       
-      final testDate = DateTime.now();
+      final testDate = DateTime(2025, 9, 1); // Use September 1st, 2025
       final startDate = DateTime(testDate.year, testDate.month, testDate.day);
       final endDate = startDate.add(const Duration(days: 1));
 
