@@ -89,7 +89,7 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
           ),
           const Spacer(),
           Text(
-            '${controller.bookings.length} total bookings',
+            '${controller.bookings.fold<int>(0, (sum, booking) => sum + booking.numberOfGuests)} total guests',
             style: TextStyle(
               fontSize: 14,
               color: AppColors.textSecondary,
@@ -104,6 +104,18 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
     final stats = controller.stats;
     if (stats == null) return const SizedBox.shrink();
 
+    // Calculate guest counts
+    final totalGuests = controller.bookings.fold<int>(0, (sum, booking) => sum + booking.numberOfGuests);
+    final assignedGuests = controller.bookings
+        .where((booking) => booking.assignedGuideId != null)
+        .fold<int>(0, (sum, booking) => sum + booking.numberOfGuests);
+    final unassignedGuests = controller.bookings
+        .where((booking) => booking.assignedGuideId == null)
+        .fold<int>(0, (sum, booking) => sum + booking.numberOfGuests);
+    final noShowGuests = controller.bookings
+        .where((booking) => booking.isNoShow)
+        .fold<int>(0, (sum, booking) => sum + booking.numberOfGuests);
+
     return Card(
       margin: const EdgeInsets.all(16),
       child: Padding(
@@ -112,32 +124,32 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
           children: [
             Expanded(
               child: _buildStatItem(
-                'Total',
-                '${stats.totalBookings}',
-                Icons.assignment,
+                'Total Guests',
+                '$totalGuests',
+                Icons.people,
                 AppColors.primary,
               ),
             ),
             Expanded(
               child: _buildStatItem(
-                'Assigned',
-                '${stats.assignedBookings}',
+                'Assigned Guests',
+                '$assignedGuests',
                 Icons.check_circle,
                 AppColors.success,
               ),
             ),
             Expanded(
               child: _buildStatItem(
-                'Unassigned',
-                '${stats.unassignedBookings}',
+                'Unassigned Guests',
+                '$unassignedGuests',
                 Icons.pending,
                 AppColors.warning,
               ),
             ),
             Expanded(
               child: _buildStatItem(
-                'No Shows',
-                '${stats.noShows}',
+                'No Show Guests',
+                '$noShowGuests',
                 Icons.cancel,
                 AppColors.error,
               ),
@@ -164,9 +176,10 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
         Text(
           label,
           style: TextStyle(
-            fontSize: 12,
+            fontSize: 11,
             color: AppColors.textSecondary,
           ),
+          textAlign: TextAlign.center,
         ),
       ],
     );
