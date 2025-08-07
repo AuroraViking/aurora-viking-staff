@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:table_calendar/table_calendar.dart';
 import '../../core/theme/colors.dart';
 import '../../widgets/common/loading_widget.dart';
 import '../../widgets/common/error_widget.dart';
@@ -14,56 +13,28 @@ class PickupScreen extends StatefulWidget {
 }
 
 class _PickupScreenState extends State<PickupScreen> {
-  DateTime _focusedDay = DateTime.now();
-  DateTime? _selectedDay;
-  Map<DateTime, int> _guestCounts = {};
-
   @override
   void initState() {
     super.initState();
-    _selectedDay = DateTime.now(); // Set today as default selected day
-    _loadMonthData();
+    _loadTodayBookings();
   }
 
-  void _loadMonthData() {
+  void _loadTodayBookings() {
     final controller = context.read<PickupController>();
-    controller.fetchMonthData(_focusedDay).then((_) {
-      _updateGuestCounts();
-    });
-  }
-
-  void _updateGuestCounts() {
-    final controller = context.read<PickupController>();
-    final monthData = controller.monthData;
-    
-    print('🔍 Updating guest counts...');
-    print('🔍 Month data keys: ${monthData.keys.toList()}');
-    
-    setState(() {
-      _guestCounts.clear();
-      monthData.forEach((date, bookings) {
-        final totalGuests = bookings.fold<int>(0, (sum, booking) => sum + booking.numberOfGuests);
-        // Use consistent date key format (year, month, day only)
-        final dateKey = DateTime(date.year, date.month, date.day);
-        _guestCounts[dateKey] = totalGuests;
-        print('🔍 Date ${dateKey.toString()}: ${bookings.length} bookings, $totalGuests guests');
-      });
-    });
-    
-    print('🔍 Final guest counts: $_guestCounts');
+    controller.loadBookingsForDate(DateTime.now());
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Pickup Management'),
+        title: const Text('My Pickup List'),
         backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: _loadMonthData,
+            onPressed: _loadTodayBookings,
             tooltip: 'Refresh',
           ),
         ],
@@ -71,30 +42,22 @@ class _PickupScreenState extends State<PickupScreen> {
       body: Consumer<PickupController>(
         builder: (context, controller, child) {
           if (controller.isLoading) {
-            return const LoadingWidget(message: 'Loading pickup data...');
+            return const LoadingWidget(message: 'Loading your pickup list...');
           }
 
           if (controller.hasError) {
             return CustomErrorWidget(
               message: controller.errorMessage,
-              onRetry: _loadMonthData,
+              onRetry: _loadTodayBookings,
             );
           }
 
-          // Get today's bookings
           final today = DateTime.now();
-          final todayKey = DateTime(today.year, today.month, today.day);
-          final todayBookings = controller.monthData[todayKey] ?? [];
-          final todayGuestCount = todayBookings.fold<int>(0, (sum, booking) => sum + booking.numberOfGuests);
-          
-          // Debug: Print guest counts
-          print('🔍 Today\'s bookings: ${todayBookings.length}');
-          print('🔍 Today\'s guest count: $todayGuestCount');
-          print('🔍 All guest counts: $_guestCounts');
+          final bookings = controller.currentUserBookings;
 
           return Column(
             children: [
-              // Today's Summary Header
+              // Today's Header
               Container(
                 margin: const EdgeInsets.all(16),
                 padding: const EdgeInsets.all(16),
@@ -121,9 +84,9 @@ class _PickupScreenState extends State<PickupScreen> {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            todayBookings.isEmpty 
-                              ? 'No Bookings Today'
-                              : '${todayGuestCount} guests • ${todayBookings.length} bookings',
+                            bookings.isEmpty 
+                              ? 'No pickups assigned today'
+                              : '${bookings.fold<int>(0, (sum, booking) => sum + booking.numberOfGuests)} guests • ${bookings.length} pickups',
                             style: const TextStyle(
                               fontSize: 14,
                               color: Colors.grey,
@@ -132,7 +95,7 @@ class _PickupScreenState extends State<PickupScreen> {
                         ],
                       ),
                     ),
-                    if (todayBookings.isNotEmpty)
+                    if (bookings.isNotEmpty)
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                         decoration: BoxDecoration(
@@ -140,7 +103,7 @@ class _PickupScreenState extends State<PickupScreen> {
                           borderRadius: BorderRadius.circular(16),
                         ),
                         child: Text(
-                          '$todayGuestCount guests',
+                          '${bookings.fold<int>(0, (sum, booking) => sum + booking.numberOfGuests)} guests',
                           style: const TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.bold,
@@ -152,154 +115,64 @@ class _PickupScreenState extends State<PickupScreen> {
                 ),
               ),
 
-              // Calendar Section
-              Container(
-                margin: const EdgeInsets.symmetric(horizontal: 16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.grey.withOpacity(0.1),
-                      spreadRadius: 1,
-                      blurRadius: 4,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: TableCalendar(
-                  firstDay: DateTime.utc(2020, 1, 1),
-                  lastDay: DateTime.utc(2030, 12, 31),
-                  focusedDay: _focusedDay,
-                  selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
-                  calendarFormat: CalendarFormat.month,
-                  eventLoader: (day) {
-                    final dateKey = DateTime(day.year, day.month, day.day);
-                    final guestCount = _guestCounts[dateKey];
-                    print('🔍 Calendar event loader for ${day.toString()}: $guestCount guests');
-                    return guestCount != null && guestCount > 0 ? [guestCount] : [];
-                  },
-                  calendarStyle: const CalendarStyle(
-                    outsideDaysVisible: false,
-                    weekendTextStyle: TextStyle(color: Colors.red),
-                    holidayTextStyle: TextStyle(color: Colors.red),
-                    selectedDecoration: BoxDecoration(
-                      color: AppColors.primary,
-                      shape: BoxShape.circle,
-                    ),
-                    todayDecoration: BoxDecoration(
-                      color: AppColors.primary,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                  headerStyle: const HeaderStyle(
-                    formatButtonVisible: false,
-                    titleCentered: true,
-                    titleTextStyle: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.primary,
-                    ),
-                  ),
-                  onDaySelected: (selectedDay, focusedDay) {
-                    setState(() {
-                      _selectedDay = selectedDay;
-                      _focusedDay = focusedDay;
-                    });
-                    _showDayDetails(selectedDay);
-                  },
-                  onPageChanged: (focusedDay) {
-                    setState(() {
-                      _focusedDay = focusedDay;
-                    });
-                    _loadMonthData();
-                  },
-                  calendarBuilders: CalendarBuilders(
-                    markerBuilder: (context, date, events) {
-                      if (events.isNotEmpty) {
-                        final guestCount = events.first as int;
-                        print('🔍 Building marker for ${date.toString()}: $guestCount guests');
-                        return Positioned(
-                          bottom: 1,
-                          right: 1,
-                          child: Container(
-                            padding: const EdgeInsets.all(2),
-                            decoration: BoxDecoration(
-                              color: AppColors.primary,
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Text(
-                              guestCount.toString(),
+              // Pickup List
+              Expanded(
+                child: bookings.isEmpty
+                  ? _buildEmptyState()
+                  : ListView.builder(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      itemCount: bookings.length,
+                      itemBuilder: (context, index) {
+                        final booking = bookings[index];
+                        return Card(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          child: ListTile(
+                            contentPadding: const EdgeInsets.all(16),
+                            title: Text(
+                              booking.customerFullName,
                               style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 10,
                                 fontWeight: FontWeight.bold,
+                                fontSize: 16,
                               ),
                             ),
+                            subtitle: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const SizedBox(height: 8),
+                                _buildInfoRow(Icons.location_on, booking.pickupPlaceName),
+                                _buildInfoRow(Icons.access_time, _formatTime(booking.pickupTime)),
+                                _buildInfoRow(Icons.people, '${booking.numberOfGuests} guests'),
+                                if (booking.phoneNumber.isNotEmpty)
+                                  _buildInfoRow(Icons.phone, booking.phoneNumber),
+                                if (booking.email.isNotEmpty)
+                                  _buildInfoRow(Icons.email, booking.email),
+                              ],
+                            ),
+                            trailing: booking.isNoShow
+                              ? Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: Colors.red,
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: const Text(
+                                    'NO SHOW',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                )
+                              : IconButton(
+                                  icon: const Icon(Icons.no_transfer, color: Colors.red),
+                                  onPressed: () => _markAsNoShow(booking.id),
+                                  tooltip: 'Mark as No Show',
+                                ),
                           ),
                         );
-                      }
-                      return null;
-                    },
-                  ),
-                ),
-              ),
-              
-              // Summary Section
-              Container(
-                margin: const EdgeInsets.all(16),
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.grey.withOpacity(0.1),
-                      spreadRadius: 1,
-                      blurRadius: 4,
-                      offset: const Offset(0, 2),
+                      },
                     ),
-                  ],
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Month Summary',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.primary,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceAround,
-                      children: [
-                        _buildSummaryCard(
-                          'Total Bookings',
-                          controller.monthData.values.fold<int>(0, (sum, bookings) => sum + bookings.length).toString(),
-                          Icons.calendar_today,
-                          Colors.blue,
-                        ),
-                        _buildSummaryCard(
-                          'Total Guests',
-                          controller.monthData.values.fold<int>(0, (sum, bookings) => 
-                            sum + bookings.fold<int>(0, (bookingSum, booking) => bookingSum + booking.numberOfGuests)
-                          ).toString(),
-                          Icons.people,
-                          Colors.green,
-                        ),
-                        _buildSummaryCard(
-                          'Days with Bookings',
-                          controller.monthData.length.toString(),
-                          Icons.event,
-                          Colors.orange,
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
               ),
             ],
           );
@@ -308,152 +181,40 @@ class _PickupScreenState extends State<PickupScreen> {
     );
   }
 
-  Widget _buildSummaryCard(String title, String value, IconData icon, Color color) {
-    return Column(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Icon(icon, color: color, size: 24),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          value,
-          style: const TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-            color: AppColors.primary,
-          ),
-        ),
-        Text(
-          title,
-          style: const TextStyle(
-            fontSize: 12,
-            color: Colors.grey,
-          ),
-          textAlign: TextAlign.center,
-        ),
-      ],
-    );
-  }
-
-  void _showDayDetails(DateTime date) {
-    final controller = context.read<PickupController>();
-    final bookings = controller.monthData[DateTime(date.year, date.month, date.day)] ?? [];
-    
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        height: MediaQuery.of(context).size.height * 0.7,
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-        child: Column(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: const BoxDecoration(
-                color: AppColors.primary,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.calendar_today, color: Colors.white),
-                  const SizedBox(width: 8),
-                  Text(
-                    '${date.day}/${date.month}/${date.year}',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const Spacer(),
-                  if (bookings.isNotEmpty)
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        '${bookings.fold<int>(0, (sum, booking) => sum + booking.numberOfGuests)} guests',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  IconButton(
-                    icon: const Icon(Icons.close, color: Colors.white),
-                    onPressed: () => Navigator.pop(context),
-                  ),
-                ],
+  Widget _buildInfoRow(IconData icon, String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: Colors.grey[600]),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey[700],
               ),
             ),
-            Expanded(
-              child: bookings.isEmpty
-                ? _buildEmptyState(date)
-                : ListView.builder(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: bookings.length,
-                    itemBuilder: (context, index) {
-                      final booking = bookings[index];
-                      return Card(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        child: ListTile(
-                          title: Text(
-                            booking.customerFullName,
-                            style: const TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                          subtitle: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('📍 ${booking.pickupPlaceName}'),
-                              Text('🕐 ${_formatTime(booking.pickupTime)}'),
-                              Text('👥 ${booking.numberOfGuests} guests'),
-                              if (booking.phoneNumber.isNotEmpty)
-                                Text('📞 ${booking.phoneNumber}'),
-                              if (booking.email.isNotEmpty)
-                                Text('📧 ${booking.email}'),
-                            ],
-                          ),
-                          trailing: IconButton(
-                            icon: const Icon(Icons.no_transfer, color: Colors.red),
-                            onPressed: () => _markAsNoShow(booking.id),
-                            tooltip: 'Mark as No Show',
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildEmptyState(DateTime date) {
+  Widget _buildEmptyState() {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(
-            Icons.event_busy,
+            Icons.assignment_outlined,
             size: 64,
             color: Colors.grey[400],
           ),
           const SizedBox(height: 16),
           Text(
-            'No Bookings',
+            'No Pickups Assigned',
             style: TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.bold,
@@ -462,7 +223,7 @@ class _PickupScreenState extends State<PickupScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            'There are no bookings for ${date.day}/${date.month}/${date.year}',
+            'You don\'t have any pickups assigned for today',
             style: TextStyle(
               fontSize: 14,
               color: Colors.grey[500],
@@ -479,11 +240,37 @@ class _PickupScreenState extends State<PickupScreen> {
   }
 
   void _markAsNoShow(String bookingId) {
-    // TODO: Implement no-show functionality
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('No-show functionality coming soon!'),
-        backgroundColor: Colors.orange,
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Mark as No Show'),
+        content: const Text('Are you sure you want to mark this customer as a no-show?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.of(context).pop();
+              final controller = context.read<PickupController>();
+              final success = await controller.markBookingAsNoShow(bookingId);
+              if (success && mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Customer marked as no-show'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Confirm'),
+          ),
+        ],
       ),
     );
   }
