@@ -115,7 +115,7 @@ class PickupService {
         
         for (final booking in items) {
           try {
-            final pickupBooking = _parseBokunBooking(booking);
+            final pickupBooking = await _parseBokunBooking(booking);
             if (pickupBooking != null) {
               bookings.add(pickupBooking);
             }
@@ -147,7 +147,7 @@ class PickupService {
   }
 
   // Parse Bokun API booking data
-  PickupBooking? _parseBokunBooking(Map<String, dynamic> booking) {
+  Future<PickupBooking?> _parseBokunBooking(Map<String, dynamic> booking) async {
     try {
       print('🔍 Parsing booking: ${booking.keys.toList()}');
       
@@ -171,6 +171,42 @@ class PickupService {
       // Use the first product booking for pickup details
       final productBooking = productBookings.first;
       print('🔍 ProductBooking keys: ${productBooking.keys.toList()}');
+      
+      // Debug: Check for pickup info in nested fields
+      print('🔍 Checking for pickup info in nested fields:');
+      
+      // Check if pickup info is in 'product' field
+      if (productBooking['product'] != null) {
+        print('  Product keys: ${productBooking['product'].keys.toList()}');
+        final product = productBooking['product'];
+        if (product['pickup'] != null) print('  Product.pickup: ${product['pickup']}');
+        if (product['pickupPlace'] != null) print('  Product.pickupPlace: ${product['pickupPlace']}');
+      }
+      
+      // Check if there are activity-specific fields
+      if (productBooking['activityPickup'] != null) {
+        print('  ActivityPickup: ${productBooking['activityPickup']}');
+      }
+      
+      // Check the 'fields' object for custom data
+      if (productBooking['fields'] != null) {
+        print('  Fields: ${productBooking['fields']}');
+      }
+      
+      // Check 'specialRequests' for pickup info
+      if (productBooking['specialRequests'] != null) {
+        print('  SpecialRequests: ${productBooking['specialRequests']}');
+      }
+      
+      // Check for pickup in various possible locations
+      if (productBooking['pickup'] != null) print('  Direct pickup: ${productBooking['pickup']}');
+      if (productBooking['pickupPlace'] != null) print('  Direct pickupPlace: ${productBooking['pickupPlace']}');
+      if (productBooking['pickupPlaceDescription'] != null) print('  Direct pickupPlaceDescription: ${productBooking['pickupPlaceDescription']}');
+      if (productBooking['pickupLocation'] != null) print('  Direct pickupLocation: ${productBooking['pickupLocation']}');
+      if (productBooking['pickupAddress'] != null) print('  Direct pickupAddress: ${productBooking['pickupAddress']}');
+      
+      // Print the full raw productBooking to see all available data
+      print('🔍 Full ProductBooking data: $productBooking');
       
       // Extract tour time
       final startDateStr = productBooking['startDate'];
@@ -205,6 +241,31 @@ class PickupService {
         } else if (productBooking['pickupPlaceDescription'] != null) {
           pickupPlaceName = productBooking['pickupPlaceDescription'];
           print('✅ Found pickupPlaceDescription: $pickupPlaceName');
+        } else {
+          // Try to get detailed activity booking info
+          final productConfirmationCode = productBooking['productConfirmationCode'] ?? 
+                                         productBooking['confirmationCode'];
+          if (productConfirmationCode != null) {
+            print('🔍 Trying detailed activity booking for pickup info...');
+            final detailedBooking = await _getDetailedActivityBooking(productConfirmationCode);
+            
+            if (detailedBooking != null) {
+              final pickup = detailedBooking['pickup'] ?? false;
+              if (pickup) {
+                final detailedPickupPlace = detailedBooking['pickupPlace'];
+                if (detailedPickupPlace != null) {
+                  pickupPlaceName = detailedPickupPlace['title'] ?? 'Pickup location';
+                  print('🎯 Found pickup info from detailed booking: $pickupPlaceName');
+                } else if (detailedBooking['pickupPlaceDescription'] != null) {
+                  pickupPlaceName = detailedBooking['pickupPlaceDescription'];
+                  print('🎯 Found pickup description from detailed booking: $pickupPlaceName');
+                } else {
+                  pickupPlaceName = 'Pickup arranged';
+                  print('🎯 Pickup is arranged but no specific location');
+                }
+              }
+            }
+          }
         }
       }
       
@@ -441,4 +502,43 @@ class PickupService {
 
   // Get maximum passengers per bus
   int get maxPassengersPerBus => _maxPassengersPerBus;
+
+  // Fetch detailed activity booking information
+  Future<Map<String, dynamic>?> _getDetailedActivityBooking(String productConfirmationCode) async {
+    try {
+      final url = '$_baseUrl/booking.json/activity-booking/$productConfirmationCode';
+      print('🔍 Fetching detailed activity booking: $url');
+      
+      final date = _getBokunDate();
+      final signature = _generateSignature(date, _accessKey, 'GET', '/booking.json/activity-booking/$productConfirmationCode');
+      
+      final headers = <String, String>{
+        'Content-Type': 'application/json',
+        'X-Bokun-AccessKey': _accessKey,
+        'X-Bokun-Date': date,
+        'X-Bokun-Signature': signature,
+      };
+      
+      final response = await http.get(
+        Uri.parse(url),
+        headers: headers,
+      );
+      
+      print('📡 Detailed activity booking response status: ${response.statusCode}');
+      
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        print('✅ Detailed activity booking fetched successfully');
+        print('📄 Detailed booking data: $data');
+        return data;
+      } else {
+        print('❌ Failed to fetch detailed activity booking: ${response.statusCode}');
+        print('📄 Error response: ${response.body}');
+        return null;
+      }
+    } catch (e) {
+      print('❌ Error fetching detailed activity booking: $e');
+      return null;
+    }
+  }
 } 
