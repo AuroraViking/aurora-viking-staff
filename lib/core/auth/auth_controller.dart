@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
+import 'dart:async';
 import '../models/user_model.dart';
 import '../services/firebase_service.dart';
 
@@ -8,6 +9,7 @@ class AuthController extends ChangeNotifier {
   bool _isLoading = false;
   String? _error;
   bool _firebaseInitialized = false;
+  StreamSubscription<firebase_auth.User?>? _authStateSubscription;
 
   User? get currentUser => _currentUser;
   bool get isLoading => _isLoading;
@@ -21,6 +23,12 @@ class AuthController extends ChangeNotifier {
     _initializeAuth();
   }
 
+  @override
+  void dispose() {
+    _authStateSubscription?.cancel();
+    super.dispose();
+  }
+
   void _initializeAuth() async {
     try {
       // Check if Firebase is available
@@ -28,7 +36,7 @@ class AuthController extends ChangeNotifier {
                             await _testFirebaseConnection();
       
       if (_firebaseInitialized) {
-        FirebaseService.authStateChanges.listen((firebase_auth.User? firebaseUser) async {
+        _authStateSubscription = FirebaseService.authStateChanges.listen((firebase_auth.User? firebaseUser) async {
           if (firebaseUser != null) {
             await _loadUserData(firebaseUser.uid);
           } else {

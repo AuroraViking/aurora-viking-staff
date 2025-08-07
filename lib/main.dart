@@ -35,11 +35,7 @@ class AuroraVikingStaffApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => AdminController()),
         ChangeNotifierProvider(create: (_) => PickupController()),
-        // Create AuthController lazily to avoid Firebase initialization issues
-        ChangeNotifierProxyProvider<AdminController, AuthController>(
-          create: (_) => AuthController(),
-          update: (_, __, ___) => AuthController(),
-        ),
+        ChangeNotifierProvider(create: (_) => AuthController()),
       ],
       child: MaterialApp(
         title: 'Aurora Viking Staff',
