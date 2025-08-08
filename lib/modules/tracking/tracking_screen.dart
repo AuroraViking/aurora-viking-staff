@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
 import 'dart:async';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'location_service.dart';
+import '../../core/services/bus_management_service.dart';
 
 class TrackingScreen extends StatefulWidget {
   const TrackingScreen({super.key});
@@ -16,25 +19,62 @@ class _TrackingScreenState extends State<TrackingScreen> {
   bool _isTracking = false;
   Position? _currentPosition;
   String _status = 'Not tracking.';
-  StreamSubscription<Position>? _positionStreamSubscription;
+  Timer? _positionUpdateTimer;
+  
+  final LocationService _locationService = LocationService();
+  final BusManagementService _busService = BusManagementService();
+  final FirebaseAuth _auth = FirebaseAuth.instance;
 
-  // Bus options
-  final List<String> _buses = [
-    'Lúxusinn - AYX70',
-    'Afi Stjáni - MAF43',
-    'Meistarinn - TZE50',
-  ];
+  List<Map<String, dynamic>> _buses = [];
+  bool _isLoadingBuses = true;
 
   @override
   void initState() {
     super.initState();
     _checkLocationPermission();
+    _loadBuses();
+    _checkTrackingStatus();
   }
 
   @override
   void dispose() {
-    _positionStreamSubscription?.cancel();
+    _positionUpdateTimer?.cancel();
+    _locationService.dispose();
     super.dispose();
+  }
+
+  void _loadBuses() {
+    print('🔄 Loading buses...');
+    _busService.getActiveBuses().listen(
+      (buses) {
+        print('📋 Loaded ${buses.length} buses');
+        for (final bus in buses) {
+          print('  - ${bus['name']} (${bus['licensePlate']})');
+        }
+        if (mounted) {
+          setState(() {
+            _buses = buses;
+            _isLoadingBuses = false;
+          });
+        }
+      },
+      onError: (error) {
+        print('❌ Error loading buses: $error');
+        print('🔄 Using fallback bus list...');
+        // Fallback to hardcoded buses if database fails
+        final fallbackBuses = [
+          {'id': 'luxusinn_ayx70', 'name': 'Lúxusinn - AYX70', 'licensePlate': 'AYX70'},
+          {'id': 'afi_stjani_maf43', 'name': 'Afi Stjáni - MAF43', 'licensePlate': 'MAF43'},
+          {'id': 'meistarinn_tze50', 'name': 'Meistarinn - TZE50', 'licensePlate': 'TZE50'},
+        ];
+        if (mounted) {
+          setState(() {
+            _buses = fallbackBuses;
+            _isLoadingBuses = false;
+          });
+        }
+      },
+    );
   }
 
   Future<void> _checkLocationPermission() async {
@@ -63,11 +103,65 @@ class _TrackingScreenState extends State<TrackingScreen> {
       });
       return;
     }
+
+    setState(() {
+      _status = 'Ready to track.';
+    });
+  }
+
+  Future<void> _checkTrackingStatus() async {
+    if (_locationService.isTracking) {
+      setState(() {
+        _isTracking = true;
+        _selectedBus = _locationService.currentBusId;
+        _status = 'Resuming tracking: ${_getBusNameById(_locationService.currentBusId)}';
+      });
+      _startPositionUpdates();
+    }
+  }
+
+  String _getBusNameById(String? busId) {
+    if (busId == null) return 'Unknown Bus';
+    try {
+      final bus = _buses.firstWhere(
+        (bus) => bus['id'] == busId,
+      );
+      return bus['name'] as String? ?? 'Unknown Bus';
+    } catch (e) {
+      return 'Unknown Bus';
+    }
+  }
+
+  void _startPositionUpdates() {
+    _positionUpdateTimer?.cancel();
+    _positionUpdateTimer = Timer.periodic(const Duration(seconds: 5), (timer) async {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      
+      if (_isTracking) {
+        final position = await _locationService.getCurrentLocation();
+        if (position != null && mounted) {
+          setState(() {
+            _currentPosition = position;
+          });
+        }
+      } else {
+        timer.cancel();
+      }
+    });
   }
 
   Future<void> _startTracking() async {
-    if (_selectedBus == null || _selectedBus!.isEmpty) {
-      _showAlert('Please select your bus.');
+    if (_selectedBus == null) {
+      _showAlert('Please select a bus first.');
+      return;
+    }
+
+    final user = _auth.currentUser;
+    if (user == null) {
+      _showAlert('Please log in to start tracking.');
       return;
     }
 
@@ -77,61 +171,65 @@ class _TrackingScreenState extends State<TrackingScreen> {
         _status = 'Starting tracking...';
       });
 
-      // Get initial position
-      Position position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      );
-
-      setState(() {
-        _currentPosition = position;
-        _status = 'Tracking: $_selectedBus';
-      });
-
-      // Start continuous tracking
-      _positionStreamSubscription = Geolocator.getPositionStream(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          distanceFilter: 10, // Update every 10 meters
-        ),
-      ).listen(
-        (Position position) {
+      final success = await _locationService.startTracking(_selectedBus!, user.uid);
+      
+      if (success && mounted) {
+        setState(() {
+          _status = 'Tracking: ${_getBusNameById(_selectedBus)}';
+        });
+        
+        // Get initial position
+        final position = await _locationService.getCurrentLocation();
+        if (position != null && mounted) {
           setState(() {
             _currentPosition = position;
           });
-          
-          // Send location to Firebase (placeholder for now)
-          _sendLocationToFirebase(position);
-        },
-        onError: (error) {
-          setState(() {
-            _status = 'Error: ${error.toString()}';
-            _isTracking = false;
-          });
-        },
-      );
+        }
+
+        // Start periodic position updates
+        _startPositionUpdates();
+
+        print('✅ Tracking started successfully for bus: ${_getBusNameById(_selectedBus)}');
+        print('📍 Bus ID: $_selectedBus');
+        print('📍 User ID: ${user.uid}');
+      } else if (mounted) {
+        setState(() {
+          _isTracking = false;
+          _status = 'Failed to start tracking.';
+        });
+        _showAlert('Failed to start tracking. Please check location permissions.');
+      }
     } catch (e) {
-      setState(() {
-        _status = 'Error starting tracking: ${e.toString()}';
-        _isTracking = false;
-      });
+      if (mounted) {
+        setState(() {
+          _status = 'Error starting tracking: ${e.toString()}';
+          _isTracking = false;
+        });
+      }
+      print('❌ Error starting tracking: $e');
     }
   }
 
-  void _stopTracking() {
-    _positionStreamSubscription?.cancel();
-    setState(() {
-      _isTracking = false;
-      _status = 'Tracking stopped.';
-    });
-  }
-
-  void _sendLocationToFirebase(Position position) {
-    // TODO: Implement Firebase integration
-    // For now, just log the location
-    print('Location update for $_selectedBus:');
-    print('Latitude: ${position.latitude}');
-    print('Longitude: ${position.longitude}');
-    print('Timestamp: ${DateTime.now().millisecondsSinceEpoch}');
+  Future<void> _stopTracking() async {
+    try {
+      _positionUpdateTimer?.cancel();
+      await _locationService.stopTracking();
+      
+      if (mounted) {
+        setState(() {
+          _isTracking = false;
+          _status = 'Tracking stopped.';
+        });
+      }
+      print('🛑 Tracking stopped successfully');
+    } catch (e) {
+      print('❌ Error stopping tracking: $e');
+      if (mounted) {
+        setState(() {
+          _status = 'Error stopping tracking: ${e.toString()}';
+        });
+      }
+    }
   }
 
   void _showAlert(String message) {
@@ -182,17 +280,8 @@ class _TrackingScreenState extends State<TrackingScreen> {
                 _buildControlButtons(),
                 const SizedBox(height: 30),
                 
-                // Status Display
-                _buildStatusDisplay(),
-                const SizedBox(height: 30),
-                
-                // Location Info
-                if (_currentPosition != null) _buildLocationInfo(),
-                
-                const Spacer(),
-                
-                // Logo
-                _buildLogo(),
+                // Status and Location Info
+                _buildStatusSection(),
               ],
             ),
           ),
@@ -202,125 +291,157 @@ class _TrackingScreenState extends State<TrackingScreen> {
   }
 
   Widget _buildHeader() {
-    return Column(
-      children: [
-        Text(
-          'Fleet Tracker - Tablet',
-          style: TextStyle(
-            fontSize: 28,
-            fontWeight: FontWeight.bold,
-            color: const Color(0xFF00BFFF),
-            shadows: [
-              Shadow(
-                color: const Color(0xFF00BFFF).withOpacity(0.8),
-                blurRadius: 10,
-              ),
-              Shadow(
-                color: const Color(0xFF00BFFF).withOpacity(0.6),
-                blurRadius: 20,
-              ),
-            ],
-          ),
+    return const Center(
+      child: Text(
+        'Location Tracking',
+        style: TextStyle(
+          fontSize: 24,
+          fontWeight: FontWeight.bold,
+          color: Colors.white,
         ),
-      ],
+      ),
     );
   }
 
   Widget _buildBusSelection() {
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFF111111),
-        border: Border.all(color: const Color(0xFF00BFFF), width: 2),
-        borderRadius: BorderRadius.circular(10),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF00BFFF).withOpacity(0.3),
-            blurRadius: 10,
-          ),
-        ],
+        color: Colors.white.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withOpacity(0.2)),
       ),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<String>(
-          value: _selectedBus,
-          hint: const Text(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
             'Select Bus',
-            style: TextStyle(color: Colors.white, fontSize: 18),
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+            ),
           ),
-          dropdownColor: const Color(0xFF111111),
-          style: const TextStyle(color: Colors.white, fontSize: 18),
-          icon: const Icon(Icons.arrow_drop_down, color: Color(0xFF00BFFF)),
-          items: _buses.map((String bus) {
-            return DropdownMenuItem<String>(
-              value: bus,
-              child: Text(bus),
-            );
-          }).toList(),
-          onChanged: (String? newValue) {
-            setState(() {
-              _selectedBus = newValue;
-            });
-          },
-        ),
+          const SizedBox(height: 12),
+          if (_isLoadingBuses)
+            Container(
+              padding: const EdgeInsets.all(16),
+              child: const Center(
+                child: Column(
+                  children: [
+                    CircularProgressIndicator(color: Colors.white),
+                    SizedBox(height: 8),
+                    Text(
+                      'Loading buses...',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          else if (_buses.isEmpty)
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.orange.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.orange.withOpacity(0.5)),
+              ),
+              child: Column(
+                children: [
+                  const Icon(Icons.warning, color: Colors.orange, size: 32),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Database Connection Issue',
+                    style: TextStyle(
+                      color: Colors.orange,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Using fallback bus list. Please deploy Firestore rules to see your custom buses.',
+                    style: TextStyle(
+                      color: Colors.orange,
+                      fontSize: 12,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 12),
+                  ElevatedButton(
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.orange,
+                      foregroundColor: Colors.white,
+                    ),
+                    child: const Text('Go Back'),
+                  ),
+                ],
+              ),
+            )
+          else
+            DropdownButtonFormField<String>(
+              value: _selectedBus,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                filled: true,
+                fillColor: Colors.white,
+                hintText: 'Choose a bus to track',
+              ),
+              items: _buses.map((bus) {
+                return DropdownMenuItem<String>(
+                  value: bus['id'] as String,
+                  child: Text('${bus['name']} (${bus['licensePlate']})'),
+                );
+              }).toList(),
+              onChanged: (value) {
+                setState(() {
+                  _selectedBus = value;
+                });
+              },
+            ),
+        ],
       ),
     );
   }
 
   Widget _buildControlButtons() {
     return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       children: [
-        // Start Button
         Expanded(
-          child: Container(
-            margin: const EdgeInsets.only(right: 10),
-            child: ElevatedButton(
-              onPressed: _isTracking ? null : _startTracking,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF00BFFF),
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                elevation: 8,
-                shadowColor: const Color(0xFF00BFFF).withOpacity(0.5),
+          child: ElevatedButton(
+            onPressed: _isTracking ? null : _startTracking,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
               ),
-              child: const Text(
-                'Start Tracking',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
+            ),
+            child: const Text(
+              'Start Tracking',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
           ),
         ),
-        
-        // Stop Button
+        const SizedBox(width: 16),
         Expanded(
-          child: Container(
-            margin: const EdgeInsets.only(left: 10),
-            child: ElevatedButton(
-              onPressed: _isTracking ? _stopTracking : null,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFFF4C4C),
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                elevation: 8,
-                shadowColor: const Color(0xFFFF4C4C).withOpacity(0.5),
+          child: ElevatedButton(
+            onPressed: _isTracking ? _stopTracking : null,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
               ),
-              child: const Text(
-                'Stop Tracking',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
+            ),
+            child: const Text(
+              'Stop Tracking',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
           ),
         ),
@@ -328,98 +449,98 @@ class _TrackingScreenState extends State<TrackingScreen> {
     );
   }
 
-  Widget _buildStatusDisplay() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.3),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: const Color(0xFF00BFFF).withOpacity(0.3),
-          width: 1,
+  Widget _buildStatusSection() {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white.withOpacity(0.2)),
         ),
-      ),
-      child: Text(
-        _status,
-        style: TextStyle(
-          fontSize: 20,
-          color: const Color(0xFF00BFFF),
-          fontWeight: FontWeight.w600,
-          shadows: [
-            Shadow(
-              color: const Color(0xFF00BFFF).withOpacity(0.8),
-              blurRadius: 10,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Status',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
             ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: _isTracking ? Colors.green.withOpacity(0.2) : Colors.grey.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: _isTracking ? Colors.green : Colors.grey,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    _isTracking ? Icons.location_on : Icons.location_off,
+                    color: _isTracking ? Colors.green : Colors.grey,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _status,
+                      style: TextStyle(
+                        color: _isTracking ? Colors.green : Colors.grey,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (_currentPosition != null) ...[
+              const SizedBox(height: 20),
+              const Text(
+                'Current Location',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Latitude: ${_currentPosition!.latitude.toStringAsFixed(6)}',
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                    Text(
+                      'Longitude: ${_currentPosition!.longitude.toStringAsFixed(6)}',
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                    Text(
+                      'Accuracy: ${_currentPosition!.accuracy.toStringAsFixed(1)}m',
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                    if (_currentPosition!.speed > 0)
+                      Text(
+                        'Speed: ${(_currentPosition!.speed * 3.6).toStringAsFixed(1)} km/h',
+                        style: const TextStyle(color: Colors.white),
+                      ),
+                  ],
+                ),
+              ),
+            ],
           ],
         ),
-        textAlign: TextAlign.center,
-      ),
-    );
-  }
-
-  Widget _buildLocationInfo() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.3),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: const Color(0xFF00BFFF).withOpacity(0.3),
-          width: 1,
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Current Location:',
-            style: TextStyle(
-              color: Color(0xFF00BFFF),
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Latitude: ${_currentPosition!.latitude.toStringAsFixed(6)}',
-            style: const TextStyle(color: Colors.white, fontSize: 14),
-          ),
-          Text(
-            'Longitude: ${_currentPosition!.longitude.toStringAsFixed(6)}',
-            style: const TextStyle(color: Colors.white, fontSize: 14),
-          ),
-          Text(
-            'Accuracy: ${_currentPosition!.accuracy.toStringAsFixed(1)}m',
-            style: const TextStyle(color: Colors.white, fontSize: 14),
-          ),
-          Text(
-            'Updated: ${DateFormat('HH:mm:ss').format(_currentPosition!.timestamp!)}',
-            style: const TextStyle(color: Colors.white, fontSize: 14),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildLogo() {
-    return Container(
-      width: 100,
-      height: 100,
-      decoration: BoxDecoration(
-        color: const Color(0xFF00BFFF).withOpacity(0.1),
-        shape: BoxShape.circle,
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF00BFFF).withOpacity(0.3),
-            blurRadius: 20,
-            spreadRadius: 5,
-          ),
-        ],
-      ),
-      child: const Icon(
-        Icons.location_on,
-        size: 50,
-        color: Color(0xFF00BFFF),
       ),
     );
   }

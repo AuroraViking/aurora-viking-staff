@@ -11,6 +11,7 @@ import 'admin_guide_management_screen.dart';
 import 'admin_reports_screen.dart';
 import 'admin_pickup_management_screen.dart';
 import 'admin_tour_calendar_screen.dart';
+import 'admin_bus_management_screen.dart';
 import 'tour_management_service.dart';
 
 class AdminDashboard extends StatefulWidget {
@@ -402,6 +403,23 @@ class _AdminDashboardState extends State<AdminDashboard> {
                 context,
                 MaterialPageRoute(
                   builder: (context) => const AdminTourCalendarScreen(),
+                ),
+              );
+            },
+          ),
+          
+          const SizedBox(height: 12),
+          
+          _buildActionCard(
+            'Bus Management',
+            'Add, edit, and manage fleet buses',
+            Icons.directions_bus,
+            Colors.amber,
+            () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const AdminBusManagementScreen(),
                 ),
               );
             },

@@ -1,54 +1,58 @@
-# Deploy Updated Firestore Rules
+# Deploy Firestore Rules
 
-The current Firestore rules are missing permissions for the `reordered_bookings` collection, which is causing the permission denied error when guides try to save their reordered pickup lists.
+## Method 1: Firebase Console (Recommended)
 
-## Updated Rules
-
-The rules in `firestore_rules.txt` have been updated to include:
-
-```javascript
-// Reordered bookings - guides can read/write their own reordered lists
-match /reordered_bookings/{document} {
-  allow read, write: if request.auth != null;
-}
-```
-
-## How to Deploy
-
-### Option 1: Firebase Console (Recommended)
 1. Go to [Firebase Console](https://console.firebase.google.com/)
-2. Select your Aurora Viking Staff project
-3. Navigate to **Firestore Database** > **Rules**
+2. Select your project
+3. Go to **Firestore Database** → **Rules**
 4. Copy the contents of `firestore_rules.txt`
 5. Paste into the rules editor
 6. Click **Publish**
 
-### Option 2: Firebase CLI
+## Method 2: Firebase CLI
+
 If you have Firebase CLI installed:
 
 ```bash
-# Navigate to your project directory
-cd aurora_viking_staff
+# Install Firebase CLI (if not already installed)
+npm install -g firebase-tools
 
-# Deploy the rules
+# Login to Firebase
+firebase login
+
+# Initialize Firebase (if not already done)
+firebase init firestore
+
+# Deploy rules
 firebase deploy --only firestore:rules
 ```
 
-### Option 3: Copy from firestore_rules.txt
-Copy the entire contents of `firestore_rules.txt` and paste them into the Firebase Console rules editor.
+## Method 3: Manual Copy
 
-## What This Fixes
+1. Open `firestore_rules.txt`
+2. Copy all content
+3. Go to Firebase Console → Firestore Database → Rules
+4. Replace existing rules with copied content
+5. Click **Publish**
 
-After deploying these rules, guides will be able to:
-- ✅ Save their custom pickup order
-- ✅ Load their saved order when returning to the app
-- ✅ Reset back to alphabetical order
-- ✅ Have their preferences persist across app sessions
+## Important Notes
+
+- The rules now include access to the `buses` collection
+- All authenticated users can read/write bus data
+- Location history has validation for required fields
+- Bus locations and pickup data are accessible to authenticated users
 
 ## Testing
 
-After deploying the rules, test the drag-and-drop functionality:
-1. Drag a pickup card to reorder it
-2. Close and reopen the app
-3. Verify the custom order is preserved
-4. Test the reset button to return to alphabetical order 
+After deploying, test by:
+1. Adding a new bus in the Bus Management screen
+2. Checking if the bus appears in the list
+3. Verifying that tracking works with the new bus
+
+## Troubleshooting
+
+If you still get permission errors:
+1. Make sure you're logged in to the app
+2. Check that the rules were published successfully
+3. Wait a few minutes for rules to propagate
+4. Try refreshing the app 

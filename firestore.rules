@@ -1,55 +1,36 @@
-# Updated Firestore Security Rules for Aurora Viking Staff
-# Copy these rules to Firebase Console > Firestore Database > Rules
-
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Users can read and write their own user document
     match /users/{userId} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
-    }
-    
-    // Allow authenticated users to read other users (for staff directory)
-    match /users/{userId} {
       allow read: if request.auth != null;
-    }
-    
-    // Allow authenticated users to create their initial user document
-    match /users/{userId} {
       allow create: if request.auth != null && request.auth.uid == userId;
     }
     
-    // Booking status - authenticated users can read/write
     match /booking_status/{document} {
       allow read, write: if request.auth != null;
     }
     
-    // Pickup assignments - authenticated users can read/write
     match /pickup_assignments/{document} {
       allow read, write: if request.auth != null;
     }
     
-    // Shifts - authenticated users can read/write
     match /shifts/{document} {
       allow read, write: if request.auth != null;
     }
     
-    // Reordered bookings - guides can read/write their own reordered lists
     match /reordered_bookings/{document} {
       allow read, write: if request.auth != null;
     }
     
-    // Updated pickup places - guides can read/write their own pickup place updates
     match /updated_pickup_places/{document} {
       allow read, write: if request.auth != null;
     }
     
-    // Bus locations - authenticated users can read/write location data
     match /bus_locations/{busId} {
       allow read, write: if request.auth != null;
     }
     
-    // Location history - authenticated users can read/write with validation
     match /location_history/{document} {
       allow read: if request.auth != null;
       allow write: if request.auth != null && 
@@ -60,16 +41,8 @@ service cloud.firestore {
         request.resource.data.timestamp is timestamp;
     }
 
-    // Bus management - authenticated users can read/write
     match /buses/{busId} {
       allow read, write: if request.auth != null;
-    }
-    
-    // Allow admins to read all user data
-    match /users/{userId} {
-      allow read: if request.auth != null && 
-        (request.auth.uid == userId || 
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin');
     }
   }
 } 

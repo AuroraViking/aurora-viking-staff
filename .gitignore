@@ -94,6 +94,8 @@ firebase_options.dart
 .env.local
 .env.production
 
+
+
 # Keystore files
 *.keystore
 *.jks

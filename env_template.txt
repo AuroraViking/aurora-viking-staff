@@ -1,142 +1,16 @@
-# =============================================================================
-# AURORA VIKING STAFF - ENVIRONMENT CONFIGURATION TEMPLATE
-# =============================================================================
-# Copy this content to your .env file and fill in your actual API keys
+# Environment Variables Template
+# Copy this file to .env and fill in your actual values
 
-# =============================================================================
-# GOOGLE SERVICES
-# =============================================================================
+# Google Maps API Key
+GOOGLE_MAPS_API_KEY=YOUR_GOOGLE_MAPS_API_KEY_HERE
 
-# Google Maps API Key (for location tracking and maps)
-GOOGLE_MAPS_API_KEY=your_google_maps_api_key_here
+# Firebase Configuration (if needed)
+# FIREBASE_PROJECT_ID=your-project-id
+# FIREBASE_API_KEY=your-firebase-api-key
 
-# Google Drive API (for photo uploads)
-GOOGLE_DRIVE_API_KEY=your_google_drive_api_key_here
-GOOGLE_DRIVE_CLIENT_ID=your_google_drive_client_id_here
-GOOGLE_DRIVE_CLIENT_SECRET=your_google_drive_client_secret_here
+# Other API Keys (if needed)
+# BOKUN_API_KEY=your-bokun-api-key
+# BOKUN_SECRET=your-bokun-secret
 
-# =============================================================================
-# BOKUN API CONFIGURATION
-# =============================================================================
-
-# Bokun API for pickup lists and bookings
-BOKUN_ACCESS_KEY=your_bokun_access_key_here
-BOKUN_SECRET_KEY=your_bokun_secret_key_here
-BOKUN_API_BASE_URL=https://api.bokun.io/rest/v2
-
-# =============================================================================
-# FIREBASE CONFIGURATION
-# =============================================================================
-
-# Firebase Project Configuration
-FIREBASE_PROJECT_ID=your_firebase_project_id
-FIREBASE_API_KEY=your_firebase_api_key
-FIREBASE_APP_ID=your_firebase_app_id
-FIREBASE_MESSAGING_SENDER_ID=your_firebase_sender_id
-FIREBASE_STORAGE_BUCKET=your_firebase_storage_bucket
-
-# Firebase Authentication
-FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
-
-# =============================================================================
-# BACKEND API CONFIGURATION
-# =============================================================================
-
-# Main API Configuration
-API_BASE_URL=https://api.auroraviking.com
-API_VERSION=v1
-API_TIMEOUT=30000
-
-# Authentication
-JWT_SECRET=your_jwt_secret_key_here
-REFRESH_TOKEN_SECRET=your_refresh_token_secret_here
-
-# =============================================================================
-# ADMIN CONFIGURATION
-# =============================================================================
-
-# Admin Access (should be moved to secure storage in production)
-ADMIN_PASSWORD=aurora2024
-
-# =============================================================================
-# APP CONFIGURATION
-# =============================================================================
-
-# App Settings
-APP_NAME=Aurora Viking Staff
-APP_VERSION=1.0.0
-ENVIRONMENT=development
-
-# Location Settings
-DEFAULT_LATITUDE=64.9631
-DEFAULT_LONGITUDE=-19.0208
-LOCATION_UPDATE_INTERVAL=30
-
-# File Upload Settings
-MAX_IMAGE_SIZE=10485760
-ALLOWED_IMAGE_TYPES=jpg,jpeg,png,heic
-
-# Pickup List Settings
-MAX_PASSENGERS_PER_BUS=19
-
-# =============================================================================
-# NOTIFICATION SERVICES
-# =============================================================================
-
-# Push Notifications
-FCM_SERVER_KEY=your_fcm_server_key
-FCM_SENDER_ID=your_fcm_sender_id
-
-# Email Notifications (optional)
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USERNAME=your_email@gmail.com
-SMTP_PASSWORD=your_email_password
-
-# =============================================================================
-# ANALYTICS & MONITORING
-# =============================================================================
-
-# Analytics Services (optional)
-SENTRY_DSN=your_sentry_dsn
-MIXPANEL_TOKEN=your_mixpanel_token
-GOOGLE_ANALYTICS_ID=your_ga_id
-
-# =============================================================================
-# DEVELOPMENT & DEBUGGING
-# =============================================================================
-
-# Debug Settings
-DEBUG_MODE=true
-LOG_LEVEL=debug
-ENABLE_CRASH_REPORTING=true
-
-# =============================================================================
-# SECURITY & ENCRYPTION
-# =============================================================================
-
-# Encryption Keys (for sensitive data)
-ENCRYPTION_KEY=your_32_character_encryption_key_here
-SALT_ROUNDS=12
-
-# =============================================================================
-# FEATURE FLAGS
-# =============================================================================
-
-# Enable/Disable Features
-ENABLE_PUSH_NOTIFICATIONS=true
-ENABLE_LOCATION_TRACKING=true
-ENABLE_PHOTO_UPLOAD=true
-ENABLE_PICKUP_LISTS=true
-ENABLE_ADMIN_FEATURES=true
-
-# =============================================================================
-# NOTES
-# =============================================================================
-
-# IMPORTANT: 
-# 1. Replace all 'your_*_here' values with actual API keys
-# 2. Never commit this file to version control
-# 3. Use different keys for development, staging, and production
-# 4. Regularly rotate API keys for security
-# 5. Store sensitive keys in secure key management systems in production 
+# Note: Never commit the actual .env file to version control
+# The .env file is already in .gitignore 

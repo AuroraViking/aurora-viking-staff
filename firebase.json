@@ -1,1 +1,29 @@
-{"flutter":{"platforms":{"android":{"default":{"projectId":"aurora-viking-staff","appId":"1:975783791718:android:fbbbd5fa12e2efa80831a7","fileOutput":"android/app/google-services.json"}},"dart":{"lib/firebase_options.dart":{"projectId":"aurora-viking-staff","configurations":{"android":"1:975783791718:android:fbbbd5fa12e2efa80831a7","ios":"1:975783791718:ios:4310afee1a72f1760831a7","macos":"1:975783791718:ios:4310afee1a72f1760831a7","web":"1:975783791718:web:d8735628c4c7ec7e0831a7","windows":"1:975783791718:web:d584a5e15d66dc110831a7"}}}}}}
+{
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "aurora-viking-staff",
+          "appId": "1:975783791718:android:fbbbd5fa12e2efa80831a7",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "aurora-viking-staff",
+          "configurations": {
+            "android": "1:975783791718:android:fbbbd5fa12e2efa80831a7",
+            "ios": "1:975783791718:ios:4310afee1a72f1760831a7",
+            "macos": "1:975783791718:ios:4310afee1a72f1760831a7",
+            "web": "1:975783791718:web:d8735628c4c7ec7e0831a7",
+            "windows": "1:975783791718:web:d584a5e15d66dc110831a7"
+          }
+        }
+      }
+    }
+  }
+}
