@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../core/theme/colors.dart';
+import '../../core/auth/auth_controller.dart';
 import '../../widgets/common/loading_widget.dart';
 import '../../widgets/common/error_widget.dart';
 import 'pickup_controller.dart';
@@ -22,6 +23,13 @@ class _PickupScreenState extends State<PickupScreen> {
 
   void _loadTodayBookings() {
     final controller = context.read<PickupController>();
+    final authController = context.read<AuthController>();
+    
+    // Set the current user in the pickup controller
+    if (authController.currentUser != null) {
+      controller.setCurrentUser(authController.currentUser!);
+    }
+    
     controller.loadBookingsForDate(DateTime.now());
   }
 
@@ -33,6 +41,11 @@ class _PickupScreenState extends State<PickupScreen> {
         backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.calendar_today),
+            onPressed: () => _selectDate(),
+            tooltip: 'Select date',
+          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _loadTodayBookings,
@@ -53,12 +66,14 @@ class _PickupScreenState extends State<PickupScreen> {
             );
           }
 
-          final today = DateTime.now();
+          final selectedDate = controller.selectedDate;
           final bookings = controller.currentUserBookings;
+          final totalGuests = bookings.fold<int>(0, (sum, booking) => sum + booking.numberOfGuests);
+          final pickedUpGuests = bookings.where((booking) => booking.isArrived).fold<int>(0, (sum, booking) => sum + booking.numberOfGuests);
 
           return Column(
             children: [
-              // Today's Header
+              // Date Header with Stats
               Container(
                 margin: const EdgeInsets.all(16),
                 padding: const EdgeInsets.all(16),
@@ -67,51 +82,127 @@ class _PickupScreenState extends State<PickupScreen> {
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: AppColors.primary.withOpacity(0.3)),
                 ),
-                child: Row(
+                child: Column(
                   children: [
-                    const Icon(Icons.today, color: AppColors.primary, size: 24),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Today (${today.day}/${today.month}/${today.year})',
+                    // Date row
+                    Row(
+                      children: [
+                        const Icon(Icons.calendar_today, color: AppColors.primary, size: 24),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            '${selectedDate.day}/${selectedDate.month}/${selectedDate.year}',
                             style: const TextStyle(
-                              fontSize: 16,
+                              fontSize: 18,
                               fontWeight: FontWeight.bold,
                               color: AppColors.primary,
                             ),
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            bookings.isEmpty 
-                              ? 'No pickups assigned today'
-                              : '${bookings.fold<int>(0, (sum, booking) => sum + booking.numberOfGuests)} guests • ${bookings.length} pickups',
-                            style: const TextStyle(
-                              fontSize: 14,
-                              color: Colors.grey,
+                        ),
+                        if (selectedDate.day == DateTime.now().day &&
+                            selectedDate.month == DateTime.now().month &&
+                            selectedDate.year == DateTime.now().year)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: const Text(
+                              'TODAY',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 12),
+
+                    // Stats row
+                    if (bookings.isNotEmpty) ...[
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Total Guests',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                                Text(
+                                  '$totalGuests',
+                                  style: const TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold,
+                                    color: AppColors.primary,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Picked Up',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                                Text(
+                                  '$pickedUpGuests of $totalGuests',
+                                  style: TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold,
+                                    color: pickedUpGuests == totalGuests ? AppColors.success : AppColors.warning,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Pickups',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                                Text(
+                                  '${bookings.length}',
+                                  style: const TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold,
+                                    color: AppColors.primary,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ],
                       ),
-                    ),
-                    if (bookings.isNotEmpty)
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: AppColors.primary,
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: Text(
-                          '${bookings.fold<int>(0, (sum, booking) => sum + booking.numberOfGuests)} guests',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12,
-                          ),
+                    ] else ...[
+                      Text(
+                        'No pickups assigned for this date',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.grey[600],
                         ),
                       ),
+                    ],
                   ],
                 ),
               ),
@@ -120,130 +211,160 @@ class _PickupScreenState extends State<PickupScreen> {
               Expanded(
                 child: bookings.isEmpty
                   ? _buildEmptyState()
-                  : ListView.builder(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      itemCount: bookings.length,
-                      itemBuilder: (context, index) {
+                  : RefreshIndicator(
+                      onRefresh: () async {
+                        await _refreshData();
+                      },
+                      child: ListView.builder(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        itemCount: bookings.length,
+                        itemBuilder: (context, index) {
                         final booking = bookings[index];
                         return Card(
-                          margin: const EdgeInsets.only(bottom: 12),
+                          margin: const EdgeInsets.only(bottom: 8),
                           child: Padding(
-                            padding: const EdgeInsets.all(16),
+                            padding: const EdgeInsets.all(12),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                // Header with customer name and status
+                                // Pickup place at the top (bold)
+                                Text(
+                                  booking.pickupPlaceName,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
+                                    color: AppColors.primary,
+                                  ),
+                                ),
+                                
+                                const SizedBox(height: 4),
+                                
+                                // Customer name with arrived button and action buttons
                                 Row(
                                   children: [
                                     Expanded(
                                       child: Text(
                                         booking.customerFullName,
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 16,
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          decoration: booking.isNoShow ? TextDecoration.lineThrough : null,
+                                          color: booking.isNoShow ? AppColors.error : AppColors.textPrimary,
                                         ),
                                       ),
                                     ),
-                                    // Status indicators
-                                    if (booking.isNoShow)
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                        decoration: BoxDecoration(
-                                          color: Colors.red,
-                                          borderRadius: BorderRadius.circular(12),
-                                        ),
-                                        child: const Text(
-                                          'NO SHOW',
-                                          style: TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      )
-                                    else if (booking.isArrived)
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                        decoration: BoxDecoration(
-                                          color: Colors.green,
-                                          borderRadius: BorderRadius.circular(12),
-                                        ),
-                                        child: const Text(
-                                          'ARRIVED',
-                                          style: TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                                
-                                const SizedBox(height: 12),
-                                
-                                // Pickup details
-                                _buildInfoRow(Icons.location_on, booking.pickupPlaceName),
-                                _buildInfoRow(Icons.access_time, _formatTime(booking.pickupTime)),
-                                _buildInfoRow(Icons.people, '${booking.numberOfGuests} guests'),
-                                if (booking.phoneNumber.isNotEmpty)
-                                  _buildInfoRow(Icons.phone, booking.phoneNumber),
-                                if (booking.email.isNotEmpty)
-                                  _buildInfoRow(Icons.email, booking.email),
-                                
-                                const SizedBox(height: 16),
-                                
-                                // Action buttons
-                                Row(
-                                  children: [
+                                    
                                     // Arrived checkbox
-                                    Expanded(
-                                      child: Row(
-                                        children: [
-                                          Checkbox(
-                                            value: booking.isArrived,
-                                            onChanged: (value) => _markAsArrived(booking.id, value ?? false),
-                                            activeColor: AppColors.primary,
-                                          ),
-                                          const Text(
-                                            'Arrived',
-                                            style: TextStyle(fontSize: 14),
-                                          ),
-                                        ],
-                                      ),
+                                    Row(
+                                      children: [
+                                        Checkbox(
+                                          value: booking.isArrived,
+                                          onChanged: (value) => _markAsArrived(booking.id, value ?? false),
+                                          activeColor: AppColors.primary,
+                                          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                        ),
+                                        const Text(
+                                          'Arrived',
+                                          style: TextStyle(fontSize: 12),
+                                        ),
+                                      ],
                                     ),
                                     
                                     // Action buttons
                                     if (booking.phoneNumber.isNotEmpty)
                                       IconButton(
-                                        icon: const Icon(Icons.call, color: Colors.green),
+                                        icon: const Icon(Icons.call, color: Colors.green, size: 18),
                                         onPressed: () => _makePhoneCall(booking.phoneNumber),
                                         tooltip: 'Call customer',
-                                      ),
-                                    
-                                    if (booking.email.isNotEmpty)
-                                      IconButton(
-                                        icon: const Icon(Icons.email, color: Colors.blue),
-                                        onPressed: () => _sendArrivalEmail(booking.email, booking.customerFullName),
-                                        tooltip: 'Send arrival email',
+                                        padding: EdgeInsets.zero,
+                                        constraints: const BoxConstraints(),
                                       ),
                                     
                                     // No show button (only if not arrived)
                                     if (!booking.isArrived)
                                       IconButton(
-                                        icon: const Icon(Icons.no_transfer, color: Colors.red),
+                                        icon: const Icon(Icons.no_transfer, color: Colors.red, size: 18),
                                         onPressed: () => _markAsNoShow(booking.id),
                                         tooltip: 'Mark as No Show',
+                                        padding: EdgeInsets.zero,
+                                        constraints: const BoxConstraints(),
                                       ),
                                   ],
                                 ),
+                                
+                                const SizedBox(height: 4),
+                                
+                                // Time and guest count on same line
+                                Text(
+                                  '${_formatTime(booking.pickupTime)} - ${booking.numberOfGuests} guest${booking.numberOfGuests > 1 ? 's' : ''}',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: AppColors.textSecondary,
+                                  ),
+                                ),
+                                
+                                // Phone number (if available)
+                                if (booking.phoneNumber.isNotEmpty) ...[
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    booking.phoneNumber,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: AppColors.textSecondary,
+                                    ),
+                                  ),
+                                ],
+                                
+                                // Status indicators
+                                if (booking.isNoShow || booking.isArrived)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 4),
+                                    child: Row(
+                                      children: [
+                                        if (booking.isNoShow)
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                            decoration: BoxDecoration(
+                                              color: AppColors.error,
+                                              borderRadius: BorderRadius.circular(8),
+                                            ),
+                                            child: const Text(
+                                              'NO SHOW',
+                                              style: TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 8,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          )
+                                        else if (booking.isArrived)
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                            decoration: BoxDecoration(
+                                              color: AppColors.success,
+                                              borderRadius: BorderRadius.circular(8),
+                                            ),
+                                            child: const Text(
+                                              'ARRIVED',
+                                              style: TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 8,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                
+
                               ],
                             ),
                           ),
                         );
                       },
                     ),
-              ),
+                  ),
+                ),
             ],
           );
         },
@@ -415,6 +536,38 @@ class _PickupScreenState extends State<PickupScreen> {
           ),
         );
       }
+    }
+  }
+
+  Future<void> _refreshData() async {
+    final controller = context.read<PickupController>();
+    final authController = context.read<AuthController>();
+    
+    // Set the current user in the pickup controller
+    if (authController.currentUser != null) {
+      controller.setCurrentUser(authController.currentUser!);
+    }
+    
+    await controller.loadBookingsForDate(controller.selectedDate);
+  }
+
+  Future<void> _selectDate() async {
+    final controller = context.read<PickupController>();
+    final authController = context.read<AuthController>();
+    final selectedDate = await showDatePicker(
+      context: context,
+      initialDate: controller.selectedDate,
+      firstDate: DateTime.now().subtract(const Duration(days: 30)),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+    );
+    
+    if (selectedDate != null) {
+      // Set the current user in the pickup controller
+      if (authController.currentUser != null) {
+        controller.setCurrentUser(authController.currentUser!);
+      }
+      
+      await controller.loadBookingsForDate(selectedDate);
     }
   }
 } 

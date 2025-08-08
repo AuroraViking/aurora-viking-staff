@@ -29,6 +29,16 @@ service cloud.firestore {
       allow read, write: if request.auth != null;
     }
     
+    // Reordered bookings - guides can read/write their own reordered lists
+    match /reordered_bookings/{document} {
+      allow read, write: if request.auth != null;
+    }
+    
+    // Updated pickup places - guides can read/write their own pickup place updates
+    match /updated_pickup_places/{document} {
+      allow read, write: if request.auth != null;
+    }
+    
     // Allow admins to read all user data
     match /users/{userId} {
       allow read: if request.auth != null && 

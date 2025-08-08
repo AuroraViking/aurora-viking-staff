@@ -429,4 +429,143 @@ class FirebaseService {
       print('❌ Failed to remove pickup assignment: $e');
     }
   }
+
+  // Save reordered booking list for a guide
+  static Future<void> saveReorderedBookings({
+    required String guideId,
+    required String date,
+    required List<String> bookingIds,
+  }) async {
+    if (!_initialized || _firestore == null) {
+      print('⚠️ Firebase not initialized - skipping reordered bookings save');
+      return;
+    }
+    
+    try {
+      await _firestore!
+          .collection('reordered_bookings')
+          .doc('${date}_$guideId')
+          .set({
+        'guideId': guideId,
+        'date': date,
+        'bookingIds': bookingIds,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      
+      print('✅ Reordered bookings saved for guide $guideId: ${bookingIds.length} bookings');
+    } catch (e) {
+      print('❌ Failed to save reordered bookings: $e');
+    }
+  }
+
+  // Get reordered booking list for a guide
+  static Future<List<String>> getReorderedBookings({
+    required String guideId,
+    required String date,
+  }) async {
+    if (!_initialized || _firestore == null) {
+      print('⚠️ Firebase not initialized - returning empty reordered bookings');
+      return [];
+    }
+    
+    try {
+      final doc = await _firestore!
+          .collection('reordered_bookings')
+          .doc('${date}_$guideId')
+          .get();
+      
+      if (doc.exists) {
+        final data = doc.data() as Map<String, dynamic>;
+        final bookingIds = List<String>.from(data['bookingIds'] ?? []);
+        print('✅ Loaded reordered bookings for guide $guideId: ${bookingIds.length} bookings');
+        return bookingIds;
+      }
+      
+      return [];
+    } catch (e) {
+      print('❌ Failed to get reordered bookings: $e');
+      return [];
+    }
+  }
+
+  // Remove reordered bookings for a guide
+  static Future<void> removeReorderedBookings({
+    required String guideId,
+    required String date,
+  }) async {
+    if (!_initialized || _firestore == null) {
+      print('⚠️ Firebase not initialized - skipping reordered bookings removal');
+      return;
+    }
+    
+    try {
+      await _firestore!
+          .collection('reordered_bookings')
+          .doc('${date}_$guideId')
+          .delete();
+      
+      print('✅ Reordered bookings removed for guide $guideId');
+    } catch (e) {
+      print('❌ Failed to remove reordered bookings: $e');
+    }
+  }
+
+  // Save updated pickup place for a booking
+  static Future<void> saveUpdatedPickupPlace({
+    required String bookingId,
+    required String date,
+    required String pickupPlace,
+  }) async {
+    if (!_initialized || _firestore == null) {
+      print('⚠️ Firebase not initialized - skipping pickup place update');
+      return;
+    }
+    
+    try {
+      await _firestore!
+          .collection('updated_pickup_places')
+          .doc('${date}_$bookingId')
+          .set({
+        'bookingId': bookingId,
+        'date': date,
+        'pickupPlace': pickupPlace,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      
+      print('✅ Updated pickup place saved for booking $bookingId: $pickupPlace');
+    } catch (e) {
+      print('❌ Failed to save updated pickup place: $e');
+    }
+  }
+
+  // Get updated pickup places for a date
+  static Future<Map<String, String>> getUpdatedPickupPlaces(String date) async {
+    if (!_initialized || _firestore == null) {
+      print('⚠️ Firebase not initialized - returning empty updated pickup places');
+      return {};
+    }
+    
+    try {
+      final querySnapshot = await _firestore!
+          .collection('updated_pickup_places')
+          .where('date', isEqualTo: date)
+          .get();
+
+      final pickupPlaces = <String, String>{};
+      for (final doc in querySnapshot.docs) {
+        final data = doc.data();
+        final bookingId = data['bookingId'] as String?;
+        final pickupPlace = data['pickupPlace'] as String?;
+        if (bookingId != null && pickupPlace != null) {
+          pickupPlaces[bookingId] = pickupPlace;
+        }
+      }
+      
+      print('✅ Loaded ${pickupPlaces.length} updated pickup places for date $date');
+      return pickupPlaces;
+    } catch (e) {
+      print('❌ Failed to get updated pickup places: $e');
+      return {};
+    }
+  }
 } 

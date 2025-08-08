@@ -56,6 +56,9 @@ class PickupController extends ChangeNotifier {
       // Load individual assignments from Firebase
       final assignments = await FirebaseService.getIndividualPickupAssignments(dateStr);
       
+      // Load updated pickup places from Firebase
+      final updatedPickupPlaces = await FirebaseService.getUpdatedPickupPlaces(dateStr);
+      
       // Apply statuses and assignments to bookings
       final updatedBookings = bookings.map((booking) {
         // Apply status
@@ -78,10 +81,36 @@ class PickupController extends ChangeNotifier {
           print('✅ Applied assignment for booking ${booking.id}: ${assignment['guideName']}');
         }
         
+        // Apply updated pickup place
+        final updatedPickupPlace = updatedPickupPlaces[booking.id];
+        if (updatedPickupPlace != null) {
+          updatedBooking = updatedBooking.copyWith(
+            pickupPlaceName: updatedPickupPlace,
+          );
+          print('✅ Applied updated pickup place for booking ${booking.id}: $updatedPickupPlace');
+        }
+        
         return updatedBooking;
       }).toList();
       
-      _currentUserBookings = updatedBookings;
+      // Sort bookings alphabetically by pickup place name
+      updatedBookings.sort((a, b) => a.pickupPlaceName.compareTo(b.pickupPlaceName));
+      
+      // Filter bookings for current user if set
+      if (_currentUser != null) {
+        final userBookings = updatedBookings
+            .where((booking) => booking.assignedGuideId == _currentUser!.id)
+            .toList();
+        
+        // Try to load saved reordered list
+        final reorderedList = await _loadReorderedBookings(userBookings);
+        _currentUserBookings = reorderedList;
+        
+        print('👤 Filtered ${_currentUserBookings.length} bookings for current user: ${_currentUser!.fullName}');
+      } else {
+        _currentUserBookings = updatedBookings;
+      }
+      
       _bookings = updatedBookings; // Also update admin bookings
       _selectedDate = date;
       _stats = await _pickupService.getPickupListStats(date);
@@ -356,6 +385,155 @@ class PickupController extends ChangeNotifier {
   void setCurrentUser(User user) {
     _currentUser = user;
     notifyListeners();
+  }
+
+  // Update current user bookings order
+  void updateCurrentUserBookingsOrder(List<PickupBooking> reorderedBookings) {
+    _currentUserBookings = reorderedBookings;
+    notifyListeners();
+    
+    // Save the reordered list to Firebase for persistence
+    _saveReorderedBookings(reorderedBookings);
+  }
+
+  // Reset to alphabetical order
+  void resetToAlphabeticalOrder() {
+    if (_currentUserBookings.isNotEmpty) {
+      final sortedBookings = List<PickupBooking>.from(_currentUserBookings)
+        ..sort((a, b) => a.pickupPlaceName.compareTo(b.pickupPlaceName));
+      
+      _currentUserBookings = sortedBookings;
+      notifyListeners();
+      
+      // Remove saved reordered list from Firebase
+      _removeReorderedBookings();
+    }
+  }
+
+  // Update pickup place for a booking
+  void updatePickupPlace(String bookingId, String newPickupPlace) {
+    // Update in current user bookings
+    final currentUserIndex = _currentUserBookings.indexWhere((booking) => booking.id == bookingId);
+    if (currentUserIndex != -1) {
+      _currentUserBookings[currentUserIndex] = _currentUserBookings[currentUserIndex].copyWith(
+        pickupPlaceName: newPickupPlace,
+      );
+    }
+    
+    // Update in main bookings list
+    final mainIndex = _bookings.indexWhere((booking) => booking.id == bookingId);
+    if (mainIndex != -1) {
+      _bookings[mainIndex] = _bookings[mainIndex].copyWith(
+        pickupPlaceName: newPickupPlace,
+      );
+    }
+    
+    notifyListeners();
+    
+    // Save the updated pickup place to Firebase
+    _saveUpdatedPickupPlace(bookingId, newPickupPlace);
+  }
+
+  // Save updated pickup place to Firebase
+  Future<void> _saveUpdatedPickupPlace(String bookingId, String newPickupPlace) async {
+    try {
+      final dateStr = '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}';
+      
+      await FirebaseService.saveUpdatedPickupPlace(
+        bookingId: bookingId,
+        date: dateStr,
+        pickupPlace: newPickupPlace,
+      );
+      
+      print('💾 Saved updated pickup place for booking $bookingId: $newPickupPlace');
+    } catch (e) {
+      print('❌ Failed to save updated pickup place: $e');
+    }
+  }
+
+  // Save reordered bookings to Firebase
+  Future<void> _saveReorderedBookings(List<PickupBooking> reorderedBookings) async {
+    if (_currentUser == null) return;
+    
+    try {
+      final dateStr = '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}';
+      final bookingIds = reorderedBookings.map((b) => b.id).toList();
+      
+      await FirebaseService.saveReorderedBookings(
+        guideId: _currentUser!.id,
+        date: dateStr,
+        bookingIds: bookingIds,
+      );
+      
+      print('💾 Saved reordered bookings for guide ${_currentUser!.fullName} on $dateStr');
+    } catch (e) {
+      print('❌ Failed to save reordered bookings: $e');
+    }
+  }
+
+  // Remove reordered bookings from Firebase
+  Future<void> _removeReorderedBookings() async {
+    if (_currentUser == null) return;
+    
+    try {
+      final dateStr = '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}';
+      
+      await FirebaseService.removeReorderedBookings(
+        guideId: _currentUser!.id,
+        date: dateStr,
+      );
+      
+      print('🗑️ Removed reordered bookings for guide ${_currentUser!.fullName} on $dateStr');
+    } catch (e) {
+      print('❌ Failed to remove reordered bookings: $e');
+    }
+  }
+
+  // Load reordered bookings from Firebase
+  Future<List<PickupBooking>> _loadReorderedBookings(List<PickupBooking> userBookings) async {
+    if (_currentUser == null) return userBookings;
+    
+    try {
+      final dateStr = '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}';
+      
+      // Try to load existing reordered list from Firebase
+      final savedBookingIds = await FirebaseService.getReorderedBookings(
+        guideId: _currentUser!.id,
+        date: dateStr,
+      );
+      
+      if (savedBookingIds.isNotEmpty) {
+        // Reconstruct list from saved order
+        final reorderedList = <PickupBooking>[];
+        for (final bookingId in savedBookingIds) {
+          try {
+            final booking = userBookings.firstWhere(
+              (b) => b.id == bookingId,
+            );
+            reorderedList.add(booking);
+          } catch (e) {
+            // Booking not found, skip it
+            print('⚠️ Booking $bookingId not found in user bookings, skipping');
+          }
+        }
+        
+        // Add any new bookings that weren't in the saved order
+        for (final booking in userBookings) {
+          if (!savedBookingIds.contains(booking.id)) {
+            reorderedList.add(booking);
+          }
+        }
+        
+        print('🔄 Loaded saved reordered list for guide ${_currentUser!.fullName}: ${reorderedList.length} bookings');
+        return reorderedList;
+      } else {
+        // No saved order, return original sorted list
+        return userBookings;
+      }
+    } catch (e) {
+      print('❌ Failed to load reordered bookings: $e');
+      return userBookings;
+    }
   }
 
   // Clear error

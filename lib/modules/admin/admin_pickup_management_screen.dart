@@ -8,6 +8,7 @@ import '../../widgets/common/error_widget.dart';
 import '../pickup/pickup_controller.dart';
 import 'admin_service.dart';
 import '../../core/models/admin_models.dart';
+import '../../core/services/firebase_service.dart'; // Added import for FirebaseService
 
 class AdminPickupManagementScreen extends StatefulWidget {
   const AdminPickupManagementScreen({Key? key}) : super(key: key);
@@ -329,13 +330,18 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
       );
     }
 
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: unassignedBookings.length,
-      itemBuilder: (context, index) {
-        final booking = unassignedBookings[index];
-        return _buildUnassignedBookingCard(booking, controller);
+    return RefreshIndicator(
+      onRefresh: () async {
+        await _refreshData(controller);
       },
+      child: ListView.builder(
+        padding: const EdgeInsets.all(16),
+        itemCount: unassignedBookings.length,
+        itemBuilder: (context, index) {
+          final booking = unassignedBookings[index];
+          return _buildUnassignedBookingCard(booking, controller);
+        },
+      ),
     );
   }
 
@@ -356,10 +362,20 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
             Text('${booking.phoneNumber} • ${booking.email}'),
           ],
         ),
-        trailing: PopupMenuButton<String>(
-          onSelected: (guideId) => _assignBookingToGuide(booking, guideId, controller),
-          itemBuilder: (context) => _buildGuideMenuItems(controller),
-          child: const Icon(Icons.more_vert),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.edit, color: Colors.blue),
+              onPressed: () => _editPickupPlace(booking, controller),
+              tooltip: 'Edit Pickup Place',
+            ),
+            PopupMenuButton<String>(
+              onSelected: (guideId) => _assignBookingToGuide(booking, guideId, controller),
+              itemBuilder: (context) => _buildGuideMenuItems(controller),
+              child: const Icon(Icons.more_vert),
+            ),
+          ],
         ),
       ),
     );
@@ -414,23 +430,25 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
       );
     }
 
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: guideLists.length,
-      itemBuilder: (context, index) {
-        final guideList = guideLists[index];
-        return _buildGuideListCard(guideList, controller);
+    return RefreshIndicator(
+      onRefresh: () async {
+        await _refreshData(controller);
       },
+      child: ListView.builder(
+        padding: const EdgeInsets.all(16),
+        itemCount: guideLists.length,
+        itemBuilder: (context, index) {
+          final guideList = guideLists[index];
+          return _buildGuideListCard(guideList, controller);
+        },
+      ),
     );
   }
 
   Widget _buildGuideListCard(GuidePickupList guideList, PickupController controller) {
     // Initialize reordered list if it doesn't exist for this guide
     if (!_reorderedBookings.containsKey(guideList.guideId)) {
-      final sortedList = List<PickupBooking>.from(guideList.bookings)
-        ..sort((a, b) => a.pickupPlaceName.compareTo(b.pickupPlaceName));
-      _reorderedBookings[guideList.guideId] = sortedList;
-      print('🔄 Initialized reordered list for guide ${guideList.guideName}: ${sortedList.length} bookings');
+      _initializeReorderedList(guideList, controller);
     }
     
     // Get the reordered list for this guide
@@ -467,10 +485,7 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
             IconButton(
               icon: const Icon(Icons.sort, size: 20),
               onPressed: () {
-                setState(() {
-                  _reorderedBookings.remove(guideList.guideId);
-                  print('🔄 Reset order for guide ${guideList.guideName}');
-                });
+                _resetGuideOrder(guideList, controller);
               },
               tooltip: 'Reset to alphabetical order',
             ),
@@ -483,19 +498,7 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
             child: ReorderableListView.builder(
               itemCount: reorderedList.length,
               onReorder: (oldIndex, newIndex) {
-                setState(() {
-                  if (oldIndex < newIndex) {
-                    newIndex -= 1;
-                  }
-                  final item = reorderedList.removeAt(oldIndex);
-                  reorderedList.insert(newIndex, item);
-                  
-                  // Update the reordered bookings map with the modified list
-                  _reorderedBookings[guideList.guideId] = List.from(reorderedList);
-                  
-                  print('🔄 Reordered booking "${item.customerFullName}" from index $oldIndex to $newIndex for guide ${guideList.guideName}');
-                  print('📋 New order: ${reorderedList.map((b) => b.customerFullName).toList()}');
-                });
+                _handleReorder(oldIndex, newIndex, reorderedList, guideList, controller);
               },
               itemBuilder: (context, index) {
                 final booking = reorderedList[index];
@@ -505,6 +508,103 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
           ),
         ],
       ),
+    );
+  }
+
+  // Initialize reordered list for a guide
+  Future<void> _initializeReorderedList(GuidePickupList guideList, PickupController controller) async {
+    final dateStr = '${controller.selectedDate.year}-${controller.selectedDate.month.toString().padLeft(2, '0')}-${controller.selectedDate.day.toString().padLeft(2, '0')}';
+    
+    // Try to load existing reordered list from Firebase
+    final savedBookingIds = await FirebaseService.getReorderedBookings(
+      guideId: guideList.guideId,
+      date: dateStr,
+    );
+    
+    List<PickupBooking> reorderedList;
+    
+    if (savedBookingIds.isNotEmpty) {
+      // Reconstruct list from saved order
+      reorderedList = <PickupBooking>[];
+      for (final bookingId in savedBookingIds) {
+        try {
+          final booking = guideList.bookings.firstWhere(
+            (b) => b.id == bookingId,
+          );
+          reorderedList.add(booking);
+        } catch (e) {
+          // Booking not found, skip it
+          print('⚠️ Booking $bookingId not found in guide list, skipping');
+        }
+      }
+      
+      // Add any new bookings that weren't in the saved order
+      for (final booking in guideList.bookings) {
+        if (!savedBookingIds.contains(booking.id)) {
+          reorderedList.add(booking);
+        }
+      }
+      
+      print('🔄 Loaded saved reordered list for guide ${guideList.guideName}: ${reorderedList.length} bookings');
+    } else {
+      // Create new sorted list
+      reorderedList = List<PickupBooking>.from(guideList.bookings)
+        ..sort((a, b) => a.pickupPlaceName.compareTo(b.pickupPlaceName));
+      print('🔄 Created new sorted list for guide ${guideList.guideName}: ${reorderedList.length} bookings');
+    }
+    
+    setState(() {
+      _reorderedBookings[guideList.guideId] = reorderedList;
+    });
+  }
+
+  // Handle reordering
+  void _handleReorder(int oldIndex, int newIndex, List<PickupBooking> reorderedList, GuidePickupList guideList, PickupController controller) {
+    setState(() {
+      if (oldIndex < newIndex) {
+        newIndex -= 1;
+      }
+      final item = reorderedList.removeAt(oldIndex);
+      reorderedList.insert(newIndex, item);
+      
+      // Update the reordered bookings map
+      _reorderedBookings[guideList.guideId] = List.from(reorderedList);
+      
+      print('🔄 Reordered booking "${item.customerFullName}" from index $oldIndex to $newIndex for guide ${guideList.guideName}');
+      print('📋 New order: ${reorderedList.map((b) => b.customerFullName).toList()}');
+    });
+    
+    // Save to Firebase
+    _saveReorderedList(guideList, controller);
+  }
+
+  // Save reordered list to Firebase
+  Future<void> _saveReorderedList(GuidePickupList guideList, PickupController controller) async {
+    final reorderedList = _reorderedBookings[guideList.guideId];
+    if (reorderedList != null) {
+      final dateStr = '${controller.selectedDate.year}-${controller.selectedDate.month.toString().padLeft(2, '0')}-${controller.selectedDate.day.toString().padLeft(2, '0')}';
+      final bookingIds = reorderedList.map((b) => b.id).toList();
+      
+      await FirebaseService.saveReorderedBookings(
+        guideId: guideList.guideId,
+        date: dateStr,
+        bookingIds: bookingIds,
+      );
+    }
+  }
+
+  // Reset guide order
+  void _resetGuideOrder(GuidePickupList guideList, PickupController controller) async {
+    setState(() {
+      _reorderedBookings.remove(guideList.guideId);
+      print('🔄 Reset order for guide ${guideList.guideName}');
+    });
+    
+    // Remove from Firebase
+    final dateStr = '${controller.selectedDate.year}-${controller.selectedDate.month.toString().padLeft(2, '0')}-${controller.selectedDate.day.toString().padLeft(2, '0')}';
+    await FirebaseService.removeReorderedBookings(
+      guideId: guideList.guideId,
+      date: dateStr,
     );
   }
 
@@ -575,6 +675,10 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
           PopupMenuButton<String>(
             onSelected: (action) => _handleBookingAction(action, booking, guideList, controller),
             itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'edit',
+                child: Text('Edit Pickup Place'),
+              ),
               const PopupMenuItem(
                 value: 'move',
                 child: Text('Move to another guide'),
@@ -682,6 +786,10 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
   void _handleBookingAction(String action, PickupBooking booking, GuidePickupList guideList, PickupController controller) {
     print('🔧 Handling booking action: $action for booking: ${booking.customerFullName}');
     switch (action) {
+      case 'edit':
+        print('✏️ Editing pickup place...');
+        _editPickupPlace(booking, controller);
+        break;
       case 'move':
         print('📤 Moving booking to another guide...');
         _showMoveBookingDialog(booking, guideList, controller);
@@ -784,6 +892,77 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
           backgroundColor: AppColors.error,
         ),
       );
+    }
+  }
+
+  Future<void> _refreshData(PickupController controller) async {
+    await controller.loadBookingsForDate(controller.selectedDate);
+    await _loadGuides();
+  }
+
+  void _editPickupPlace(PickupBooking booking, PickupController controller) {
+    final TextEditingController textController = TextEditingController(text: booking.pickupPlaceName);
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Edit Pickup Place'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('Customer: ${booking.customerFullName}'),
+            const SizedBox(height: 16),
+            TextField(
+              controller: textController,
+              decoration: const InputDecoration(
+                labelText: 'Pickup Place',
+                border: OutlineInputBorder(),
+              ),
+              autofocus: true,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final newPickupPlace = textController.text.trim();
+              if (newPickupPlace.isNotEmpty) {
+                Navigator.of(context).pop();
+                _savePickupPlaceEdit(booking, newPickupPlace, controller);
+              }
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _savePickupPlaceEdit(PickupBooking booking, String newPickupPlace, PickupController controller) {
+    try {
+      controller.updatePickupPlace(booking.id, newPickupPlace);
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Pickup place updated for ${booking.customerFullName}'),
+            backgroundColor: AppColors.success,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to update pickup place: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
     }
   }
 } 
