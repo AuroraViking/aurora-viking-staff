@@ -100,6 +100,199 @@ class PickupService {
     }
   }
 
+  // Fetch booking details from Bokun API
+  Future<Map<String, dynamic>?> _fetchBookingDetails(String confirmationCode) async {
+    try {
+      if (!_hasApiCredentials) {
+        print('❌ Booking Details: Bokun API credentials not found');
+        return null;
+      }
+
+      final url = '$_baseUrl/booking.json/$confirmationCode';
+      print('🌐 Booking Details API URL: $url');
+
+      final headers = _getHeaders('');
+      
+      final response = await http.get(
+        Uri.parse(url),
+        headers: headers,
+      );
+
+      print('📡 Booking Details API Response Status: ${response.statusCode}');
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        print('✅ Booking Details API call successful!');
+        print('📊 Booking Details Raw response: ${data.toString().substring(0, data.toString().length > 500 ? 500 : data.toString().length)}...');
+        return data;
+      } else {
+        print('❌ Booking Details API Error: ${response.statusCode}');
+        print('📄 Booking Details Error Response: ${response.body}');
+        return null;
+      }
+    } catch (e) {
+      print('❌ Booking Details Service: Error fetching details for confirmation code $confirmationCode: $e');
+      return null;
+    }
+  }
+
+  // Extract pickup information from supplier notes
+  String? _extractPickupFromNotes(List<dynamic>? notes) {
+    if (notes == null) return null;
+    
+    print('🔍 === PARSING PICKUP FROM NOTES ===');
+    
+    for (var note in notes) {
+      if (note['body'] != null) {
+        final noteBody = note['body'].toString();
+        print('🔍 Note body: $noteBody');
+        
+        // Look for supplier note section with pickup changes
+        if (noteBody.contains('--- Supplier note: ---') || 
+            noteBody.contains('Pickup point changed')) {
+          
+          // Extract pickup location from "Pickup point changed from X to Y" pattern
+          final lines = noteBody.split('\n');
+          for (var line in lines) {
+            line = line.trim();
+            
+            // Look for the "Pickup point changed from X to Y" line
+            if (line.startsWith('Pickup point changed from') && line.contains(' to ')) {
+              final toIndex = line.lastIndexOf(' to ');
+              if (toIndex != -1) {
+                var pickupLocation = line.substring(toIndex + 4).trim();
+                
+                // Remove trailing period if present
+                if (pickupLocation.endsWith('.')) {
+                  pickupLocation = pickupLocation.substring(0, pickupLocation.length - 1);
+                }
+                
+                // Only return if it's not the default "select later" message
+                if (pickupLocation.isNotEmpty && 
+                    !pickupLocation.contains('I will select my pickup location later')) {
+                  print('✅ Found pickup location in supplier notes: $pickupLocation');
+                  return pickupLocation;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    print('🔍 No pickup location found in notes');
+    return null;
+  }
+
+  // Parse pickup information from booking details
+  String? _parsePickupFromBookingDetails(Map<String, dynamic> bookingDetails) {
+    print('🔍 === PARSING PICKUP FROM BOOKING DETAILS ===');
+    
+    try {
+      // Check product bookings for pickup information
+      if (bookingDetails['productBookings'] != null) {
+        for (var productBooking in bookingDetails['productBookings']) {
+          print('🔍 Product booking ID: ${productBooking['id']}');
+          
+          // Check for pickup fields at the product booking level
+          if (productBooking['pickup'] == true) {
+            print('✅ Pickup is enabled for this booking');
+            
+            // Look for pickupPlace object (this might contain the actual pickup location)
+            if (productBooking['pickupPlace'] != null) {
+              final pickupPlace = productBooking['pickupPlace'];
+              print('🔍 Found pickupPlace object: $pickupPlace');
+              
+              // Extract pickup location name
+              if (pickupPlace['name'] != null) {
+                final pickupName = pickupPlace['name'].toString();
+                print('✅ Found pickup location name: $pickupName');
+                return pickupName;
+              }
+              
+              // Also check for title or description
+              if (pickupPlace['title'] != null) {
+                final pickupTitle = pickupPlace['title'].toString();
+                print('✅ Found pickup location title: $pickupTitle');
+                return pickupTitle;
+              }
+            }
+            
+            // Check for pickupPlaceId and description from ActivityPickupAction
+            if (productBooking['pickupPlaceId'] != null) {
+              print('✅ Found pickupPlaceId: ${productBooking['pickupPlaceId']}');
+              
+              // If there's a description, use it
+              if (productBooking['pickupDescription'] != null) {
+                final description = productBooking['pickupDescription'].toString();
+                print('✅ Found pickup description: $description');
+                return description;
+              }
+            }
+            
+            // Check fields object for pickup information
+            if (productBooking['fields'] != null) {
+              final fields = productBooking['fields'];
+              
+              // These might be the modified pickup fields from ActivityPickupAction
+              if (fields['pickupPlaceDescription'] != null && fields['pickupPlaceDescription'].toString().isNotEmpty) {
+                final description = fields['pickupPlaceDescription'].toString();
+                print('✅ Found pickup place description in fields: $description');
+                return description;
+              }
+              
+              if (fields['pickupDescription'] != null && fields['pickupDescription'].toString().isNotEmpty) {
+                final description = fields['pickupDescription'].toString();
+                print('✅ Found pickup description in fields: $description');
+                return description;
+              }
+            }
+            
+            // Check for pickup information in notes (sometimes added there)
+            if (productBooking['notes'] != null) {
+              for (var note in productBooking['notes']) {
+                if (note['body'] != null) {
+                  final noteBody = note['body'].toString();
+                  if (noteBody.toLowerCase().contains('pickup') && noteBody.toLowerCase().contains('bus stop')) {
+                    print('✅ Found pickup info in notes: $noteBody');
+                    // Extract just the pickup location from the note
+                    final lines = noteBody.split('\n');
+                    for (var line in lines) {
+                      if (line.toLowerCase().contains('bus stop') || line.toLowerCase().contains('pickup')) {
+                        return line.trim();
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      
+      // Also check at the main booking level
+      if (bookingDetails['pickup'] == true) {
+        print('✅ Main booking has pickup enabled');
+        
+        // Check for pickup place at main level
+        if (bookingDetails['pickupPlace'] != null) {
+          final pickupPlace = bookingDetails['pickupPlace'];
+          if (pickupPlace['name'] != null) {
+            final pickupName = pickupPlace['name'].toString();
+            print('✅ Found main pickup location: $pickupName');
+            return pickupName;
+          }
+        }
+      }
+      
+      print('🔍 No pickup location found in booking details');
+      return null;
+    } catch (e) {
+      print('❌ Error parsing pickup from booking details: $e');
+      return null;
+    }
+  }
+
   // Parse pickup information from booking questions
   String? _parsePickupFromQuestions(Map<String, dynamic> questionsData) {
     print('🔍 === PARSING PICKUP FROM QUESTIONS ===');
@@ -232,6 +425,9 @@ class PickupService {
 
   // Fetch bookings from Bokun API for a specific date
   Future<List<PickupBooking>> fetchBookingsForDate(DateTime date) async {
+    print('🔍 DEBUG: fetchBookingsForDate called with date: $date');
+    print('🔍 DEBUG: Date components - Year: ${date.year}, Month: ${date.month}, Day: ${date.day}');
+    print('🔍 DEBUG: Date timezone: ${date.timeZoneName}');
     try {
       // Check if API credentials are available
       if (!_hasApiCredentials) {
@@ -265,6 +461,15 @@ class PickupService {
         }
       };
 
+      // Debug: Print exact date range being sent
+      print('🔍 DEBUG: Requesting bookings for single day only');
+      print('🔍 DEBUG: startDate (local): $startDate');
+      print('🔍 DEBUG: endDate (local): $endDate');
+      print('🔍 DEBUG: startDate (UTC): ${startDate.toUtc()}');
+      print('🔍 DEBUG: endDate (UTC): ${endDate.toUtc()}');
+      print('🔍 DEBUG: Date range spans: ${endDate.difference(startDate).inHours} hours');
+      print('🔍 DEBUG: Request body date range: ${startDate.toUtc().toIso8601String()} to ${endDate.toUtc().toIso8601String()}');
+
       final bodyJson = json.encode(requestBody);
       print('📤 Pickup Request Body: $bodyJson');
       print('📅 Date Range: ${startDate.toUtc().toIso8601String()} to ${endDate.toUtc().toIso8601String()}');
@@ -285,78 +490,105 @@ class PickupService {
         print('📊 Pickup Raw API response: ${data.toString().substring(0, data.toString().length > 500 ? 500 : data.toString().length)}...');
         
         final bookings = <PickupBooking>[];
+        final filteredBookings = <PickupBooking>[];
         
         // Parse Bokun API response and convert to our model
         final items = data['items'] as List<dynamic>? ?? [];
         print('📊 Total hits from API: ${data['totalHits']}');
         print('📊 Items array length: ${items.length}');
+        print('🔍 DEBUG: Processing ${items.length} bookings from API response');
+        
+        // Track dates for debugging
+        final dateCounts = <String, int>{};
         
         for (final booking in items) {
           try {
+            // Debug: Print the actual date of each booking being processed
+            final productBookings = booking['productBookings'] as List<dynamic>? ?? [];
+            if (productBookings.isNotEmpty) {
+              final productBooking = productBookings.first;
+              final startDate = productBooking['startDate'];
+              final startDateTime = productBooking['startDateTime'];
+              
+              DateTime? bookingDate;
+              if (startDate != null) {
+                bookingDate = DateTime.fromMillisecondsSinceEpoch(startDate);
+              } else if (startDateTime != null) {
+                bookingDate = DateTime.parse(startDateTime);
+              }
+              
+              if (bookingDate != null) {
+                final dateKey = '${bookingDate.day}/${bookingDate.month}/${bookingDate.year}';
+                dateCounts[dateKey] = (dateCounts[dateKey] ?? 0) + 1;
+                print('🔍 DEBUG: Booking date: ${bookingDate.toLocal()} (${dateKey})');
+              }
+            }
+            
+            // Check booking status - only process CONFIRMED bookings
+            bool isConfirmed = false;
+            String bookingStatus = 'UNKNOWN';
+            
+            if (productBookings.isNotEmpty) {
+              final productBooking = productBookings.first;
+              bookingStatus = productBooking['status']?.toString() ?? 'NO_STATUS';
+              isConfirmed = bookingStatus == 'CONFIRMED';
+              
+              // Also check main booking status
+              final mainBookingStatus = booking['status']?.toString() ?? 'NO_MAIN_STATUS';
+              if (mainBookingStatus == 'CONFIRMED') {
+                isConfirmed = true;
+              }
+              
+              print('🔍 DEBUG: Booking status - Product: $bookingStatus, Main: $mainBookingStatus, IsConfirmed: $isConfirmed');
+            }
+            
+            // Only process confirmed bookings
+            if (!isConfirmed) {
+              final customer = booking['customer'] ?? booking['leadCustomer'] ?? {};
+              final customerFullName = '${customer['firstName'] ?? ''} ${customer['lastName'] ?? ''}'.trim();
+              print('❌ Skipping non-confirmed booking: $customerFullName (Status: $bookingStatus)');
+              continue;
+            }
+            
             final pickupBooking = await _parseBokunBooking(booking);
             if (pickupBooking != null) {
               bookings.add(pickupBooking);
+              
+              // Filter bookings to only include the requested date
+              final bookingDate = pickupBooking.pickupTime;
+              final requestedDate = DateTime(date.year, date.month, date.day);
+              
+              if (bookingDate.year == requestedDate.year &&
+                  bookingDate.month == requestedDate.month &&
+                  bookingDate.day == requestedDate.day) {
+                filteredBookings.add(pickupBooking);
+                print('✅ Added booking for requested date: ${pickupBooking.customerFullName}');
+              } else {
+                print('❌ Filtered out booking for different date: ${pickupBooking.customerFullName} - ${bookingDate.day}/${bookingDate.month}/${bookingDate.year}');
+              }
             }
           } catch (e) {
             print('Error parsing booking: $e');
           }
         }
         
-        // Second pass: For bookings with pickup: true but no pickup details, try questions API
-        print('🔄 Starting second pass: Checking questions API for missing pickup details...');
-        for (int i = 0; i < bookings.length; i++) {
-          final booking = bookings[i];
-          if (booking.pickupPlaceName == 'Pickup arranged' || booking.pickupPlaceName == 'Meet on location') {
-            print('🔍 Booking ${booking.customerFullName} has generic pickup info, trying questions API...');
-            
-            // Use bookingId if available, otherwise use the booking id
-            final bookingIdForQuestions = booking.bookingId ?? booking.id;
-            
-            // Try to get pickup details from questions API
-            final questionsData = await _fetchBookingQuestions(bookingIdForQuestions);
-            if (questionsData != null) {
-              final pickupFromQuestions = _parsePickupFromQuestions(questionsData);
-              if (pickupFromQuestions != null && pickupFromQuestions.isNotEmpty) {
-                print('✅ Found pickup details for ${booking.customerFullName}: $pickupFromQuestions');
-                // Update the booking with the correct pickup location
-                bookings[i] = booking.copyWith(pickupPlaceName: pickupFromQuestions);
-              }
-            }
-          }
-        }
+        // Print date distribution summary
+        print('📊 DEBUG: Date distribution from API:');
+        dateCounts.forEach((dateKey, count) {
+          print('  $dateKey: $count bookings');
+        });
         
-        print('📋 Pickup Service: Parsed ${bookings.length} bookings');
+        print('📊 DEBUG: Total bookings before filtering: ${bookings.length}');
+        print('📊 DEBUG: Total bookings after filtering: ${filteredBookings.length}');
         
-        // If no bookings found for current date, try September 1st as a test
-        if (bookings.isEmpty && date.day != 1 && date.month != 9) {
-          print('🔄 No bookings found for current date, testing with September 1st, 2025...');
-          return await fetchBookingsForDate(DateTime(2025, 9, 1));
-        }
-        
-        return bookings;
+        return filteredBookings;
       } else {
         print('❌ Pickup API Error: ${response.statusCode}');
         print('📄 Pickup Error Response: ${response.body}');
-        
-        // Don't fall back to mock data - just return empty list
-        if (response.statusCode == 400 && response.body.contains('too far in the past')) {
-          print('ℹ️ Date is too far in the past, returning empty list');
-          return [];
-        }
-        
-        throw Exception('Failed to fetch bookings: ${response.statusCode}');
-      }
-    } catch (e) {
-      print('❌ Pickup Service: Error fetching bookings from Bokun API: $e');
-      
-      // Don't fall back to mock data - just return empty list
-      if (e.toString().contains('too far in the past')) {
-        print('ℹ️ Date is too far in the past, returning empty list');
         return [];
       }
-      
-      // For other errors, return empty list instead of mock data
-      print('ℹ️ Returning empty list due to API error');
+    } catch (e) {
+      print('❌ Pickup Service: Error fetching bookings for date $date: $e');
       return [];
     }
   }
@@ -391,43 +623,27 @@ class PickupService {
       print('🔍 === INDIVIDUAL BOOKING PICKUP DEBUG ===');
       print('🔍 Individual booking fields: $fields');
       
-      // Check for pickup info in all possible locations
+      // Check for pickup info in all possible locations (ENHANCED to check notes)
       if (fields['pickup'] == true) {
-        // Check all possible pickup fields
+        // 1. Check pickupPlaceDescription first (most reliable)
         if (fields['pickupPlaceDescription'] != null && fields['pickupPlaceDescription'].toString().trim().isNotEmpty) {
           pickupPlaceName = fields['pickupPlaceDescription'];
           print('✅ Individual: Found pickupPlaceDescription: $pickupPlaceName');
-        } else if (fields['pickupDescription'] != null && fields['pickupDescription'].toString().trim().isNotEmpty) {
+        } 
+        // 2. Check pickupDescription
+        else if (fields['pickupDescription'] != null && fields['pickupDescription'].toString().trim().isNotEmpty) {
           pickupPlaceName = fields['pickupDescription'];
           print('✅ Individual: Found pickupDescription: $pickupPlaceName');
-        } else if (fields['pickupPlaceId'] != null) {
-          print('🔍 Individual: Found pickupPlaceId: ${fields['pickupPlaceId']}');
-          // TODO: We might need to fetch pickup place details using this ID
         }
-        
-        // Check for pickup info in answers
-        if (productBooking['answers'] != null && productBooking['answers'] is List) {
-          final answers = productBooking['answers'] as List;
-          for (final answer in answers) {
-            if (answer is Map) {
-              final question = answer['question'] ?? '';
-              final answerText = answer['answer'] ?? '';
-              if (question.toString().toLowerCase().contains('pickup') && 
-                  answerText.toString().trim().isNotEmpty) {
-                pickupPlaceName = answerText.toString().trim();
-                print('✅ Individual: Found pickup info in answers: $pickupPlaceName');
-                break;
-              }
-            }
-          }
-        }
-        
-        // Check for pickup info in priceCategoryBookings answers
-        if (fields['priceCategoryBookings'] != null && fields['priceCategoryBookings'] is List) {
-          final priceCategoryBookings = fields['priceCategoryBookings'] as List;
-          for (final priceBooking in priceCategoryBookings) {
-            if (priceBooking['answers'] != null && priceBooking['answers'] is List) {
-              final answers = priceBooking['answers'] as List;
+        // 3. NEW: Check supplier notes for pickup information
+        else {
+          final notesPickup = _extractPickupFromNotes(productBooking['notes']);
+          if (notesPickup != null) {
+            pickupPlaceName = notesPickup;
+          } else {
+            // 4. Check for pickup info in answers
+            if (productBooking['answers'] != null && productBooking['answers'] is List) {
+              final answers = productBooking['answers'] as List;
               for (final answer in answers) {
                 if (answer is Map) {
                   final question = answer['question'] ?? '';
@@ -435,17 +651,39 @@ class PickupService {
                   if (question.toString().toLowerCase().contains('pickup') && 
                       answerText.toString().trim().isNotEmpty) {
                     pickupPlaceName = answerText.toString().trim();
-                    print('✅ Individual: Found pickup info in priceCategoryBookings answers: $pickupPlaceName');
+                    print('✅ Individual: Found pickup info in answers: $pickupPlaceName');
                     break;
                   }
                 }
               }
             }
+            
+            // 5. Check for pickup info in priceCategoryBookings answers
+            if (fields['priceCategoryBookings'] != null && fields['priceCategoryBookings'] is List) {
+              final priceCategoryBookings = fields['priceCategoryBookings'] as List;
+              for (final priceBooking in priceCategoryBookings) {
+                if (priceBooking['answers'] != null && priceBooking['answers'] is List) {
+                  final answers = priceBooking['answers'] as List;
+                  for (final answer in answers) {
+                    if (answer is Map) {
+                      final question = answer['question'] ?? '';
+                      final answerText = answer['answer'] ?? '';
+                      if (question.toString().toLowerCase().contains('pickup') && 
+                          answerText.toString().trim().isNotEmpty) {
+                        pickupPlaceName = answerText.toString().trim();
+                        print('✅ Individual: Found pickup info in priceCategoryBookings answers: $pickupPlaceName');
+                        break;
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            
+            if (pickupPlaceName == 'Meet on location') {
+              pickupPlaceName = 'Pickup arranged';
+            }
           }
-        }
-        
-        if (pickupPlaceName == 'Meet on location') {
-          pickupPlaceName = 'Pickup arranged';
         }
       }
       
@@ -493,6 +731,11 @@ class PickupService {
                        productBooking['id']?.toString() ?? 
                        booking['id']?.toString();
       
+      // Extract confirmation code for booking details API calls
+      final confirmationCode = booking['confirmationCode']?.toString() ?? 
+                              booking['externalBookingReference']?.toString() ??
+                              productBooking['productConfirmationCode']?.toString();
+      
       return PickupBooking(
         id: booking['id']?.toString() ?? '',
         customerFullName: customerFullName,
@@ -507,6 +750,7 @@ class PickupService {
         assignedGuideName: '',
         createdAt: DateTime.now(),
         bookingId: bookingId,
+        confirmationCode: confirmationCode,
       );
     } catch (e) {
       print('❌ Error parsing individual booking: $e');
@@ -655,106 +899,108 @@ class PickupService {
                             1;
       print('✅ Parsed guest count: $numberOfGuests');
       
-      // Extract pickup information from the 'fields' object
+            // Extract pickup information from the 'fields' object (ENHANCED to check notes)
       String pickupPlaceName = 'Meet on location';
 
       if (fields['pickup'] == true) {
-        // 1. Check for pickupPlaceId first (reference to predefined pickup place)
-        if (fields['pickupPlaceId'] != null) {
-          print('🔍 Found pickupPlaceId: ${fields['pickupPlaceId']}');
-          // TODO: We might need to fetch pickup place details using this ID
-        }
-        
-        // 2. Check for pickupDescription (free text description)
-        if (fields['pickupDescription'] != null && 
-            fields['pickupDescription'].toString().trim().isNotEmpty) {
-          pickupPlaceName = fields['pickupDescription'];
-          print('✅ Found pickupDescription: $pickupPlaceName');
-        }
-        // 3. Check for specific pickup description
-        else if (fields['pickupPlaceDescription'] != null && 
+        // 1. Check for pickupPlaceDescription first (most reliable)
+        if (fields['pickupPlaceDescription'] != null &&
             fields['pickupPlaceDescription'].toString().trim().isNotEmpty) {
           pickupPlaceName = fields['pickupPlaceDescription'];
           print('✅ Found pickupPlaceDescription: $pickupPlaceName');
         }
-        // 4. Check for pickup info in priceCategoryBookings answers
-        else if (fields['priceCategoryBookings'] != null && fields['priceCategoryBookings'] is List) {
-          final priceCategoryBookings = fields['priceCategoryBookings'] as List;
-          for (final priceBooking in priceCategoryBookings) {
-            if (priceBooking['answers'] != null && priceBooking['answers'] is List) {
-              final answers = priceBooking['answers'] as List;
+        // 2. Check for pickupDescription (free text description)
+        else if (fields['pickupDescription'] != null &&
+            fields['pickupDescription'].toString().trim().isNotEmpty) {
+          pickupPlaceName = fields['pickupDescription'];
+          print('✅ Found pickupDescription: $pickupPlaceName');
+        }
+        // 3. NEW: Check supplier notes for pickup information
+        else {
+          final notesPickup = _extractPickupFromNotes(productBooking['notes']);
+          if (notesPickup != null) {
+            pickupPlaceName = notesPickup;
+          } else {
+            // 4. Check for pickup info in priceCategoryBookings answers
+            if (fields['priceCategoryBookings'] != null && fields['priceCategoryBookings'] is List) {
+              final priceCategoryBookings = fields['priceCategoryBookings'] as List;
+              for (final priceBooking in priceCategoryBookings) {
+                if (priceBooking['answers'] != null && priceBooking['answers'] is List) {
+                  final answers = priceBooking['answers'] as List;
+                  for (final answer in answers) {
+                    if (answer is Map) {
+                      final question = answer['question'] ?? '';
+                      final answerText = answer['answer'] ?? '';
+                      if (question.toString().toLowerCase().contains('pickup') &&
+                          answerText.toString().trim().isNotEmpty) {
+                        pickupPlaceName = answerText.toString().trim();
+                        print('✅ Found pickup info in priceCategoryBookings answers: $pickupPlaceName');
+                        break;
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            // 5. Check for pickup info in main booking answers
+            else if (booking['answers'] != null && booking['answers'] is List) {
+              final answers = booking['answers'] as List;
               for (final answer in answers) {
                 if (answer is Map) {
                   final question = answer['question'] ?? '';
                   final answerText = answer['answer'] ?? '';
-                  if (question.toString().toLowerCase().contains('pickup') && 
+                  if (question.toString().toLowerCase().contains('pickup') &&
                       answerText.toString().trim().isNotEmpty) {
                     pickupPlaceName = answerText.toString().trim();
-                    print('✅ Found pickup info in priceCategoryBookings answers: $pickupPlaceName');
+                    print('✅ Found pickup info in main booking answers: $pickupPlaceName');
                     break;
                   }
                 }
               }
             }
-          }
-        }
-        // 5. Check for pickup info in main booking answers
-        else if (booking['answers'] != null && booking['answers'] is List) {
-          final answers = booking['answers'] as List;
-          for (final answer in answers) {
-            if (answer is Map) {
-              final question = answer['question'] ?? '';
-              final answerText = answer['answer'] ?? '';
-              if (question.toString().toLowerCase().contains('pickup') && 
-                  answerText.toString().trim().isNotEmpty) {
-                pickupPlaceName = answerText.toString().trim();
-                print('✅ Found pickup info in main booking answers: $pickupPlaceName');
-                break;
+            // 6. Check for pickup info in productBooking answers
+            else if (productBooking['answers'] != null && productBooking['answers'] is List) {
+              final answers = productBooking['answers'] as List;
+              for (final answer in answers) {
+                if (answer is Map) {
+                  final question = answer['question'] ?? '';
+                  final answerText = answer['answer'] ?? '';
+                  if (question.toString().toLowerCase().contains('pickup') &&
+                      answerText.toString().trim().isNotEmpty) {
+                    pickupPlaceName = answerText.toString().trim();
+                    print('✅ Found pickup info in productBooking answers: $pickupPlaceName');
+                    break;
+                  }
+                }
               }
             }
-          }
-        }
-        // 6. Check for pickup info in productBooking answers
-        else if (productBooking['answers'] != null && productBooking['answers'] is List) {
-          final answers = productBooking['answers'] as List;
-          for (final answer in answers) {
-            if (answer is Map) {
-              final question = answer['question'] ?? '';
-              final answerText = answer['answer'] ?? '';
-              if (question.toString().toLowerCase().contains('pickup') && 
-                  answerText.toString().trim().isNotEmpty) {
-                pickupPlaceName = answerText.toString().trim();
-                print('✅ Found pickup info in productBooking answers: $pickupPlaceName');
-                break;
+            // 7. Check for room number info
+            else if (fields['pickupPlaceRoomNumber'] != null &&
+                     fields['pickupPlaceRoomNumber'].toString().trim().isNotEmpty) {
+              pickupPlaceName = 'Room ${fields['pickupPlaceRoomNumber']}';
+              print('✅ Found pickupPlaceRoomNumber: ${fields['pickupPlaceRoomNumber']}');
+            }
+            // 8. Check if startTimeLabel has actual place info (not just time)
+            else if (fields['startTimeLabel'] != null) {
+              final startTimeLabel = fields['startTimeLabel'].toString();
+
+              // Only use startTimeLabel if it contains actual location info
+              // Skip if it's just time + "Pickup"
+              if (!RegExp(r'^\d{1,2}:\d{2}\s*Pickup$').hasMatch(startTimeLabel)) {
+                pickupPlaceName = startTimeLabel;
+                print('✅ Using startTimeLabel with location info: $pickupPlaceName');
+              } else {
+                // It's just "HH:MM Pickup" - use generic message
+                pickupPlaceName = 'Pickup arranged';
+                print('✅ Using generic pickup message (time only in startTimeLabel)');
               }
             }
+            // 9. Fallback for pickup without location details
+            else {
+              pickupPlaceName = 'Pickup arranged';
+              print('✅ General pickup arranged');
+            }
           }
-        }
-        // 7. Check for room number info
-        else if (fields['pickupPlaceRoomNumber'] != null && 
-                 fields['pickupPlaceRoomNumber'].toString().trim().isNotEmpty) {
-          pickupPlaceName = 'Room ${fields['pickupPlaceRoomNumber']}';
-          print('✅ Found pickupPlaceRoomNumber: ${fields['pickupPlaceRoomNumber']}');
-        }
-        // 8. Check if startTimeLabel has actual place info (not just time)
-        else if (fields['startTimeLabel'] != null) {
-          final startTimeLabel = fields['startTimeLabel'].toString();
-          
-          // Only use startTimeLabel if it contains actual location info
-          // Skip if it's just time + "Pickup"
-          if (!RegExp(r'^\d{1,2}:\d{2}\s*Pickup$').hasMatch(startTimeLabel)) {
-            pickupPlaceName = startTimeLabel;
-            print('✅ Using startTimeLabel with location info: $pickupPlaceName');
-          } else {
-            // It's just "HH:MM Pickup" - use generic message
-            pickupPlaceName = 'Pickup arranged';
-            print('✅ Using generic pickup message (time only in startTimeLabel)');
-          }
-        }
-        // 9. Fallback for pickup without location details
-        else {
-          pickupPlaceName = 'Pickup arranged';
-          print('✅ General pickup arranged');
         }
       } else {
         pickupPlaceName = 'Meet on location';
@@ -954,6 +1200,11 @@ class PickupService {
                        productBooking['id']?.toString() ?? 
                        booking['id']?.toString();
       
+      // Extract confirmation code for booking details API calls
+      final confirmationCode = booking['confirmationCode']?.toString() ?? 
+                              booking['externalBookingReference']?.toString() ??
+                              productBooking['productConfirmationCode']?.toString();
+      
       final pickupBooking = PickupBooking(
         id: booking['id']?.toString() ?? DateTime.now().millisecondsSinceEpoch.toString(),
         customerFullName: customerFullName.isNotEmpty ? customerFullName : 'Unknown Customer',
@@ -964,6 +1215,7 @@ class PickupService {
         email: email,
         createdAt: DateTime.now(),
         bookingId: bookingId,
+        confirmationCode: confirmationCode,
       );
       
       print('✅ Successfully parsed booking: ${pickupBooking.customerFullName} - ${pickupBooking.pickupPlaceName} - ${pickupBooking.numberOfGuests} guests - ${pickupBooking.pickupTime}');

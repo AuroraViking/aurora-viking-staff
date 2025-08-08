@@ -12,6 +12,7 @@ class PickupBooking {
   final bool isArrived;
   final DateTime createdAt;
   final String? bookingId; // Added for questions API calls
+  final String? confirmationCode; // Added for booking details API calls
 
   PickupBooking({
     required this.id,
@@ -27,6 +28,7 @@ class PickupBooking {
     this.isArrived = false,
     required this.createdAt,
     this.bookingId,
+    this.confirmationCode,
   });
 
   factory PickupBooking.fromJson(Map<String, dynamic> json) {
@@ -44,6 +46,7 @@ class PickupBooking {
       isArrived: json['isArrived'] ?? false,
       createdAt: DateTime.parse(json['createdAt'] ?? DateTime.now().toIso8601String()),
       bookingId: json['bookingId'],
+      confirmationCode: json['confirmationCode'],
     );
   }
 
@@ -62,6 +65,7 @@ class PickupBooking {
       'isArrived': isArrived,
       'createdAt': createdAt.toIso8601String(),
       'bookingId': bookingId,
+      'confirmationCode': confirmationCode,
     };
   }
 
@@ -79,6 +83,7 @@ class PickupBooking {
     bool? isArrived,
     DateTime? createdAt,
     String? bookingId,
+    String? confirmationCode,
   }) {
     return PickupBooking(
       id: id ?? this.id,
@@ -94,6 +99,7 @@ class PickupBooking {
       isArrived: isArrived ?? this.isArrived,
       createdAt: createdAt ?? this.createdAt,
       bookingId: bookingId ?? this.bookingId,
+      confirmationCode: confirmationCode ?? this.confirmationCode,
     );
   }
 }
