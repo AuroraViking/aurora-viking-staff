@@ -1,4 +1,5 @@
 // Shift model for representing shift data
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 enum ShiftType {
   dayTour,
@@ -21,6 +22,7 @@ class Shift {
   final String endTime;
   ShiftStatus status;
   final String? guideId;
+  final String? guideName;
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
@@ -32,6 +34,7 @@ class Shift {
     required this.endTime,
     required this.status,
     this.guideId,
+    this.guideName,
     this.createdAt,
     this.updatedAt,
   });
@@ -46,6 +49,7 @@ class Shift {
       'endTime': endTime,
       'status': status.name,
       'guideId': guideId,
+      'guideName': guideName,
       'createdAt': createdAt?.toIso8601String(),
       'updatedAt': updatedAt?.toIso8601String(),
     };
@@ -53,16 +57,25 @@ class Shift {
 
   // Create from JSON
   factory Shift.fromJson(Map<String, dynamic> json) {
+    print('🔍 Debug: Shift.fromJson - guideName = "${json['guideName']}"');
+    print('🔍 Debug: Shift.fromJson - guideId = "${json['guideId']}"');
+    
     return Shift(
       id: json['id'],
       type: ShiftType.values.firstWhere((e) => e.name == json['type']),
-      date: DateTime.parse(json['date']),
+      date: json['date'] is String ? DateTime.parse(json['date']) : 
+            (json['date'] as Timestamp).toDate(),
       startTime: json['startTime'],
       endTime: json['endTime'],
       status: ShiftStatus.values.firstWhere((e) => e.name == json['status']),
       guideId: json['guideId'],
-      createdAt: json['createdAt'] != null ? DateTime.parse(json['createdAt']) : null,
-      updatedAt: json['updatedAt'] != null ? DateTime.parse(json['updatedAt']) : null,
+      guideName: json['guideName'],
+      createdAt: json['createdAt'] != null ? 
+        (json['createdAt'] is String ? DateTime.parse(json['createdAt']) : 
+         (json['createdAt'] as Timestamp).toDate()) : null,
+      updatedAt: json['updatedAt'] != null ? 
+        (json['updatedAt'] is String ? DateTime.parse(json['updatedAt']) : 
+         (json['updatedAt'] as Timestamp).toDate()) : null,
     );
   }
 
@@ -75,6 +88,7 @@ class Shift {
     String? endTime,
     ShiftStatus? status,
     String? guideId,
+    String? guideName,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -86,6 +100,7 @@ class Shift {
       endTime: endTime ?? this.endTime,
       status: status ?? this.status,
       guideId: guideId ?? this.guideId,
+      guideName: guideName ?? this.guideName,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );

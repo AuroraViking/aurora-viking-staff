@@ -12,6 +12,7 @@ import 'admin_reports_screen.dart';
 import 'admin_pickup_management_screen.dart';
 import 'admin_tour_calendar_screen.dart';
 import 'admin_bus_management_screen.dart';
+import 'admin_shift_management_screen.dart';
 import 'tour_management_service.dart';
 
 class AdminDashboard extends StatefulWidget {
@@ -410,20 +411,34 @@ class _AdminDashboardState extends State<AdminDashboard> {
           
           const SizedBox(height: 12),
           
-          _buildActionCard(
-            'Bus Management',
-            'Add, edit, and manage fleet buses',
-            Icons.directions_bus,
-            Colors.amber,
-            () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const AdminBusManagementScreen(),
-                ),
-              );
-            },
-          ),
+                      _buildActionCard(
+              'Bus Management',
+              'Add, edit, and manage fleet buses',
+              Icons.directions_bus,
+              Colors.amber,
+              () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const AdminBusManagementScreen(),
+                  ),
+                );
+              },
+            ),
+            _buildActionCard(
+              'Shift Management',
+              'Review and approve guide shift applications',
+              Icons.work,
+              Colors.indigo,
+              () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const AdminShiftManagementScreen(),
+                  ),
+                );
+              },
+            ),
           
           const SizedBox(height: 12),
           

@@ -1,8 +1,11 @@
 // Shifts screen for viewing, accepting, and marking shifts as completed 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:intl/intl.dart';
 import '../../core/models/shift_model.dart';
+import '../../core/auth/auth_controller.dart';
+import 'shifts_service.dart';
 
 class ShiftsScreen extends StatefulWidget {
   const ShiftsScreen({super.key});
@@ -16,8 +19,9 @@ class _ShiftsScreenState extends State<ShiftsScreen> {
   late DateTime _selectedDay;
   late CalendarFormat _calendarFormat;
   
-  // Track applied shifts
+  final ShiftsService _shiftsService = ShiftsService();
   Map<DateTime, List<Shift>> _appliedShifts = {};
+  bool _isLoading = false;
 
   @override
   void initState() {
@@ -25,6 +29,29 @@ class _ShiftsScreenState extends State<ShiftsScreen> {
     _focusedDay = DateTime.now();
     _selectedDay = DateTime.now();
     _calendarFormat = CalendarFormat.month;
+    
+    // Set the auth controller in the shifts service
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final authController = context.read<AuthController>();
+      _shiftsService.setAuthController(authController);
+      _loadShifts();
+    });
+  }
+
+  void _loadShifts() {
+    _shiftsService.getGuideShifts().listen((shifts) {
+      if (mounted) {
+        setState(() {
+          _appliedShifts.clear();
+          for (final shift in shifts) {
+            final dayStart = DateTime(shift.date.year, shift.date.month, shift.date.day);
+            final existingShifts = _appliedShifts[dayStart] ?? [];
+            existingShifts.add(shift);
+            _appliedShifts[dayStart] = existingShifts;
+          }
+        });
+      }
+    });
   }
 
   // Get events for a specific day
@@ -191,12 +218,24 @@ class _ShiftsScreenState extends State<ShiftsScreen> {
             ],
             
             // Application Options
-            const Text(
-              'Apply for Shifts',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-              ),
+            Row(
+              children: [
+                const Text(
+                  'Apply for Shifts',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                if (_isLoading) ...[
+                  const SizedBox(width: 8),
+                  const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                ],
+              ],
             ),
             const SizedBox(height: 12),
             
@@ -233,48 +272,87 @@ class _ShiftsScreenState extends State<ShiftsScreen> {
       margin: const EdgeInsets.only(bottom: 8),
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(
-              shift.type == ShiftType.dayTour ? Icons.wb_sunny : Icons.nightlight,
-              color: shift.type == ShiftType.dayTour ? Colors.orange : Colors.indigo,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    shift.type == ShiftType.dayTour ? 'Day Tour' : 'Northern Lights',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w600,
-                    ),
+            Row(
+              children: [
+                Icon(
+                  shift.type == ShiftType.dayTour ? Icons.wb_sunny : Icons.nightlight,
+                  color: shift.type == ShiftType.dayTour ? Colors.orange : Colors.indigo,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        shift.type == ShiftType.dayTour ? 'Day Tour' : 'Northern Lights',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      Text(
+                        _getStatusText(shift.status),
+                        style: TextStyle(
+                          color: _getStatusColor(shift.status),
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
                   ),
-                  Text(
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: _getStatusColor(shift.status),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
                     _getStatusText(shift.status),
-                    style: TextStyle(
-                      color: _getStatusColor(shift.status),
+                    style: const TextStyle(
+                      color: Colors.white,
                       fontSize: 12,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
+                ),
+              ],
+            ),
+            // Action buttons
+            if (shift.status == ShiftStatus.applied || shift.status == ShiftStatus.accepted) ...[
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  if (shift.status == ShiftStatus.applied)
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _isLoading ? null : () => _cancelShift(shift.id),
+                        icon: const Icon(Icons.cancel, size: 16),
+                        label: const Text('Cancel'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.red,
+                          side: const BorderSide(color: Colors.red),
+                        ),
+                      ),
+                    ),
+                  if (shift.status == ShiftStatus.accepted) ...[
+                    if (shift.status == ShiftStatus.applied) const SizedBox(width: 8),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: _isLoading ? null : () => _completeShift(shift.id),
+                        icon: const Icon(Icons.check, size: 16),
+                        label: const Text('Mark Complete'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green,
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
               ),
-            ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: _getStatusColor(shift.status),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Text(
-                _getStatusText(shift.status),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ),
+            ],
           ],
         ),
       ),
@@ -376,7 +454,63 @@ class _ShiftsScreenState extends State<ShiftsScreen> {
     }
   }
 
-  void _applyForShift(ShiftType type) {
+  void _cancelShift(String shiftId) async {
+    setState(() {
+      _isLoading = true;
+    });
+
+    final success = await _shiftsService.cancelShiftApplication(shiftId);
+
+    setState(() {
+      _isLoading = false;
+    });
+
+    if (success && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Shift application cancelled successfully.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    } else if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Failed to cancel shift application.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  void _completeShift(String shiftId) async {
+    setState(() {
+      _isLoading = true;
+    });
+
+    final success = await _shiftsService.markShiftCompleted(shiftId);
+
+    setState(() {
+      _isLoading = false;
+    });
+
+    if (success && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Shift marked as completed successfully.'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } else if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Failed to mark shift as completed.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  void _applyForShift(ShiftType type) async {
     // Check if already applied for this type on this date
     final selectedDayShifts = _getEventsForDay(_selectedDay);
     if (selectedDayShifts.any((shift) => shift.type == type)) {
@@ -389,52 +523,39 @@ class _ShiftsScreenState extends State<ShiftsScreen> {
       return;
     }
 
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Apply for Shift'),
-        content: Text(
-          'Are you sure you want to apply for the ${type == ShiftType.dayTour ? 'Day Tour' : 'Northern Lights'} shift on ${DateFormat('MMMM d, y').format(_selectedDay)}?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              // Create and add the shift
-              final shift = Shift(
-                id: 'shift_${DateTime.now().millisecondsSinceEpoch}',
-                type: type,
-                date: _selectedDay,
-                startTime: '',
-                endTime: '',
-                status: ShiftStatus.applied,
-                createdAt: DateTime.now(),
-              );
+    setState(() {
+      _isLoading = true;
+    });
 
-              setState(() {
-                final dayStart = DateTime(_selectedDay.year, _selectedDay.month, _selectedDay.day);
-                final existingShifts = _appliedShifts[dayStart] ?? [];
-                existingShifts.add(shift);
-                _appliedShifts[dayStart] = existingShifts;
-              });
-
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    'Successfully applied for ${type == ShiftType.dayTour ? 'Day Tour' : 'Northern Lights'} shift!',
-                  ),
-                  backgroundColor: Colors.green,
-                ),
-              );
-            },
-            child: const Text('Apply'),
-          ),
-        ],
-      ),
+    final success = await _shiftsService.applyForShift(
+      type: type,
+      date: _selectedDay,
     );
+
+    setState(() {
+      _isLoading = false;
+    });
+
+    if (success) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Successfully applied for ${type == ShiftType.dayTour ? 'Day Tour' : 'Northern Lights'} shift!',
+            ),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Failed to apply for shift. Please try again.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 } 
