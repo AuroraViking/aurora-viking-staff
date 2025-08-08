@@ -53,6 +53,11 @@
         <meta-data
             android:name="com.google.android.geo.API_KEY"
             android:value="YOUR_API_KEY_HERE" />
+            
+        <!-- Google Sign-In Configuration -->
+        <meta-data
+            android:name="com.google.android.gms.auth.CLIENT_ID"
+            android:value="669247288151-pc1omp2o2ksfh3aecl645ualleod57vl.apps.googleusercontent.com" />
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

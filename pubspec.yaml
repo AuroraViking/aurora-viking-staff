@@ -30,46 +30,31 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-
-  # The following adds the Cupertino Icons font to your application.
-  # Use with the CupertinoIcons class for iOS style icons.
-  cupertino_icons: ^1.0.8
-  
-  # Internationalization and date formatting
+  firebase_core: ^2.24.2
+  firebase_auth: ^4.15.3
+  cloud_firestore: ^4.13.6
+  provider: ^6.1.1
+  http: ^1.1.2
   intl: ^0.19.0
-  
-  # Location tracking
+  table_calendar: ^3.0.9
+  image_picker: ^1.0.4
+  permission_handler: ^11.1.0
   geolocator: ^10.1.0
+  google_maps_flutter: ^2.5.3
   
-  # Image picking and camera access
-  image_picker: ^1.0.7
+  # Google Drive API
+  googleapis: ^13.0.0
+  googleapis_auth: ^1.4.1
+  google_sign_in: ^6.1.6
   
-  # Permission handling
-  permission_handler: ^11.3.0
-  
-  # State management
-  provider: ^6.0.5
-  
-  # HTTP requests
-  http: ^1.1.0
-
   # Environment variables
   flutter_dotenv: ^5.1.0
-
-  # Crypto for HMAC signatures
-  crypto: ^3.0.3
-
-  # Calendar widget
-  table_calendar: ^3.0.9
+  
+  # URL launching
   url_launcher: ^6.2.1
   
-  # Firebase
-  firebase_core: ^3.6.0
-  firebase_auth: ^5.3.1
-  cloud_firestore: ^5.4.4
-  
-  # Google Maps
-  google_maps_flutter: ^2.5.3
+  # Crypto for HMAC signatures
+  crypto: ^3.0.3
 
 dev_dependencies:
   flutter_test:

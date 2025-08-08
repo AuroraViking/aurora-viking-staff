@@ -1,10 +1,13 @@
 // Photo upload screen for pulling from USB-C camera or gallery and auto-organizing to Drive 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:intl/intl.dart';
 import 'dart:io';
 import 'dart:async';
+import '../../core/auth/auth_controller.dart';
+import 'photo_controller.dart';
 
 class PhotoUploadScreen extends StatefulWidget {
   const PhotoUploadScreen({super.key});
@@ -14,28 +17,14 @@ class PhotoUploadScreen extends StatefulWidget {
 }
 
 class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
-  final TextEditingController _guideNameController = TextEditingController();
-  final TextEditingController _customBusController = TextEditingController();
-  
-  String? _selectedBus;
-  bool _isCustomBus = false;
-  DateTime _selectedDate = DateTime.now();
-  List<File> _selectedPhotos = [];
-  bool _isUploading = false;
-  double _uploadProgress = 0.0;
-
-  // Bus options
-  final List<String> _buses = [
-    'Lúxusinn - AYX70',
-    'Afi Stjáni - MAF43',
-    'Meistarinn - TZE50',
-  ];
-
   final ImagePicker _picker = ImagePicker();
+  final TextEditingController _customBusController = TextEditingController();
+  String? _selectedBus;
+  DateTime _selectedDate = DateTime.now();
+  bool _isCustomBus = false;
 
   @override
   void dispose() {
-    _guideNameController.dispose();
     _customBusController.dispose();
     super.dispose();
   }
@@ -44,12 +33,12 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
     try {
       final List<XFile> images = await _picker.pickMultiImage();
       if (images.isNotEmpty) {
-        setState(() {
-          _selectedPhotos.addAll(images.map((xFile) => File(xFile.path)));
-        });
+        final photoController = context.read<PhotoController>();
+        final photos = images.map((xFile) => File(xFile.path)).toList();
+        photoController.addPhotos(photos);
       }
     } catch (e) {
-      _showAlert('Error picking images: $e');
+      print('Error picking images: $e');
     }
   }
 
@@ -57,112 +46,38 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
     try {
       final XFile? image = await _picker.pickImage(source: ImageSource.camera);
       if (image != null) {
-        setState(() {
-          _selectedPhotos.add(File(image.path));
-        });
+        final photoController = context.read<PhotoController>();
+        photoController.addPhotos([File(image.path)]);
       }
     } catch (e) {
-      _showAlert('Error taking photo: $e');
-    }
-  }
-
-  Future<void> _selectDate() async {
-    final DateTime? picked = await showDatePicker(
-      context: context,
-      initialDate: _selectedDate,
-      firstDate: DateTime(2020),
-      lastDate: DateTime.now(),
-    );
-    if (picked != null && picked != _selectedDate) {
-      setState(() {
-        _selectedDate = picked;
-      });
-    }
-  }
-
-  Future<void> _loadRecentPhotos() async {
-    // Request storage permission
-    var status = await Permission.storage.status;
-    if (!status.isGranted) {
-      status = await Permission.storage.request();
-    }
-
-    if (status.isGranted) {
-      // For now, we'll use the image picker to select multiple images
-      // In a full implementation, you'd scan the device's photo gallery
-      await _pickImages();
-    } else {
-      _showAlert('Storage permission is required to load photos.');
+      print('Error picking image from camera: $e');
     }
   }
 
   Future<void> _uploadToDrive() async {
-    if (_selectedPhotos.isEmpty) {
-      _showAlert('No photos selected for upload.');
-      return;
-    }
-
-    if (_guideNameController.text.trim().isEmpty) {
-      _showAlert('Please enter guide name.');
-      return;
-    }
-
-    final busName = _isCustomBus 
-        ? _customBusController.text.trim()
-        : _selectedBus ?? '';
+    final photoController = context.read<PhotoController>();
+    final authController = context.read<AuthController>();
+    
+    final guideName = authController.currentUser?.fullName ?? 'Unknown Guide';
+    final busName = _isCustomBus ? _customBusController.text.trim() : _selectedBus ?? '';
 
     if (busName.isEmpty) {
       _showAlert('Please select or enter bus name.');
       return;
     }
 
-    setState(() {
-      _isUploading = true;
-      _uploadProgress = 0.0;
-    });
-
-    try {
-      // Simulate upload progress
-      for (int i = 0; i < _selectedPhotos.length; i++) {
-        await Future.delayed(const Duration(milliseconds: 500));
-        setState(() {
-          _uploadProgress = (i + 1) / _selectedPhotos.length;
-        });
-      }
-
-      // TODO: Implement actual Google Drive upload
-      // For now, just simulate the upload
-      await Future.delayed(const Duration(seconds: 2));
-
-      setState(() {
-        _isUploading = false;
-        _uploadProgress = 0.0;
-      });
-
-      _showSuccessDialog();
-    } catch (e) {
-      setState(() {
-        _isUploading = false;
-        _uploadProgress = 0.0;
-      });
-      _showAlert('Upload failed: $e');
-    }
-  }
-
-  void _showAlert(String message) {
-    showDialog(
+    final success = await photoController.uploadPhotos(
+      guideName: guideName,
+      busName: busName,
+      date: _selectedDate,
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Alert'),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
     );
+
+    if (success) {
+      _showSuccessDialog();
+    } else {
+      _showAlert('Upload failed: ${photoController.uploadError}');
+    }
   }
 
   void _showSuccessDialog() {
@@ -170,14 +85,13 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Upload Successful'),
-        content: Text('Successfully uploaded ${_selectedPhotos.length} photos to Drive.'),
+        content: const Text('Successfully uploaded photos to Google Drive!'),
         actions: [
           TextButton(
             onPressed: () {
               Navigator.pop(context);
-              setState(() {
-                _selectedPhotos.clear();
-              });
+              final photoController = context.read<PhotoController>();
+              photoController.clearPhotos();
             },
             child: const Text('OK'),
           ),
@@ -186,32 +100,89 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
     );
   }
 
-  void _removePhoto(int index) {
-    setState(() {
-      _selectedPhotos.removeAt(index);
-    });
+  void _showAlert(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+
+  Future<void> _selectDate() async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2030),
+    );
+    if (picked != null && picked != _selectedDate) {
+      setState(() {
+        _selectedDate = picked;
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Photo Upload'),
-        backgroundColor: const Color(0xFF1E3A8A),
-        foregroundColor: Colors.white,
-      ),
-      body: _isUploading ? _buildUploadProgress() : _buildMainContent(),
+    return Consumer<PhotoController>(
+      builder: (context, photoController, child) {
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text('Photo Upload'),
+            actions: [
+              // Google Sign-In Status
+              Consumer<PhotoController>(
+                builder: (context, controller, child) {
+                  if (controller.isSignedIn) {
+                    return PopupMenuButton<String>(
+                      icon: const Icon(Icons.account_circle, color: Colors.green),
+                      onSelected: (value) {
+                        if (value == 'signout') {
+                          controller.signOut();
+                        }
+                      },
+                      itemBuilder: (context) => [
+                        PopupMenuItem(
+                          value: 'info',
+                          enabled: false,
+                          child: Text('Signed in as: ${controller.currentUserEmail ?? 'Unknown'}'),
+                        ),
+                        const PopupMenuItem(
+                          value: 'signout',
+                          child: Text('Sign Out'),
+                        ),
+                      ],
+                    );
+                  } else {
+                    return IconButton(
+                      icon: const Icon(Icons.account_circle, color: Colors.grey),
+                      onPressed: () async {
+                        final success = await controller.signInWithGoogle();
+                        if (!success) {
+                          _showAlert('Failed to sign in with Google. Please try again.');
+                        }
+                      },
+                      tooltip: 'Sign in with Google',
+                    );
+                  }
+                },
+              ),
+            ],
+          ),
+          body: photoController.isUploading ? _buildUploadProgress(photoController) : _buildMainContent(photoController),
+        );
+      },
     );
   }
 
-  Widget _buildUploadProgress() {
+  Widget _buildUploadProgress(PhotoController photoController) {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const CircularProgressIndicator(
-            valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF1E3A8A)),
-          ),
+          const CircularProgressIndicator(),
           const SizedBox(height: 20),
           Text(
             'Uploading photos...',
@@ -219,324 +190,300 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
           ),
           const SizedBox(height: 10),
           Text(
-            '${(_uploadProgress * 100).toInt()}% complete',
+            '${(photoController.uploadProgress * 100).toInt()}% complete',
             style: Theme.of(context).textTheme.bodyLarge,
           ),
           const SizedBox(height: 20),
           LinearProgressIndicator(
-            value: _uploadProgress,
+            value: photoController.uploadProgress,
             backgroundColor: Colors.grey[300],
-            valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF1E3A8A)),
+            valueColor: const AlwaysStoppedAnimation<Color>(Colors.blue),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildMainContent() {
+  Widget _buildMainContent(PhotoController photoController) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Guide Name Input
-          _buildGuideNameInput(),
-          const SizedBox(height: 20),
+          // Google Sign-In Status
+          if (!photoController.isSignedIn) ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.orange[100],
+                border: Border.all(color: Colors.orange),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                children: [
+                  const Icon(Icons.warning, color: Colors.orange, size: 32),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Google Sign-In Required',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'You need to sign in with Google to upload photos to Drive.',
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 12),
+                  ElevatedButton.icon(
+                    onPressed: () async {
+                      final success = await photoController.signInWithGoogle();
+                      if (!success) {
+                        _showAlert('Failed to sign in with Google. Please try again.');
+                      }
+                    },
+                    icon: const Icon(Icons.login),
+                    label: const Text('Sign in with Google'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue,
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+          ],
 
-          // Bus Selection
-          _buildBusSelection(),
+          // Guide Name Display
+          _buildGuideNameDisplay(),
+
           const SizedBox(height: 20),
 
           // Date Selection
-          _buildDateSelection(),
+          const Text('Date', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          InkWell(
+            onTap: _selectDate,
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.grey),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    DateFormat('EEEE, MMMM d, y').format(_selectedDate),
+                    style: const TextStyle(fontSize: 16),
+                  ),
+                  const Icon(Icons.calendar_today),
+                ],
+              ),
+            ),
+          ),
+
           const SizedBox(height: 20),
 
-          // Photo Actions
-          _buildPhotoActions(),
+          // Bus Selection
+          const Text('Bus', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: DropdownButtonFormField<String>(
+                  value: _isCustomBus ? null : _selectedBus,
+                  decoration: const InputDecoration(
+                    border: OutlineInputBorder(),
+                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  ),
+                  hint: const Text('Select bus'),
+                  items: [
+                    'Bus 1',
+                    'Bus 2',
+                    'Bus 3',
+                    'Bus 4',
+                    'Bus 5',
+                  ].map((String bus) {
+                    return DropdownMenuItem<String>(
+                      value: bus,
+                      child: Text(bus),
+                    );
+                  }).toList(),
+                  onChanged: _isCustomBus ? null : (String? newValue) {
+                    setState(() {
+                      _selectedBus = newValue;
+                    });
+                  },
+                ),
+              ),
+              const SizedBox(width: 8),
+              Checkbox(
+                value: _isCustomBus,
+                onChanged: (bool? value) {
+                  setState(() {
+                    _isCustomBus = value ?? false;
+                    if (_isCustomBus) {
+                      _selectedBus = null;
+                    }
+                  });
+                },
+              ),
+              const Text('Custom'),
+            ],
+          ),
+
+          if (_isCustomBus) ...[
+            const SizedBox(height: 8),
+            TextField(
+              controller: _customBusController,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                labelText: 'Enter bus name',
+                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              ),
+            ),
+          ],
+
           const SizedBox(height: 20),
 
-          // Photo Grid
-          if (_selectedPhotos.isNotEmpty) ...[
-            _buildPhotoGrid(),
+          // Photo Selection Buttons
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: _pickImages,
+                  icon: const Icon(Icons.photo_library),
+                  label: const Text('Gallery'),
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: photoController.isSignedIn ? _pickImagesFromCamera : null,
+                  icon: const Icon(Icons.camera_alt),
+                  label: const Text('Camera'),
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 20),
+
+          // Selected Photos
+          if (photoController.selectedPhotos.isNotEmpty) ...[
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Selected Photos (${photoController.selectedPhotos.length})',
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+                TextButton(
+                  onPressed: () => photoController.clearPhotos(),
+                  child: const Text('Clear All'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 3,
+                crossAxisSpacing: 8,
+                mainAxisSpacing: 8,
+              ),
+              itemCount: photoController.selectedPhotos.length,
+              itemBuilder: (context, index) {
+                return Stack(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.file(
+                        photoController.selectedPhotos[index],
+                        width: double.infinity,
+                        height: double.infinity,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                    Positioned(
+                      top: 4,
+                      right: 4,
+                      child: GestureDetector(
+                        onTap: () => photoController.removePhoto(index),
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: const BoxDecoration(
+                            color: Colors.red,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.close,
+                            color: Colors.white,
+                            size: 16,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
             const SizedBox(height: 20),
           ],
 
           // Upload Button
-          _buildUploadButton(),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: photoController.selectedPhotos.isNotEmpty && photoController.isSignedIn ? _uploadToDrive : null,
+              icon: const Icon(Icons.cloud_upload),
+              label: const Text('Upload to Drive'),
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                backgroundColor: Colors.green,
+                foregroundColor: Colors.white,
+              ),
+            ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildGuideNameInput() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Guide Name',
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        const SizedBox(height: 8),
-        TextField(
-          controller: _guideNameController,
-          decoration: InputDecoration(
-            hintText: 'Enter your name',
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
-            filled: true,
-            fillColor: Colors.grey[100],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildBusSelection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Bus',
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        const SizedBox(height: 8),
-        
-        // Custom bus checkbox
-        Row(
+  Widget _buildGuideNameDisplay() {
+    return Consumer<AuthController>(
+      builder: (context, authController, child) {
+        final guideName = authController.currentUser?.fullName ?? 'Unknown Guide';
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Checkbox(
-              value: _isCustomBus,
-              onChanged: (value) {
-                setState(() {
-                  _isCustomBus = value ?? false;
-                  if (!_isCustomBus) {
-                    _customBusController.clear();
-                  }
-                });
-              },
-            ),
-            const Text('Custom bus name'),
-          ],
-        ),
-
-        if (_isCustomBus) ...[
-          const SizedBox(height: 8),
-          TextField(
-            controller: _customBusController,
-            decoration: InputDecoration(
-              hintText: 'Enter custom bus name',
-              border: OutlineInputBorder(
+            const Text('Guide Name', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.grey),
                 borderRadius: BorderRadius.circular(8),
+                color: Colors.grey[100],
               ),
-              filled: true,
-              fillColor: Colors.grey[100],
-            ),
-          ),
-        ] else ...[
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            decoration: BoxDecoration(
-              border: Border.all(color: Colors.grey),
-              borderRadius: BorderRadius.circular(8),
-              color: Colors.grey[100],
-            ),
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<String>(
-                value: _selectedBus,
-                hint: const Text('Select Bus'),
-                isExpanded: true,
-                items: _buses.map((String bus) {
-                  return DropdownMenuItem<String>(
-                    value: bus,
-                    child: Text(bus),
-                  );
-                }).toList(),
-                onChanged: (String? newValue) {
-                  setState(() {
-                    _selectedBus = newValue;
-                  });
-                },
+              child: Text(
+                guideName,
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
               ),
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-
-  Widget _buildDateSelection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Date',
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        const SizedBox(height: 8),
-        InkWell(
-          onTap: _selectDate,
-          child: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              border: Border.all(color: Colors.grey),
-              borderRadius: BorderRadius.circular(8),
-              color: Colors.grey[100],
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  DateFormat('d MMMM yyyy').format(_selectedDate),
-                  style: const TextStyle(fontSize: 16),
-                ),
-                const Icon(Icons.calendar_today),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildPhotoActions() {
-    return Row(
-      children: [
-        Expanded(
-          child: ElevatedButton.icon(
-            onPressed: _pickImages,
-            icon: const Icon(Icons.photo_library),
-            label: const Text('Select Photos'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF1E3A8A),
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 12),
-            ),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: ElevatedButton.icon(
-            onPressed: _pickImagesFromCamera,
-            icon: const Icon(Icons.camera_alt),
-            label: const Text('Take Photo'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF1E3A8A),
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 12),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildPhotoGrid() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              'Selected Photos (${_selectedPhotos.length})',
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            TextButton(
-              onPressed: () {
-                setState(() {
-                  _selectedPhotos.clear();
-                });
-              },
-              child: const Text('Clear All'),
             ),
           ],
-        ),
-        const SizedBox(height: 8),
-        GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 3,
-            crossAxisSpacing: 8,
-            mainAxisSpacing: 8,
-          ),
-          itemCount: _selectedPhotos.length,
-          itemBuilder: (context, index) {
-            return Stack(
-              children: [
-                Container(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.grey),
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: Image.file(
-                      _selectedPhotos[index],
-                      fit: BoxFit.cover,
-                      width: double.infinity,
-                      height: double.infinity,
-                    ),
-                  ),
-                ),
-                Positioned(
-                  top: 4,
-                  right: 4,
-                  child: GestureDetector(
-                    onTap: () => _removePhoto(index),
-                    child: Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: const BoxDecoration(
-                        color: Colors.red,
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.close,
-                        color: Colors.white,
-                        size: 16,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            );
-          },
-        ),
-      ],
-    );
-  }
-
-  Widget _buildUploadButton() {
-    return SizedBox(
-      width: double.infinity,
-      child: ElevatedButton.icon(
-        onPressed: _selectedPhotos.isNotEmpty ? _uploadToDrive : null,
-        icon: const Icon(Icons.cloud_upload),
-        label: const Text('Upload to Drive'),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF1E3A8A),
-          foregroundColor: Colors.white,
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
-        ),
-      ),
+        );
+      },
     );
   }
 } 

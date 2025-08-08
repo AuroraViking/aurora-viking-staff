@@ -7,6 +7,7 @@ import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
 import 'modules/admin/admin_controller.dart';
 import 'modules/pickup/pickup_controller.dart';
+import 'modules/photos/photo_controller.dart';
 import 'core/auth/auth_controller.dart';
 import 'core/services/firebase_service.dart';
 
@@ -44,6 +45,7 @@ class AuroraVikingStaffApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => AdminController()),
         ChangeNotifierProvider(create: (_) => PickupController()),
+        ChangeNotifierProvider(create: (_) => PhotoController()),
         ChangeNotifierProvider(create: (_) => AuthController()),
       ],
       child: MaterialApp(
