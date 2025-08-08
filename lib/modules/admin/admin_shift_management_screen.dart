@@ -4,9 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
+import 'dart:io';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 import '../../core/models/shift_model.dart';
 import '../../core/auth/auth_controller.dart';
 import '../shifts/shifts_service.dart';
+import '../../core/services/bus_management_service.dart';
 
 class AdminShiftManagementScreen extends StatefulWidget {
   const AdminShiftManagementScreen({super.key});
@@ -17,7 +21,9 @@ class AdminShiftManagementScreen extends StatefulWidget {
 
 class _AdminShiftManagementScreenState extends State<AdminShiftManagementScreen> {
   final ShiftsService _shiftsService = ShiftsService();
+  final BusManagementService _busService = BusManagementService();
   List<Shift> _allShifts = [];
+  List<Map<String, dynamic>> _availableBuses = [];
   bool _isLoading = false;
   Map<String, dynamic> _statistics = {};
   
@@ -40,6 +46,7 @@ class _AdminShiftManagementScreenState extends State<AdminShiftManagementScreen>
       _shiftsService.setAuthController(authController);
       _loadShifts();
       _loadStatistics();
+      _loadAvailableBuses();
     });
   }
 
@@ -79,6 +86,16 @@ class _AdminShiftManagementScreenState extends State<AdminShiftManagementScreen>
     }
   }
 
+  void _loadAvailableBuses() {
+    _busService.getActiveBuses().listen((buses) {
+      if (mounted) {
+        setState(() {
+          _availableBuses = buses;
+        });
+      }
+    });
+  }
+
 
 
   @override
@@ -89,6 +106,11 @@ class _AdminShiftManagementScreenState extends State<AdminShiftManagementScreen>
         backgroundColor: Theme.of(context).colorScheme.primary,
         foregroundColor: Colors.white,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.file_download),
+            onPressed: () => _exportMonthlyShifts(),
+            tooltip: 'Export Monthly Shifts',
+          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: () {
@@ -425,15 +447,33 @@ class _AdminShiftManagementScreenState extends State<AdminShiftManagementScreen>
               const SizedBox(height: 8),
             ],
             
+            // Bus Info
+            if (shift.busId != null) ...[
+              Row(
+                children: [
+                  const Icon(Icons.directions_bus, size: 16, color: Colors.grey),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Bus: ${shift.busName ?? 'Unknown Bus'}',
+                    style: const TextStyle(
+                      color: Colors.grey,
+                      fontSize: 14,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+            ],
+            
             // Action Buttons
             if (shift.status == ShiftStatus.applied) ...[
               Row(
                 children: [
                   Expanded(
                     child: ElevatedButton.icon(
-                      onPressed: _isLoading ? null : () => _updateShiftStatus(shift.id, ShiftStatus.accepted),
+                      onPressed: _isLoading ? null : () => _acceptShiftAndAssignBus(shift),
                       icon: const Icon(Icons.check, size: 16),
-                      label: const Text('Accept'),
+                      label: const Text('Accept & Assign Bus'),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.green,
                         foregroundColor: Colors.white,
@@ -457,6 +497,18 @@ class _AdminShiftManagementScreenState extends State<AdminShiftManagementScreen>
             ] else if (shift.status == ShiftStatus.accepted) ...[
               Row(
                 children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _isLoading ? null : () => _assignBusToShift(shift),
+                      icon: const Icon(Icons.directions_bus, size: 16),
+                      label: const Text('Assign/Change Bus'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.blue,
+                        side: const BorderSide(color: Colors.blue),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: OutlinedButton.icon(
                       onPressed: _isLoading ? null : () => _updateShiftStatus(shift.id, ShiftStatus.cancelled),
@@ -528,6 +580,369 @@ class _AdminShiftManagementScreenState extends State<AdminShiftManagementScreen>
         ),
       );
     }
+  }
+
+  void _acceptShiftAndAssignBus(Shift shift) async {
+    if (_availableBuses.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No buses available. Please add buses first.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    final selectedBus = await _showBusSelectionDialog('Select Bus for ${shift.guideName}', shift);
+    if (selectedBus == null) return;
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    final success = await _shiftsService.acceptShiftAndAssignBus(
+      shiftId: shift.id,
+      busId: selectedBus['id'],
+      busName: selectedBus['name'],
+    );
+
+    setState(() {
+      _isLoading = false;
+    });
+
+    if (success && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Shift accepted and bus ${selectedBus['name']} assigned successfully.'),
+          backgroundColor: Colors.green,
+        ),
+      );
+      _loadStatistics();
+    } else if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Failed to accept shift and assign bus.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  void _assignBusToShift(Shift shift) async {
+    if (_availableBuses.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No buses available. Please add buses first.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    final selectedBus = await _showBusSelectionDialog('Change Bus for ${shift.guideName}', shift);
+    if (selectedBus == null) return;
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    final success = await _shiftsService.assignBusToShift(
+      shiftId: shift.id,
+      busId: selectedBus['id'],
+      busName: selectedBus['name'],
+    );
+
+    setState(() {
+      _isLoading = false;
+    });
+
+    if (success && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Bus changed to ${selectedBus['name']} successfully.'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } else if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Failed to assign bus to shift.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<Map<String, dynamic>?> _showBusSelectionDialog(String title, Shift shift) async {
+    // Get available buses for this specific shift
+    final availableBuses = await _getAvailableBusesForShift(shift);
+    
+    if (availableBuses.isEmpty) {
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('No Available Buses'),
+          content: Text('All buses are already assigned to ${shift.type == ShiftType.dayTour ? 'Day Tour' : 'Northern Lights'} shifts on ${DateFormat('MMM d, y').format(shift.date)}.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      return null;
+    }
+
+    return showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: availableBuses.length,
+            itemBuilder: (context, index) {
+              final bus = availableBuses[index];
+              return ListTile(
+                leading: const Icon(Icons.directions_bus),
+                title: Text(bus['name']),
+                subtitle: Text(bus['licensePlate'] ?? ''),
+                onTap: () => Navigator.pop(context, bus),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> _getAvailableBusesForShift(Shift shift) async {
+    final availableBuses = <Map<String, dynamic>>[];
+    
+    for (final bus in _availableBuses) {
+      final isAvailable = await _shiftsService.isBusAvailableForShift(
+        busId: bus['id'],
+        shiftType: shift.type,
+        date: shift.date,
+        excludeShiftId: shift.id,
+      );
+      
+      if (isAvailable) {
+        availableBuses.add(bus);
+      }
+    }
+    
+    return availableBuses;
+  }
+
+  void _exportMonthlyShifts() async {
+    // Show month selection dialog
+    final selectedMonth = await _showMonthSelectionDialog();
+    if (selectedMonth == null) return;
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      // Get shifts for the selected month
+      final monthShifts = await _getShiftsForMonth(selectedMonth);
+      
+      if (monthShifts.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('No shifts found for ${DateFormat('MMMM yyyy').format(selectedMonth)}'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        return;
+      }
+
+      // Generate CSV content
+      final csvContent = _generateMonthlyReport(monthShifts, selectedMonth);
+      
+      // Save and share file
+      await _saveAndShareReport(csvContent, selectedMonth);
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Monthly report exported successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to export report: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<DateTime?> _showMonthSelectionDialog() async {
+    final now = DateTime.now();
+    final currentMonth = DateTime(now.year, now.month, 1);
+    
+    return showDialog<DateTime>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Select Month'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: 12, // Show last 12 months
+            itemBuilder: (context, index) {
+              final month = DateTime(now.year, now.month - index, 1);
+              return ListTile(
+                title: Text(DateFormat('MMMM yyyy').format(month)),
+                onTap: () => Navigator.pop(context, month),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<List<Shift>> _getShiftsForMonth(DateTime month) async {
+    final startOfMonth = DateTime(month.year, month.month, 1);
+    final endOfMonth = DateTime(month.year, month.month + 1, 0);
+    
+    // Get all shifts and filter by month
+    final allShifts = await _shiftsService.getAllShifts().first;
+    return allShifts.where((shift) => 
+      shift.date.isAfter(startOfMonth.subtract(const Duration(days: 1))) &&
+      shift.date.isBefore(endOfMonth.add(const Duration(days: 1)))
+    ).toList();
+  }
+
+  String _generateMonthlyReport(List<Shift> shifts, DateTime month) {
+    final buffer = StringBuffer();
+    
+    // Header
+    buffer.writeln('Aurora Viking Staff - Monthly Shift Report');
+    buffer.writeln('Month: ${DateFormat('MMMM yyyy').format(month)}');
+    buffer.writeln('Generated: ${DateFormat('yyyy-MM-dd HH:mm').format(DateTime.now())}');
+    buffer.writeln('');
+    
+    // Summary
+    final totalShifts = shifts.length;
+    final acceptedShifts = shifts.where((s) => s.status == ShiftStatus.accepted).length;
+    final completedShifts = shifts.where((s) => s.status == ShiftStatus.completed).length;
+    final dayTours = shifts.where((s) => s.type == ShiftType.dayTour).length;
+    final northernLights = shifts.where((s) => s.type == ShiftType.northernLights).length;
+    
+    buffer.writeln('SUMMARY:');
+    buffer.writeln('Total Shifts: $totalShifts');
+    buffer.writeln('Accepted: $acceptedShifts');
+    buffer.writeln('Completed: $completedShifts');
+    buffer.writeln('Day Tours: $dayTours');
+    buffer.writeln('Northern Lights: $northernLights');
+    buffer.writeln('');
+    
+    // Guide Performance (Only Accepted Shifts)
+    buffer.writeln('GUIDE PERFORMANCE (Accepted Shifts Only):');
+    buffer.writeln('Guide Name,Day Tours,Northern Lights,Total Shifts,Completed Shifts');
+    
+    final guideStats = <String, Map<String, int>>{};
+    
+    // Filter for accepted and completed shifts only
+    final acceptedShiftsForPerformance = shifts.where((shift) => 
+      shift.status == ShiftStatus.accepted || shift.status == ShiftStatus.completed
+    ).toList();
+    
+    for (final shift in acceptedShiftsForPerformance) {
+      if (shift.guideName != null) {
+        final guideName = shift.guideName!;
+        guideStats.putIfAbsent(guideName, () => {
+          'dayTours': 0,
+          'northernLights': 0,
+          'total': 0,
+          'completed': 0,
+        });
+        
+        guideStats[guideName]!['total'] = guideStats[guideName]!['total']! + 1;
+        
+        if (shift.type == ShiftType.dayTour) {
+          guideStats[guideName]!['dayTours'] = guideStats[guideName]!['dayTours']! + 1;
+        } else {
+          guideStats[guideName]!['northernLights'] = guideStats[guideName]!['northernLights']! + 1;
+        }
+        
+        if (shift.status == ShiftStatus.completed) {
+          guideStats[guideName]!['completed'] = guideStats[guideName]!['completed']! + 1;
+        }
+      }
+    }
+    
+    // Sort guides by total shifts (descending)
+    final sortedGuides = guideStats.entries.toList()
+      ..sort((a, b) => b.value['total']!.compareTo(a.value['total']!));
+    
+    for (final entry in sortedGuides) {
+      final stats = entry.value;
+      buffer.writeln('${entry.key},${stats['dayTours']},${stats['northernLights']},${stats['total']},${stats['completed']}');
+    }
+    
+    buffer.writeln('');
+    
+    // Detailed Shift List
+    buffer.writeln('DETAILED SHIFT LIST:');
+    buffer.writeln('Date,Type,Guide Name,Bus,Status,Start Time,End Time');
+    
+    final sortedShifts = shifts.toList()
+      ..sort((a, b) => a.date.compareTo(b.date));
+    
+    for (final shift in sortedShifts) {
+      final date = DateFormat('yyyy-MM-dd').format(shift.date);
+      final type = shift.type == ShiftType.dayTour ? 'Day Tour' : 'Northern Lights';
+      final guideName = shift.guideName ?? 'Unknown';
+      final busName = shift.busName ?? 'Not Assigned';
+      final status = _getStatusText(shift.status);
+      final startTime = shift.startTime.isNotEmpty ? shift.startTime : 'TBD';
+      final endTime = shift.endTime.isNotEmpty ? shift.endTime : 'TBD';
+      
+      buffer.writeln('$date,$type,$guideName,$busName,$status,$startTime,$endTime');
+    }
+    
+    return buffer.toString();
+  }
+
+  Future<void> _saveAndShareReport(String content, DateTime month) async {
+    final directory = await getApplicationDocumentsDirectory();
+    final fileName = 'shifts_report_${DateFormat('yyyy_MM').format(month)}.csv';
+    final file = File('${directory.path}/$fileName');
+    
+    await file.writeAsString(content);
+    
+    await Share.shareXFiles(
+      [XFile(file.path)],
+      text: 'Aurora Viking Staff - Monthly Shift Report for ${DateFormat('MMMM yyyy').format(month)}',
+    );
   }
 
   void _deleteShift(String shiftId) async {

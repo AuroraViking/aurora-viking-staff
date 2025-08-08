@@ -23,6 +23,8 @@ class Shift {
   ShiftStatus status;
   final String? guideId;
   final String? guideName;
+  final String? busId;
+  final String? busName;
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
@@ -35,6 +37,8 @@ class Shift {
     required this.status,
     this.guideId,
     this.guideName,
+    this.busId,
+    this.busName,
     this.createdAt,
     this.updatedAt,
   });
@@ -50,6 +54,8 @@ class Shift {
       'status': status.name,
       'guideId': guideId,
       'guideName': guideName,
+      'busId': busId,
+      'busName': busName,
       'createdAt': createdAt?.toIso8601String(),
       'updatedAt': updatedAt?.toIso8601String(),
     };
@@ -70,6 +76,8 @@ class Shift {
       status: ShiftStatus.values.firstWhere((e) => e.name == json['status']),
       guideId: json['guideId'],
       guideName: json['guideName'],
+      busId: json['busId'],
+      busName: json['busName'],
       createdAt: json['createdAt'] != null ? 
         (json['createdAt'] is String ? DateTime.parse(json['createdAt']) : 
          (json['createdAt'] as Timestamp).toDate()) : null,
@@ -89,6 +97,8 @@ class Shift {
     ShiftStatus? status,
     String? guideId,
     String? guideName,
+    String? busId,
+    String? busName,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -101,6 +111,8 @@ class Shift {
       status: status ?? this.status,
       guideId: guideId ?? this.guideId,
       guideName: guideName ?? this.guideName,
+      busId: busId ?? this.busId,
+      busName: busName ?? this.busName,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );

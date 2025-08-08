@@ -55,6 +55,10 @@ dependencies:
   
   # Crypto for HMAC signatures
   crypto: ^3.0.3
+  
+  # File operations and sharing
+  path_provider: ^2.1.1
+  share_plus: ^7.2.1
 
 dev_dependencies:
   flutter_test:

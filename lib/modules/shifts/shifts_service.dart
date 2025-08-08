@@ -160,6 +160,155 @@ class ShiftsService {
     }
   }
 
+  // Assign bus to shift (admin function)
+  Future<bool> assignBusToShift({
+    required String shiftId,
+    required String busId,
+    required String busName,
+  }) async {
+    try {
+      final user = _auth.currentUser;
+      if (user == null) {
+        print('❌ User not authenticated');
+        return false;
+      }
+
+      // Get the shift details to check bus availability
+      final shiftDoc = await _firestore.collection(_collectionName).doc(shiftId).get();
+      if (!shiftDoc.exists) {
+        print('❌ Shift not found');
+        return false;
+      }
+
+      final shiftData = shiftDoc.data()!;
+      final shiftType = ShiftType.values.firstWhere((e) => e.name == shiftData['type']);
+      final shiftDate = DateTime.parse(shiftData['date']);
+
+      // Check if bus is available for this shift
+      final isAvailable = await isBusAvailableForShift(
+        busId: busId,
+        shiftType: shiftType,
+        date: shiftDate,
+        excludeShiftId: shiftId,
+      );
+
+      if (!isAvailable) {
+        print('❌ Bus $busName is not available for ${shiftType.name} on ${shiftDate.toString()}');
+        return false;
+      }
+
+      await _firestore.collection(_collectionName).doc(shiftId).update({
+        'busId': busId,
+        'busName': busName,
+        'updatedAt': FieldValue.serverTimestamp(),
+        'updatedBy': user.uid,
+      });
+
+      print('✅ Successfully assigned bus $busName to shift: $shiftId');
+      return true;
+    } catch (e) {
+      print('❌ Error assigning bus to shift: $e');
+      return false;
+    }
+  }
+
+  // Check if bus is available for a specific shift
+  Future<bool> isBusAvailableForShift({
+    required String busId,
+    required ShiftType shiftType,
+    required DateTime date,
+    String? excludeShiftId, // Exclude current shift when updating
+  }) async {
+    try {
+      final startOfDay = DateTime(date.year, date.month, date.day);
+      final endOfDay = startOfDay.add(const Duration(days: 1));
+
+      // Query only by date range (no composite index needed), then filter in memory
+      final result = await _firestore
+          .collection(_collectionName)
+          .where('date', isGreaterThanOrEqualTo: startOfDay.toIso8601String())
+          .where('date', isLessThan: endOfDay.toIso8601String())
+          .get();
+
+      int conflictingShifts = result.docs.where((doc) {
+        final data = doc.data();
+        if (excludeShiftId != null && doc.id == excludeShiftId) return false;
+        final docType = data['type'] as String?;
+        final docStatus = data['status'] as String?;
+        final docBusId = data['busId'] as String?;
+        final isAcceptedOrCompleted = docStatus == ShiftStatus.accepted.name || docStatus == ShiftStatus.completed.name;
+        return isAcceptedOrCompleted && docType == shiftType.name && docBusId == busId;
+      }).length;
+
+      final isAvailable = conflictingShifts == 0;
+      print('🔍 Bus availability check: Bus $busId for ${shiftType.name} on ${date.toString()} - Available: $isAvailable (conflicts: $conflictingShifts)');
+      return isAvailable;
+    } catch (e) {
+      // On any error, default to allowing selection to avoid blocking admins
+      print('⚠️ Falling back to available due to error checking bus availability: $e');
+      return true;
+    }
+  }
+
+  // Accept shift and assign bus (admin function)
+  Future<bool> acceptShiftAndAssignBus({
+    required String shiftId,
+    required String busId,
+    required String busName,
+    String? adminNote,
+  }) async {
+    try {
+      final user = _auth.currentUser;
+      if (user == null) {
+        print('❌ User not authenticated');
+        return false;
+      }
+
+      // Get the shift details to check bus availability
+      final shiftDoc = await _firestore.collection(_collectionName).doc(shiftId).get();
+      if (!shiftDoc.exists) {
+        print('❌ Shift not found');
+        return false;
+      }
+
+      final shiftData = shiftDoc.data()!;
+      final shiftType = ShiftType.values.firstWhere((e) => e.name == shiftData['type']);
+      final shiftDate = DateTime.parse(shiftData['date']);
+
+      // Check if bus is available for this shift
+      final isAvailable = await isBusAvailableForShift(
+        busId: busId,
+        shiftType: shiftType,
+        date: shiftDate,
+        excludeShiftId: shiftId,
+      );
+
+      if (!isAvailable) {
+        print('❌ Bus $busName is not available for ${shiftType.name} on ${shiftDate.toString()}');
+        return false;
+      }
+
+      final updateData = <String, dynamic>{
+        'status': ShiftStatus.accepted.name,
+        'busId': busId,
+        'busName': busName,
+        'updatedAt': FieldValue.serverTimestamp(),
+        'updatedBy': user.uid,
+      };
+
+      if (adminNote != null && adminNote.isNotEmpty) {
+        updateData['adminNote'] = adminNote;
+      }
+
+      await _firestore.collection(_collectionName).doc(shiftId).update(updateData);
+      print('✅ Successfully accepted shift and assigned bus $busName: $shiftId');
+      return true;
+    } catch (e) {
+      print('❌ Error accepting shift and assigning bus: $e');
+      return false;
+    }
+  }
+
   // Cancel a shift application (guide function)
   Future<bool> cancelShiftApplication(String shiftId) async {
     try {
