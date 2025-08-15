@@ -1,0 +1,30 @@
+<!-- Authentic Ægishjálmur (Helm of Awe) with dark background for app icon -->
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <!-- Dark background -->
+  <rect width="100" height="100" fill="#0A0D12"/>
+  
+  <g fill="none" stroke="#00E5FF" stroke-width="2" stroke-linecap="round">
+    <circle cx="50" cy="50" r="5" stroke-width="1.5"/>
+    <defs>
+      <g id="arm">
+        <!-- primary Algiz-style shaft -->
+        <line x1="50" y1="35" x2="50" y2="15"/>
+        <!-- Isa runes (crossbars) -->
+        <line x1="50" y1="25" x2="55" y2="25" stroke-width="1.5"/>
+        <line x1="50" y1="20" x2="55" y2="20" stroke-width="1.5"/>
+        <!-- trident tip -->
+        <line x1="50" y1="15" x2="44" y2="22"/>
+        <line x1="50" y1="15" x2="56" y2="22"/>
+      </g>
+    </defs>
+    <!-- Spin that arm eight times evenly around the center -->
+    <use href="#arm" transform="rotate(0 50 50)"/>
+    <use href="#arm" transform="rotate(45 50 50)"/>
+    <use href="#arm" transform="rotate(90 50 50)"/>
+    <use href="#arm" transform="rotate(135 50 50)"/>
+    <use href="#arm" transform="rotate(180 50 50)"/>
+    <use href="#arm" transform="rotate(225 50 50)"/>
+    <use href="#arm" transform="rotate(270 50 50)"/>
+    <use href="#arm" transform="rotate(315 50 50)"/>
+  </g>
+</svg> 
