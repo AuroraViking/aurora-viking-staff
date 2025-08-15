@@ -8,6 +8,7 @@ import 'services/weather_service.dart';
 import 'services/sunrise_sunset_service.dart';
 import 'services/permission_util.dart';
 import 'widgets/forecast_chart_widget.dart';
+import 'widgets/cloud_cover_map.dart';
 
 class ForecastScreen extends StatefulWidget {
   const ForecastScreen({super.key});
@@ -215,11 +216,13 @@ class _ForecastScreenState extends State<ForecastScreen> {
                         const SizedBox(height: 16),
                         _buildAuroraStatusCard(),
                         const SizedBox(height: 16),
+                        _buildBzChart(),
+                        const SizedBox(height: 16),
+                        _buildCloudCoverMap(),
+                        const SizedBox(height: 16),
                         _buildSubstormTracker(),
                         const SizedBox(height: 16),
                         _buildSolarWindCard(),
-                        const SizedBox(height: 16),
-                        _buildBzChart(),
                         const SizedBox(height: 16),
                         _buildWeatherCard(),
                         const SizedBox(height: 16),
@@ -260,27 +263,15 @@ class _ForecastScreenState extends State<ForecastScreen> {
     final statusColor = AuroraMessageService.getStatusColor(_kp, bzH);
     final auroraAdvice = AuroraMessageService.getAuroraAdvice(_kp, bzH);
 
-    // Check if it will be dark enough
     bool isNoDarkness = false;
     if (_sunData != null) {
       final astroStart = _sunData!['astronomicalTwilightStart'] ?? 'N/A';
       final astroEnd = _sunData!['astronomicalTwilightEnd'] ?? 'N/A';
-      
-      isNoDarkness = (astroStart == '00:00' && astroEnd == '00:00') || 
+
+      isNoDarkness = (astroStart == '00:00' && astroEnd == '00:00') ||
                      (astroStart == '0:00' && astroEnd == '0:00') ||
                      (astroStart == '0:00' && astroEnd == '00:00') ||
                      (astroStart == '00:00' && astroEnd == '0:00');
-    }
-
-    // Create the combined message based on darkness conditions
-    String finalMessage;
-    Color messageColor;
-    if (isNoDarkness) {
-      finalMessage = 'It will not be dark enough at your location tonight for aurora spotting';
-      messageColor = Colors.red;
-    } else {
-      finalMessage = combinedMessage;
-      messageColor = statusColor;
     }
 
     return Container(
@@ -289,17 +280,17 @@ class _ForecastScreenState extends State<ForecastScreen> {
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [
-            messageColor.withOpacity(0.2),
-            messageColor.withOpacity(0.1),
+            statusColor.withOpacity(0.2),
+            statusColor.withOpacity(0.1),
           ],
           begin: Alignment.centerLeft,
           end: Alignment.centerRight,
         ),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: messageColor.withOpacity(0.5)),
+        border: Border.all(color: statusColor.withOpacity(0.5)),
         boxShadow: [
           BoxShadow(
-            color: messageColor.withOpacity(0.3),
+            color: statusColor.withOpacity(0.3),
             blurRadius: 15,
             spreadRadius: 1,
           ),
@@ -307,26 +298,62 @@ class _ForecastScreenState extends State<ForecastScreen> {
       ),
       child: Column(
         children: [
+          // Primary aurora status - always shown
           Text(
-            finalMessage,
+            combinedMessage,
             style: TextStyle(
-              color: messageColor,
+              color: statusColor,
               fontSize: 16,
               fontWeight: FontWeight.bold,
               shadows: [
-                Shadow(color: messageColor.withOpacity(0.5), blurRadius: 10),
+                Shadow(color: statusColor.withOpacity(0.5), blurRadius: 10),
               ],
             ),
             textAlign: TextAlign.center,
           ),
-          if (!isNoDarkness) ...[
-            const SizedBox(height: 12),
+          const SizedBox(height: 12),
+          Text(
+            auroraAdvice,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 14,
+              fontStyle: FontStyle.italic,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          
+          // Darkness warning - shown below if applicable
+          if (isNoDarkness) ...[
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.red.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.red.withOpacity(0.5)),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.warning_amber, color: Colors.red, size: 20),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Limited Darkness Tonight',
+                    style: TextStyle(
+                      color: Colors.red,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
             Text(
-              auroraAdvice,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 14,
-                fontStyle: FontStyle.italic,
+              'It will not be dark enough at your location tonight for optimal aurora spotting',
+              style: TextStyle(
+                color: Colors.red.withOpacity(0.8),
+                fontSize: 12,
               ),
               textAlign: TextAlign.center,
             ),
@@ -538,6 +565,56 @@ class _ForecastScreenState extends State<ForecastScreen> {
       final time = now.subtract(Duration(minutes: count - 1 - index));
       return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
     });
+  }
+
+  Widget _buildCloudCoverMap() {
+    if (_weatherData == null || _weatherData!.containsKey('error')) {
+      return const SizedBox.shrink();
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.05),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.tealAccent.withOpacity(0.3)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Cloud Cover Map',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 16),
+            CloudCoverMap(
+              position: _currentPosition ?? Position(
+                latitude: 64.9631, // Default to Reykjavik
+                longitude: -19.0208,
+                timestamp: DateTime.now(),
+                accuracy: 0,
+                altitude: 0,
+                heading: 0,
+                speed: 0,
+                speedAccuracy: 0,
+                altitudeAccuracy: 0,
+                headingAccuracy: 0,
+              ),
+              cloudCover: (_weatherData?['cloudCover'] as num?)?.toDouble() ?? 0.0,
+              weatherDescription: _weatherData?['description'] ?? 'Unknown',
+              weatherIcon: _weatherData?['icon'] ?? '01d',
+              isNowcast: true,
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildWeatherCard() {
