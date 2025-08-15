@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'dart:io';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
 import 'modules/admin/admin_controller.dart';
