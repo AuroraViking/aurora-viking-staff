@@ -7,6 +7,7 @@ import '../../core/models/shift_model.dart';
 import '../../core/auth/auth_controller.dart';
 import 'shifts_service.dart';
 import '../../theme/colors.dart';
+import 'dart:async'; // Added for Timer
 
 class ShiftsScreen extends StatefulWidget {
   const ShiftsScreen({super.key});
@@ -23,6 +24,7 @@ class _ShiftsScreenState extends State<ShiftsScreen> {
   final ShiftsService _shiftsService = ShiftsService();
   Map<DateTime, List<Shift>> _appliedShifts = {};
   bool _isLoading = false;
+  Timer? _autoCompleteTimer;
 
   @override
   void initState() {
@@ -36,7 +38,22 @@ class _ShiftsScreenState extends State<ShiftsScreen> {
       final authController = context.read<AuthController>();
       _shiftsService.setAuthController(authController);
       _loadShifts();
+      
+      // Set up periodic auto-completion check (every hour)
+      _autoCompleteTimer = Timer.periodic(const Duration(hours: 1), (timer) {
+        if (mounted) {
+          _shiftsService.autoCompletePastShifts();
+        } else {
+          timer.cancel();
+        }
+      });
     });
+  }
+
+  @override
+  void dispose() {
+    _autoCompleteTimer?.cancel();
+    super.dispose();
   }
 
   void _loadShifts() {
@@ -53,6 +70,9 @@ class _ShiftsScreenState extends State<ShiftsScreen> {
         });
       }
     });
+    
+    // Auto-complete past accepted shifts
+    _shiftsService.autoCompletePastShifts();
   }
 
   // Get events for a specific day
@@ -105,7 +125,7 @@ class _ShiftsScreenState extends State<ShiftsScreen> {
               ],
             ),
             child: TableCalendar<Shift>(
-              firstDay: DateTime.now(),
+              firstDay: DateTime.now().subtract(const Duration(days: 365)), // Allow viewing past year
               lastDay: DateTime.now().add(const Duration(days: 365)),
               focusedDay: _focusedDay,
               calendarFormat: _calendarFormat,
@@ -199,6 +219,10 @@ class _ShiftsScreenState extends State<ShiftsScreen> {
   Widget _buildApplicationOptions() {
     final dateFormat = DateFormat('EEEE, MMMM d, y');
     final selectedDayShifts = _getEventsForDay(_selectedDay);
+    final isPastDate = _selectedDay.isBefore(DateTime.now().subtract(const Duration(days: 1)));
+    final isToday = _selectedDay.day == DateTime.now().day && 
+                    _selectedDay.month == DateTime.now().month && 
+                    _selectedDay.year == DateTime.now().year;
     
     return Container(
       padding: const EdgeInsets.all(16),
@@ -223,65 +247,111 @@ class _ShiftsScreenState extends State<ShiftsScreen> {
                     ),
                   ),
                 ),
+                if (isPastDate)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      'Past Date',
+                      style: TextStyle(
+                        color: Colors.grey[600],
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
               ],
             ),
             const SizedBox(height: 16),
             
-            // Show existing applications if any
+            // Show all shifts for the selected date
             if (selectedDayShifts.isNotEmpty) ...[
-              const Text(
-                'Your Applications',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                ),
+              Row(
+                children: [
+                  Text(
+                    isPastDate ? 'Shift Details' : 'Your Applications',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const Spacer(),
+                  if (isPastDate)
+                    TextButton.icon(
+                      onPressed: () => _viewAllShiftsForDate(_selectedDay),
+                      icon: const Icon(Icons.visibility, size: 16),
+                      label: const Text('View All'),
+                    ),
+                ],
               ),
               const SizedBox(height: 8),
               ...selectedDayShifts.map((shift) => _buildAppliedShiftCard(shift)),
               const SizedBox(height: 16),
             ],
             
-            // Application Options
-            Row(
-              children: [
-                const Text(
-                  'Apply for Shifts',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
+            // Application Options (only show for current/future dates)
+            if (!isPastDate) ...[
+              Row(
+                children: [
+                  const Text(
+                    'Apply for Shifts',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
-                ),
-                if (_isLoading) ...[
-                  const SizedBox(width: 8),
-                  const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
+                  if (_isLoading) ...[
+                    const SizedBox(width: 8),
+                    const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ],
                 ],
-              ],
-            ),
-            const SizedBox(height: 12),
-            
-            // Day Tour Option
-            _buildShiftOption(
-              'Day Tour',
-              Icons.wb_sunny,
-              Colors.orange,
-              selectedDayShifts.any((shift) => shift.type == ShiftType.dayTour),
-              () => _applyForShift(ShiftType.dayTour),
-            ),
-            
-            const SizedBox(height: 8),
-            
-            // Northern Lights Option
-            _buildShiftOption(
-              'Northern Lights',
-              Icons.nightlight,
-              Colors.indigo,
-              selectedDayShifts.any((shift) => shift.type == ShiftType.northernLights),
-              () => _applyForShift(ShiftType.northernLights),
-            ),
+              ),
+              const SizedBox(height: 12),
+              
+              // Day Tour Option
+              _buildShiftOption(
+                'Day Tour',
+                Icons.wb_sunny,
+                Colors.orange,
+                selectedDayShifts.any((shift) => shift.type == ShiftType.dayTour),
+                () => _applyForShift(ShiftType.dayTour),
+              ),
+              
+              const SizedBox(height: 8),
+              
+              // Northern Lights Option
+              _buildShiftOption(
+                'Northern Lights',
+                Icons.nightlight,
+                Colors.indigo,
+                selectedDayShifts.any((shift) => shift.type == ShiftType.northernLights),
+                () => _applyForShift(ShiftType.northernLights),
+              ),
+            ] else if (selectedDayShifts.isEmpty) ...[
+              // Show message for past dates with no shifts
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.grey.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  'No shifts recorded for this date',
+                  style: TextStyle(
+                    color: Colors.grey[600],
+                    fontSize: 14,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ],
             
             // Add some bottom padding for better scrolling
             const SizedBox(height: 20),
@@ -292,92 +362,130 @@ class _ShiftsScreenState extends State<ShiftsScreen> {
   }
 
   Widget _buildAppliedShiftCard(Shift shift) {
+    final isPastShift = shift.date.isBefore(DateTime.now().subtract(const Duration(days: 1)));
+    
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  shift.type == ShiftType.dayTour ? Icons.wb_sunny : Icons.nightlight,
-                  color: shift.type == ShiftType.dayTour ? Colors.orange : Colors.indigo,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        shift.type == ShiftType.dayTour ? 'Day Tour' : 'Northern Lights',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w600,
+      child: InkWell(
+        onTap: isPastShift ? () => _viewShiftDetails(shift) : null,
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    shift.type == ShiftType.dayTour ? Icons.wb_sunny : Icons.nightlight,
+                    color: shift.type == ShiftType.dayTour ? Colors.orange : Colors.indigo,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          shift.type == ShiftType.dayTour ? 'Day Tour' : 'Northern Lights',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        Text(
+                          _getStatusText(shift.status),
+                          style: TextStyle(
+                            color: _getStatusColor(shift.status),
+                            fontSize: 12,
+                          ),
+                        ),
+                        if (isPastShift) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            '${shift.startTime} - ${shift.endTime}',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: _getStatusColor(shift.status),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      _getStatusText(shift.status),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              // Action buttons (only for current/future shifts)
+              if (!isPastShift && (shift.status == ShiftStatus.applied || shift.status == ShiftStatus.accepted)) ...[
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    if (shift.status == ShiftStatus.applied)
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _isLoading ? null : () => _cancelShift(shift.id),
+                          icon: const Icon(Icons.cancel, size: 16),
+                          label: const Text('Cancel'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.red,
+                            side: const BorderSide(color: Colors.red),
+                          ),
                         ),
                       ),
-                      Text(
-                        _getStatusText(shift.status),
-                        style: TextStyle(
-                          color: _getStatusColor(shift.status),
-                          fontSize: 12,
+                    if (shift.status == ShiftStatus.accepted) ...[
+                      if (shift.status == ShiftStatus.applied) const SizedBox(width: 8),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: _isLoading ? null : () => _completeShift(shift.id),
+                          icon: const Icon(Icons.check, size: 16),
+                          label: const Text('Mark Complete'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green,
+                            foregroundColor: Colors.white,
+                          ),
                         ),
                       ),
                     ],
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: _getStatusColor(shift.status),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    _getStatusText(shift.status),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
+                  ],
                 ),
               ],
-            ),
-            // Action buttons
-            if (shift.status == ShiftStatus.applied || shift.status == ShiftStatus.accepted) ...[
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  if (shift.status == ShiftStatus.applied)
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: _isLoading ? null : () => _cancelShift(shift.id),
-                        icon: const Icon(Icons.cancel, size: 16),
-                        label: const Text('Cancel'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.red,
-                          side: const BorderSide(color: Colors.red),
-                        ),
-                      ),
+              // Show "Click to view details" for past shifts
+              if (isPastShift) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Icon(
+                      Icons.info_outline,
+                      size: 16,
+                      color: Colors.grey[600],
                     ),
-                  if (shift.status == ShiftStatus.accepted) ...[
-                    if (shift.status == ShiftStatus.applied) const SizedBox(width: 8),
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: _isLoading ? null : () => _completeShift(shift.id),
-                        icon: const Icon(Icons.check, size: 16),
-                        label: const Text('Mark Complete'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green,
-                          foregroundColor: Colors.white,
-                        ),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Click to view details',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey[600],
+                        fontStyle: FontStyle.italic,
                       ),
                     ),
                   ],
-                ],
-              ),
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
@@ -581,5 +689,167 @@ class _ShiftsScreenState extends State<ShiftsScreen> {
         );
       }
     }
+  }
+
+  void _viewAllShiftsForDate(DateTime date) async {
+    final allShifts = await _shiftsService.getAllShiftsForDate(date);
+    
+    if (mounted) {
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('All Shifts for ${DateFormat('MMMM d, y').format(date)}'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (allShifts.isEmpty)
+                  const Text('No shifts recorded for this date')
+                else
+                  ...allShifts.map((shift) => _buildShiftListItem(shift)),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Close'),
+            ),
+          ],
+        ),
+      );
+    }
+  }
+
+  void _viewShiftDetails(Shift shift) async {
+    final details = await _shiftsService.getShiftDetails(shift.id);
+
+    if (mounted) {
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('Shift Details for ${DateFormat('MMMM d, y').format(shift.date)}'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildShiftListItem(shift),
+                if (details != null) ...[
+                  const SizedBox(height: 16),
+                  Text(
+                    'Guide: ${details.guideName ?? 'Unknown'}',
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  Text(
+                    'Status: ${_getStatusText(details.status)}',
+                    style: TextStyle(
+                      color: _getStatusColor(details.status),
+                      fontSize: 14,
+                    ),
+                  ),
+                  if (details.status == ShiftStatus.completed) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      'Status: Completed',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: Colors.blue,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Close'),
+            ),
+          ],
+        ),
+      );
+    }
+  }
+
+  Widget _buildShiftListItem(Shift shift) {
+    final statusColor = shift.status == ShiftStatus.accepted
+        ? Colors.green
+        : shift.status == ShiftStatus.applied
+            ? Colors.orange
+            : shift.status == ShiftStatus.completed
+                ? Colors.blue
+                : shift.status == ShiftStatus.cancelled
+                    ? Colors.red
+                    : Colors.grey;
+
+    final typeIcon = shift.type == ShiftType.dayTour ? Icons.wb_sunny : Icons.nightlight_round;
+    final typeColor = shift.type == ShiftType.dayTour ? Colors.orange : Colors.indigo;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.grey.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.grey.withOpacity(0.3)),
+      ),
+      child: Row(
+        children: [
+          Icon(typeIcon, color: typeColor, size: 20),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  shift.type == ShiftType.dayTour ? 'Day Tour' : 'Northern Lights',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
+                  ),
+                ),
+                if (shift.guideName != null)
+                  Text(
+                    'Guide: ${shift.guideName}',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey,
+                    ),
+                  ),
+                Text(
+                  '${shift.startTime} - ${shift.endTime}',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: statusColor.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              shift.status.name.toUpperCase(),
+              style: TextStyle(
+                color: statusColor,
+                fontWeight: FontWeight.bold,
+                fontSize: 10,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 } 

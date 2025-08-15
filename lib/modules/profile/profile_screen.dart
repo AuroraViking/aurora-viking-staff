@@ -4,6 +4,7 @@ import '../../theme/colors.dart' as av;
 import '../../core/auth/auth_controller.dart';
 import '../shifts/shifts_screen.dart';
 import '../shifts/shifts_service.dart';
+import '../../core/models/shift_model.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -28,6 +29,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String _userEmail = '';
   String _userPhone = '';
   String _emergencyContact = 'Not provided';
+
+  // Month selection for shift report
+  DateTime _selectedMonth = DateTime.now();
 
   @override
   void initState() {
@@ -183,6 +187,30 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ),
       ),
     );
+  }
+
+  void _selectMonth() async {
+    final selectedDate = await showDatePicker(
+      context: context,
+      initialDate: _selectedMonth,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+      initialDatePickerMode: DatePickerMode.year,
+    );
+
+    if (selectedDate != null) {
+      setState(() {
+        _selectedMonth = DateTime(selectedDate.year, selectedDate.month, 1);
+      });
+    }
+  }
+
+  String _getMonthName(int month) {
+    const months = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+    return months[month - 1];
   }
 
   @override
@@ -377,6 +405,48 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
             const SizedBox(height: 20),
 
+            // Monthly Shift Report
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: av.AVColors.slate,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: av.AVColors.outline),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text(
+                        'Monthly Shift Report',
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: av.AVColors.textHigh,
+                        ),
+                      ),
+                      const Spacer(),
+                      TextButton.icon(
+                        onPressed: _selectMonth,
+                        icon: const Icon(Icons.calendar_month, size: 16),
+                        label: Text(
+                          '${_selectedMonth.month}/${_selectedMonth.year}',
+                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            color: av.AVColors.textLow,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  _buildMonthlyShiftReport(),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 20),
+
             // Quick Actions
             Container(
               padding: const EdgeInsets.all(16),
@@ -417,25 +487,263 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Widget _buildInfoRow(String label, String value) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.only(bottom: 12),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-            width: 120,
-            child: Text(
-              label,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                fontWeight: FontWeight.w600,
-                color: av.AVColors.textLow,
-              ),
+          Text(
+            '$label:',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+              color: av.AVColors.textLow,
             ),
           ),
+          const SizedBox(width: 8),
           Expanded(
             child: Text(
               value,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                 color: av.AVColors.textHigh,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMonthlyShiftReport() {
+    return FutureBuilder<List<Shift>>(
+      future: _shiftsService.getGuideShifts().first,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(
+            child: CircularProgressIndicator(),
+          );
+        }
+
+        if (snapshot.hasError) {
+          return Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: av.AVColors.slateElev,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              'Error loading shift data: ${snapshot.error}',
+              style: TextStyle(color: av.AVColors.forgeRed),
+            ),
+          );
+        }
+
+        final shifts = snapshot.data ?? [];
+        final selectedMonthStart = DateTime(_selectedMonth.year, _selectedMonth.month, 1);
+        final selectedMonthEnd = DateTime(_selectedMonth.year, _selectedMonth.month + 1, 0);
+
+        // Filter shifts for selected month
+        final selectedMonthShifts = shifts.where((shift) =>
+          shift.date.isAfter(selectedMonthStart.subtract(const Duration(days: 1))) &&
+          shift.date.isBefore(selectedMonthEnd.add(const Duration(days: 1)))
+        ).toList();
+
+        if (selectedMonthShifts.isEmpty) {
+          return Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: av.AVColors.slateElev,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              'No shifts scheduled for ${_getMonthName(_selectedMonth.month)} ${_selectedMonth.year}',
+              style: TextStyle(color: av.AVColors.textLow),
+              textAlign: TextAlign.center,
+            ),
+          );
+        }
+
+        // Group shifts by type and status
+        final dayTours = selectedMonthShifts.where((s) => s.type.name == 'dayTour').length;
+        final northernLights = selectedMonthShifts.where((s) => s.type.name == 'northernLights').length;
+        final accepted = selectedMonthShifts.where((s) => s.status == ShiftStatus.accepted).length;
+        final applied = selectedMonthShifts.where((s) => s.status == ShiftStatus.applied).length;
+        final completed = selectedMonthShifts.where((s) => s.status == ShiftStatus.completed).length;
+
+        return Column(
+          children: [
+            // Summary Row
+            Row(
+              children: [
+                Expanded(
+                  child: _buildReportStatCard(
+                    'Total Shifts',
+                    '${selectedMonthShifts.length}',
+                    Icons.work,
+                    av.AVColors.primaryTeal,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _buildReportStatCard(
+                    'Accepted',
+                    '$accepted',
+                    Icons.check_circle,
+                    Colors.green,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _buildReportStatCard(
+                    'Applied',
+                    '$applied',
+                    Icons.schedule,
+                    Colors.orange,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            
+            // Tour Type Breakdown
+            Row(
+              children: [
+                Expanded(
+                  child: _buildReportStatCard(
+                    'Day Tours',
+                    '$dayTours',
+                    Icons.wb_sunny,
+                    Colors.orange,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _buildReportStatCard(
+                    'Northern Lights',
+                    '$northernLights',
+                    Icons.nightlight_round,
+                    Colors.indigo,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _buildReportStatCard(
+                    'Completed',
+                    '$completed',
+                    Icons.done_all,
+                    Colors.green,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            
+            // Recent Shifts List
+            Text(
+              'Recent Shifts',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: av.AVColors.textHigh,
+              ),
+            ),
+            const SizedBox(height: 8),
+            ...selectedMonthShifts
+                .take(5) // Show only last 5 shifts
+                .map((shift) => _buildShiftListItem(shift))
+                .toList(),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildReportStatCard(String title, String value, IconData icon, Color color) {
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: av.AVColors.slateElev,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: av.AVColors.outline),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, size: 20, color: color),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.bold,
+              color: av.AVColors.textHigh,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          Text(
+            title,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: av.AVColors.textLow,
+              fontSize: 10,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildShiftListItem(Shift shift) {
+    final statusColor = shift.status == ShiftStatus.accepted
+        ? Colors.green
+        : shift.status == ShiftStatus.applied
+            ? Colors.orange
+            : shift.status == ShiftStatus.completed
+                ? Colors.blue
+                : av.AVColors.textLow;
+
+    final typeIcon = shift.type.name == 'dayTour' ? Icons.wb_sunny : Icons.nightlight_round;
+    final typeColor = shift.type.name == 'dayTour' ? Colors.orange : Colors.indigo;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: av.AVColors.slateElev,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: av.AVColors.outline),
+      ),
+      child: Row(
+        children: [
+          Icon(typeIcon, color: typeColor, size: 20),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${shift.date.day}/${shift.date.month}',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: av.AVColors.textHigh,
+                  ),
+                ),
+                Text(
+                  shift.type.name == 'dayTour' ? 'Day Tour' : 'Northern Lights',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: av.AVColors.textLow,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: statusColor.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              shift.status.name.toUpperCase(),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: statusColor,
+                fontWeight: FontWeight.bold,
+                fontSize: 10,
               ),
             ),
           ),

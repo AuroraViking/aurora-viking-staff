@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'dart:io';
+import 'dart:async'; // Added for Timer
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../core/models/shift_model.dart';
@@ -33,6 +34,7 @@ class _AdminShiftManagementScreenState extends State<AdminShiftManagementScreen>
   late DateTime _selectedDay;
   late CalendarFormat _calendarFormat;
   Map<DateTime, List<Shift>> _shiftsByDate = {};
+  Timer? _autoCompleteTimer;
 
   @override
   void initState() {
@@ -48,7 +50,22 @@ class _AdminShiftManagementScreenState extends State<AdminShiftManagementScreen>
       _loadShifts();
       _loadStatistics();
       _loadAvailableBuses();
+      
+      // Set up periodic auto-completion check (every hour)
+      _autoCompleteTimer = Timer.periodic(const Duration(hours: 1), (timer) {
+        if (mounted) {
+          _shiftsService.autoCompletePastShifts();
+        } else {
+          timer.cancel();
+        }
+      });
     });
+  }
+
+  @override
+  void dispose() {
+    _autoCompleteTimer?.cancel();
+    super.dispose();
   }
 
   void _loadShifts() {
@@ -60,6 +77,9 @@ class _AdminShiftManagementScreenState extends State<AdminShiftManagementScreen>
         });
       }
     });
+    
+    // Auto-complete past accepted shifts
+    _shiftsService.autoCompletePastShifts();
   }
 
   void _organizeShiftsByDate() {
@@ -152,7 +172,7 @@ class _AdminShiftManagementScreenState extends State<AdminShiftManagementScreen>
         ],
       ),
       child: TableCalendar<Shift>(
-        firstDay: DateTime.now(),
+        firstDay: DateTime.now().subtract(const Duration(days: 365)), // Allow viewing past year
         lastDay: DateTime.now().add(const Duration(days: 365)),
         focusedDay: _focusedDay,
         calendarFormat: _calendarFormat,
@@ -260,6 +280,7 @@ class _AdminShiftManagementScreenState extends State<AdminShiftManagementScreen>
 
   Widget _buildSelectedDayShifts() {
     final selectedDayShifts = _getShiftsForDay(_selectedDay);
+    final isPastDate = _selectedDay.isBefore(DateTime.now().subtract(const Duration(days: 1)));
     
     return Container(
       padding: const EdgeInsets.all(16),
@@ -283,6 +304,22 @@ class _AdminShiftManagementScreenState extends State<AdminShiftManagementScreen>
                   ),
                 ),
               ),
+              if (isPastDate)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    'Past Date',
+                    style: TextStyle(
+                      color: Colors.grey[600],
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
             ],
           ),
           const SizedBox(height: 16),
@@ -304,7 +341,27 @@ class _AdminShiftManagementScreenState extends State<AdminShiftManagementScreen>
                 ),
               ),
             )
-          else
+          else ...[
+            // Header with View All button for past dates
+            Row(
+              children: [
+                Text(
+                  isPastDate ? 'Shift Details' : 'Shifts for Selected Date',
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const Spacer(),
+                if (isPastDate)
+                  TextButton.icon(
+                    onPressed: () => _viewAllShiftsForDate(_selectedDay),
+                    icon: const Icon(Icons.visibility, size: 16),
+                    label: const Text('View All'),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
             Expanded(
               child: ListView.builder(
                 itemCount: selectedDayShifts.length,
@@ -314,6 +371,7 @@ class _AdminShiftManagementScreenState extends State<AdminShiftManagementScreen>
                 },
               ),
             ),
+          ],
         ],
       ),
     );
@@ -973,50 +1031,164 @@ class _AdminShiftManagementScreenState extends State<AdminShiftManagementScreen>
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Delete Shift'),
+        title: const Text('Confirm Delete'),
         content: const Text('Are you sure you want to delete this shift? This action cannot be undone.'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context, false),
+            onPressed: () => Navigator.of(context).pop(false),
             child: const Text('Cancel'),
           ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
             child: const Text('Delete'),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
           ),
         ],
       ),
     );
 
-    if (confirmed != true) return;
+    if (confirmed == true) {
+      setState(() {
+        _isLoading = true;
+      });
 
-    setState(() {
-      _isLoading = true;
-    });
+      final success = await _shiftsService.deleteShift(shiftId);
 
-    final success = await _shiftsService.deleteShift(shiftId);
+      setState(() {
+        _isLoading = false;
+      });
 
-    setState(() {
-      _isLoading = false;
-    });
+      if (success && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Shift deleted successfully.'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        _loadStatistics();
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Failed to delete shift.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
 
-    if (success && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Shift deleted successfully.'),
-          backgroundColor: Colors.green,
-        ),
-      );
-      _loadStatistics();
-    } else if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Failed to delete shift.'),
-          backgroundColor: Colors.red,
+  void _viewAllShiftsForDate(DateTime date) async {
+    final allShifts = await _shiftsService.getAllShiftsForDate(date);
+    
+    if (mounted) {
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('All Shifts for ${DateFormat('MMMM d, y').format(date)}'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (allShifts.isEmpty)
+                  const Text('No shifts recorded for this date')
+                else
+                  ...allShifts.map((shift) => _buildShiftListItem(shift)),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Close'),
+            ),
+          ],
         ),
       );
     }
+  }
+
+  Widget _buildShiftListItem(Shift shift) {
+    final statusColor = shift.status == ShiftStatus.accepted
+        ? Colors.green
+        : shift.status == ShiftStatus.applied
+            ? Colors.orange
+            : shift.status == ShiftStatus.completed
+                ? Colors.blue
+                : shift.status == ShiftStatus.cancelled
+                    ? Colors.red
+                    : Colors.grey;
+
+    final typeIcon = shift.type == ShiftType.dayTour ? Icons.wb_sunny : Icons.nightlight_round;
+    final typeColor = shift.type == ShiftType.dayTour ? Colors.orange : Colors.indigo;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.grey.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.grey.withOpacity(0.3)),
+      ),
+      child: Row(
+        children: [
+          Icon(typeIcon, color: typeColor, size: 20),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  shift.type == ShiftType.dayTour ? 'Day Tour' : 'Northern Lights',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
+                  ),
+                ),
+                if (shift.guideName != null)
+                  Text(
+                    'Guide: ${shift.guideName}',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey,
+                    ),
+                  ),
+                if (shift.busName != null)
+                  Text(
+                    'Bus: ${shift.busName}',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey,
+                    ),
+                  ),
+                Text(
+                  '${shift.startTime} - ${shift.endTime}',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: statusColor.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              shift.status.name.toUpperCase(),
+              style: TextStyle(
+                color: statusColor,
+                fontWeight: FontWeight.bold,
+                fontSize: 10,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<String?> _showNoteDialog(String title) async {

@@ -69,6 +69,47 @@ class ShiftsService {
             .toList());
   }
 
+  // Get all shifts for a specific date (including other guides' applications)
+  Future<List<Shift>> getAllShiftsForDate(DateTime date) async {
+    try {
+      final startOfDay = DateTime(date.year, date.month, date.day);
+      final endOfDay = startOfDay.add(const Duration(days: 1));
+
+      final querySnapshot = await _firestore
+          .collection(_collectionName)
+          .where('date', isGreaterThanOrEqualTo: startOfDay.toIso8601String())
+          .where('date', isLessThan: endOfDay.toIso8601String())
+          .get();
+
+      return querySnapshot.docs
+          .map((doc) => Shift.fromJson({
+                'id': doc.id,
+                ...doc.data(),
+              }))
+          .toList();
+    } catch (e) {
+      print('❌ Error getting all shifts for date: $e');
+      return [];
+    }
+  }
+
+  // Get detailed information about a specific shift
+  Future<Shift?> getShiftDetails(String shiftId) async {
+    try {
+      final doc = await _firestore.collection(_collectionName).doc(shiftId).get();
+      if (doc.exists) {
+        return Shift.fromJson({
+          'id': doc.id,
+          ...doc.data()!,
+        });
+      }
+      return null;
+    } catch (e) {
+      print('❌ Error getting shift details: $e');
+      return null;
+    }
+  }
+
   // Apply for a shift
   Future<bool> applyForShift({
     required ShiftType type,
@@ -389,6 +430,40 @@ class ShiftsService {
     } catch (e) {
       print('❌ Error marking shift as completed: $e');
       return false;
+    }
+  }
+
+  // Automatically mark accepted shifts as completed when date has passed
+  Future<void> autoCompletePastShifts() async {
+    try {
+      final now = DateTime.now();
+      final startOfToday = DateTime(now.year, now.month, now.day);
+
+      // Find all accepted shifts where the date has passed
+      final pastShiftsQuery = await _firestore
+          .collection(_collectionName)
+          .where('status', isEqualTo: ShiftStatus.accepted.name)
+          .where('date', isLessThan: startOfToday.toIso8601String())
+          .get();
+
+      final batch = _firestore.batch();
+      int updatedCount = 0;
+
+      for (final doc in pastShiftsQuery.docs) {
+        batch.update(doc.reference, {
+          'status': ShiftStatus.completed.name,
+          'completedAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+        updatedCount++;
+      }
+
+      if (updatedCount > 0) {
+        await batch.commit();
+        print('✅ Auto-completed $updatedCount past shifts');
+      }
+    } catch (e) {
+      print('❌ Error auto-completing past shifts: $e');
     }
   }
 
