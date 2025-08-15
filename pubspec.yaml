@@ -60,6 +60,9 @@ dependencies:
   path_provider: ^2.1.1
   share_plus: ^7.2.1
   google_fonts: ^6.2.1
+  
+  # Chart library for Bz chart
+  fl_chart: ^0.66.2
 
 dev_dependencies:
   flutter_test:

@@ -7,6 +7,7 @@ import '../modules/tracking/tracking_screen.dart';
 import '../modules/photos/photo_upload_screen.dart';
 import '../modules/profile/profile_screen.dart';
 import '../modules/pickup/pickup_screen.dart';
+import '../modules/forecast/forecast_screen.dart';
 import '../modules/admin/admin_dashboard.dart';
 import '../modules/admin/admin_controller.dart';
 import '../core/auth/auth_controller.dart';
@@ -23,6 +24,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // Screens for each module
   final List<Widget> _screens = [
+    const ForecastScreen(),
     const ShiftsScreen(),
     const PhotoUploadScreen(),
     const TrackingScreen(),
@@ -195,6 +197,10 @@ class _HomeScreenState extends State<HomeScreen> {
         selectedItemColor: Theme.of(context).colorScheme.primary,
         unselectedItemColor: Colors.grey,
         items: const [
+          BottomNavigationBarItem(
+            icon: Icon(Icons.auto_awesome),
+            label: 'Forecast',
+          ),
           BottomNavigationBarItem(
             icon: Icon(Icons.work),
             label: 'Shifts',

@@ -4,6 +4,9 @@
 # Google Maps API Key
 GOOGLE_MAPS_API_KEY=YOUR_GOOGLE_MAPS_API_KEY_HERE
 
+# OpenWeatherMap API Key (for weather data in aurora forecast)
+OPENWEATHER_API_KEY=YOUR_OPENWEATHER_API_KEY_HERE
+
 # Google Drive API (using Application Default Credentials)
 # No service account keys needed - uses secure OAuth tokens
 # For development: Run 'gcloud auth application-default login'
