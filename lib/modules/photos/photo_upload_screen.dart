@@ -18,14 +18,10 @@ class PhotoUploadScreen extends StatefulWidget {
 
 class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
   final ImagePicker _picker = ImagePicker();
-  final TextEditingController _customBusController = TextEditingController();
-  String? _selectedBus;
   DateTime _selectedDate = DateTime.now();
-  bool _isCustomBus = false;
 
   @override
   void dispose() {
-    _customBusController.dispose();
     super.dispose();
   }
 
@@ -42,33 +38,14 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
     }
   }
 
-  Future<void> _pickImagesFromCamera() async {
-    try {
-      final XFile? image = await _picker.pickImage(source: ImageSource.camera);
-      if (image != null) {
-        final photoController = context.read<PhotoController>();
-        photoController.addPhotos([File(image.path)]);
-      }
-    } catch (e) {
-      print('Error picking image from camera: $e');
-    }
-  }
-
   Future<void> _uploadToDrive() async {
     final photoController = context.read<PhotoController>();
     final authController = context.read<AuthController>();
     
     final guideName = authController.currentUser?.fullName ?? 'Unknown Guide';
-    final busName = _isCustomBus ? _customBusController.text.trim() : _selectedBus ?? '';
-
-    if (busName.isEmpty) {
-      _showAlert('Please select or enter bus name.');
-      return;
-    }
 
     final success = await photoController.uploadPhotos(
       guideName: guideName,
-      busName: busName,
       date: _selectedDate,
       context: context,
     );
@@ -130,7 +107,12 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
       builder: (context, photoController, child) {
         return Scaffold(
           appBar: AppBar(
-            title: const Text('Photo Upload'),
+            title: const Text(
+              'Photo Upload',
+              style: TextStyle(color: Colors.white),
+            ),
+            backgroundColor: const Color(0xFF0A0A23),
+            foregroundColor: Colors.white,
             actions: [
               // Google Sign-In Status
               Consumer<PhotoController>(
@@ -182,26 +164,81 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const CircularProgressIndicator(),
+          const CircularProgressIndicator(
+            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+          ),
           const SizedBox(height: 20),
           Text(
-            'Uploading photos...',
-            style: Theme.of(context).textTheme.headlineSmall,
+            'Uploading photos to Google Drive...',
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+              color: Colors.white,
+            ),
+            textAlign: TextAlign.center,
           ),
           const SizedBox(height: 10),
           Text(
             '${(photoController.uploadProgress * 100).toInt()}% complete',
-            style: Theme.of(context).textTheme.bodyLarge,
+            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '${(photoController.uploadProgress * photoController.selectedPhotos.length).toInt()} of ${photoController.selectedPhotos.length} photos uploaded',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: Colors.white.withOpacity(0.8),
+            ),
           ),
           const SizedBox(height: 20),
-          LinearProgressIndicator(
-            value: photoController.uploadProgress,
-            backgroundColor: Colors.grey[300],
-            valueColor: const AlwaysStoppedAnimation<Color>(Colors.blue),
+          Container(
+            width: 300,
+            child: LinearProgressIndicator(
+              value: photoController.uploadProgress,
+              backgroundColor: Colors.white.withOpacity(0.3),
+              valueColor: const AlwaysStoppedAnimation<Color>(Colors.blue),
+              minHeight: 8,
+            ),
+          ),
+          const SizedBox(height: 20),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.white.withOpacity(0.3)),
+            ),
+            child: Column(
+              children: [
+                const Icon(
+                  Icons.cloud_upload,
+                  color: Colors.blue,
+                  size: 32,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Target: Norðurljósamyndir/${_selectedDate.year}/${_selectedDate.month}/${_selectedDate.day}',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
           ),
         ],
       ),
     );
+  }
+
+  String _getMonthName(int month) {
+    const months = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+    return months[month - 1];
   }
 
   Widget _buildMainContent(PhotoController photoController) {
@@ -216,8 +253,8 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
               width: double.infinity,
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: Colors.orange[100],
-                border: Border.all(color: Colors.orange),
+                color: Colors.orange.withOpacity(0.2),
+                border: Border.all(color: Colors.orange.withOpacity(0.5)),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Column(
@@ -226,12 +263,17 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
                   const SizedBox(height: 8),
                   const Text(
                     'Google Sign-In Required',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                      fontSize: 16, 
+                      fontWeight: FontWeight.bold,
+                      color: Colors.orange,
+                    ),
                   ),
                   const SizedBox(height: 8),
                   const Text(
                     'You need to sign in with Google to upload photos to Drive.',
                     textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.orange),
                   ),
                   const SizedBox(height: 12),
                   ElevatedButton.icon(
@@ -260,7 +302,14 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
           const SizedBox(height: 20),
 
           // Date Selection
-          const Text('Date', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          const Text(
+            'Date', 
+            style: TextStyle(
+              fontSize: 16, 
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+            ),
+          ),
           const SizedBox(height: 8),
           InkWell(
             onTap: _selectDate,
@@ -268,17 +317,21 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
               width: double.infinity,
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                border: Border.all(color: Colors.grey),
+                border: Border.all(color: Colors.white.withOpacity(0.3)),
                 borderRadius: BorderRadius.circular(8),
+                color: Colors.white.withOpacity(0.1),
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
                     DateFormat('EEEE, MMMM d, y').format(_selectedDate),
-                    style: const TextStyle(fontSize: 16),
+                    style: const TextStyle(
+                      fontSize: 16,
+                      color: Colors.white,
+                    ),
                   ),
-                  const Icon(Icons.calendar_today),
+                  const Icon(Icons.calendar_today, color: Colors.white),
                 ],
               ),
             ),
@@ -286,89 +339,37 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
 
           const SizedBox(height: 20),
 
-          // Bus Selection
-          const Text('Bus', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          Row(
+          // Photo Selection Buttons
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: DropdownButtonFormField<String>(
-                  value: _isCustomBus ? null : _selectedBus,
-                  decoration: const InputDecoration(
-                    border: OutlineInputBorder(),
-                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  ),
-                  hint: const Text('Select bus'),
-                  items: [
-                    'Bus 1',
-                    'Bus 2',
-                    'Bus 3',
-                    'Bus 4',
-                    'Bus 5',
-                  ].map((String bus) {
-                    return DropdownMenuItem<String>(
-                      value: bus,
-                      child: Text(bus),
-                    );
-                  }).toList(),
-                  onChanged: _isCustomBus ? null : (String? newValue) {
-                    setState(() {
-                      _selectedBus = newValue;
-                    });
-                  },
+              const Text(
+                'Photo Selection',
+                style: TextStyle(
+                  fontSize: 16, 
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
                 ),
               ),
-              const SizedBox(width: 8),
-              Checkbox(
-                value: _isCustomBus,
-                onChanged: (bool? value) {
-                  setState(() {
-                    _isCustomBus = value ?? false;
-                    if (_isCustomBus) {
-                      _selectedBus = null;
-                    }
-                  });
-                },
+              const SizedBox(height: 8),
+              Text(
+                'Connect your camera to the tablet and select photos to upload directly to Google Drive',
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.8),
+                  fontSize: 14,
+                ),
               ),
-              const Text('Custom'),
-            ],
-          ),
-
-          if (_isCustomBus) ...[
-            const SizedBox(height: 8),
-            TextField(
-              controller: _customBusController,
-              decoration: const InputDecoration(
-                border: OutlineInputBorder(),
-                labelText: 'Enter bus name',
-                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              ),
-            ),
-          ],
-
-          const SizedBox(height: 20),
-
-          // Photo Selection Buttons
-          Row(
-            children: [
-              Expanded(
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
                 child: ElevatedButton.icon(
                   onPressed: _pickImages,
                   icon: const Icon(Icons.photo_library),
-                  label: const Text('Gallery'),
+                  label: const Text('Select Photos from Camera/Tablet'),
                   style: ElevatedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 12),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: photoController.isSignedIn ? _pickImagesFromCamera : null,
-                  icon: const Icon(Icons.camera_alt),
-                  label: const Text('Camera'),
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    backgroundColor: Colors.blue,
+                    foregroundColor: Colors.white,
                   ),
                 ),
               ),
@@ -384,11 +385,18 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
               children: [
                 Text(
                   'Selected Photos (${photoController.selectedPhotos.length})',
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  style: const TextStyle(
+                    fontSize: 16, 
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
                 ),
                 TextButton(
                   onPressed: () => photoController.clearPhotos(),
-                  child: const Text('Clear All'),
+                  child: const Text(
+                    'Clear All',
+                    style: TextStyle(color: Colors.red),
+                  ),
                 ),
               ],
             ),
@@ -466,19 +474,30 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Guide Name', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            const Text(
+              'Guide Name', 
+              style: TextStyle(
+                fontSize: 16, 
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
             const SizedBox(height: 8),
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                border: Border.all(color: Colors.grey),
+                border: Border.all(color: Colors.white.withOpacity(0.3)),
                 borderRadius: BorderRadius.circular(8),
-                color: Colors.grey[100],
+                color: Colors.white.withOpacity(0.1),
               ),
               child: Text(
                 guideName,
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+                style: const TextStyle(
+                  fontSize: 16, 
+                  fontWeight: FontWeight.w500,
+                  color: Colors.white,
+                ),
               ),
             ),
           ],

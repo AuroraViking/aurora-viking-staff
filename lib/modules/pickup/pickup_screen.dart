@@ -78,16 +78,16 @@ class _PickupScreenState extends State<PickupScreen> {
                 margin: const EdgeInsets.all(16),
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: AppColors.primary.withOpacity(0.1),
+                  color: const Color(0xFF2D3748).withOpacity(0.1), // Lighter background for better readability
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppColors.primary.withOpacity(0.3)),
+                  border: Border.all(color: const Color(0xFF2D3748).withOpacity(0.3)),
                 ),
                 child: Column(
                   children: [
                     // Date row
                     Row(
                       children: [
-                        const Icon(Icons.calendar_today, color: AppColors.primary, size: 24),
+                        const Icon(Icons.calendar_today, color: Colors.white, size: 24),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Text(
@@ -95,7 +95,7 @@ class _PickupScreenState extends State<PickupScreen> {
                             style: const TextStyle(
                               fontSize: 18,
                               fontWeight: FontWeight.bold,
-                              color: AppColors.primary,
+                              color: Colors.white,
                             ),
                           ),
                         ),
@@ -132,9 +132,9 @@ class _PickupScreenState extends State<PickupScreen> {
                               children: [
                                 Text(
                                   'Total Guests',
-                                  style: TextStyle(
+                                  style: const TextStyle(
                                     fontSize: 12,
-                                    color: Colors.grey[600],
+                                    color: Colors.white,
                                   ),
                                 ),
                                 Text(
@@ -142,7 +142,7 @@ class _PickupScreenState extends State<PickupScreen> {
                                   style: const TextStyle(
                                     fontSize: 20,
                                     fontWeight: FontWeight.bold,
-                                    color: AppColors.primary,
+                                    color: Colors.white,
                                   ),
                                 ),
                               ],
@@ -154,9 +154,9 @@ class _PickupScreenState extends State<PickupScreen> {
                               children: [
                                 Text(
                                   'Picked Up',
-                                  style: TextStyle(
+                                  style: const TextStyle(
                                     fontSize: 12,
-                                    color: Colors.grey[600],
+                                    color: Colors.white,
                                   ),
                                 ),
                                 Text(
@@ -176,9 +176,9 @@ class _PickupScreenState extends State<PickupScreen> {
                               children: [
                                 Text(
                                   'Pickups',
-                                  style: TextStyle(
+                                  style: const TextStyle(
                                     fontSize: 12,
-                                    color: Colors.grey[600],
+                                    color: Colors.white,
                                   ),
                                 ),
                                 Text(
@@ -186,7 +186,7 @@ class _PickupScreenState extends State<PickupScreen> {
                                   style: const TextStyle(
                                     fontSize: 20,
                                     fontWeight: FontWeight.bold,
-                                    color: AppColors.primary,
+                                    color: Colors.white,
                                   ),
                                 ),
                               ],
@@ -197,9 +197,9 @@ class _PickupScreenState extends State<PickupScreen> {
                     ] else ...[
                       Text(
                         'No pickups assigned for this date',
-                        style: TextStyle(
+                        style: const TextStyle(
                           fontSize: 14,
-                          color: Colors.grey[600],
+                          color: Colors.white,
                         ),
                       ),
                     ],
@@ -222,6 +222,7 @@ class _PickupScreenState extends State<PickupScreen> {
                         final booking = bookings[index];
                         return Card(
                           margin: const EdgeInsets.only(bottom: 8),
+                          color: const Color(0xFF2D3748), // Lighter background for better readability
                           child: Padding(
                             padding: const EdgeInsets.all(12),
                             child: Column(
@@ -233,7 +234,7 @@ class _PickupScreenState extends State<PickupScreen> {
                                   style: const TextStyle(
                                     fontWeight: FontWeight.bold,
                                     fontSize: 16,
-                                    color: AppColors.primary,
+                                    color: Colors.white,
                                   ),
                                 ),
                                 
@@ -248,7 +249,7 @@ class _PickupScreenState extends State<PickupScreen> {
                                         style: TextStyle(
                                           fontSize: 14,
                                           decoration: booking.isNoShow ? TextDecoration.lineThrough : null,
-                                          color: booking.isNoShow ? AppColors.error : AppColors.textPrimary,
+                                          color: booking.isNoShow ? AppColors.error : Colors.white,
                                         ),
                                       ),
                                     ),
@@ -264,7 +265,10 @@ class _PickupScreenState extends State<PickupScreen> {
                                         ),
                                         const Text(
                                           'Arrived',
-                                          style: TextStyle(fontSize: 12),
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.white,
+                                          ),
                                         ),
                                       ],
                                     ),
@@ -296,9 +300,9 @@ class _PickupScreenState extends State<PickupScreen> {
                                 // Time and guest count on same line
                                 Text(
                                   '${_formatTime(booking.pickupTime)} - ${booking.numberOfGuests} guest${booking.numberOfGuests > 1 ? 's' : ''}',
-                                  style: TextStyle(
+                                  style: const TextStyle(
                                     fontSize: 12,
-                                    color: AppColors.textSecondary,
+                                    color: Colors.white,
                                   ),
                                 ),
                                 
@@ -307,9 +311,9 @@ class _PickupScreenState extends State<PickupScreen> {
                                   const SizedBox(height: 2),
                                   Text(
                                     booking.phoneNumber,
-                                    style: TextStyle(
+                                    style: const TextStyle(
                                       fontSize: 12,
-                                      color: AppColors.textSecondary,
+                                      color: Colors.white,
                                     ),
                                   ),
                                 ],
@@ -377,14 +381,14 @@ class _PickupScreenState extends State<PickupScreen> {
       padding: const EdgeInsets.only(bottom: 4),
       child: Row(
         children: [
-          Icon(icon, size: 16, color: Colors.grey[600]),
+          Icon(icon, size: 16, color: Colors.white),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               text,
-              style: TextStyle(
+              style: const TextStyle(
                 fontSize: 14,
-                color: Colors.grey[700],
+                color: Colors.white,
               ),
             ),
           ),
@@ -401,23 +405,23 @@ class _PickupScreenState extends State<PickupScreen> {
           Icon(
             Icons.assignment_outlined,
             size: 64,
-            color: Colors.grey[400],
+            color: Colors.white,
           ),
           const SizedBox(height: 16),
           Text(
             'No Pickups Assigned',
-            style: TextStyle(
+            style: const TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.bold,
-              color: Colors.grey[600],
+              color: Colors.white,
             ),
           ),
           const SizedBox(height: 8),
           Text(
             'You don\'t have any pickups assigned for today',
-            style: TextStyle(
+            style: const TextStyle(
               fontSize: 14,
-              color: Colors.grey[500],
+              color: Colors.white,
             ),
             textAlign: TextAlign.center,
           ),

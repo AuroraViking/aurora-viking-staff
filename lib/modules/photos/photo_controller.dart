@@ -93,7 +93,7 @@ class PhotoController extends ChangeNotifier {
   // Upload photos to Google Drive
   Future<bool> uploadPhotos({
     required String guideName,
-    required String busName,
+    String? busName, // Made optional since it's not used
     required DateTime date,
     required BuildContext context,
   }) async {
@@ -119,7 +119,7 @@ class PhotoController extends ChangeNotifier {
       final success = await _photoService.uploadPhotos(
         photos: _selectedPhotos,
         guideName: guideName,
-        busName: busName,
+        busName: busName ?? '', // Pass empty string if null
         date: date,
         onProgress: (progress) {
           _uploadProgress = progress;

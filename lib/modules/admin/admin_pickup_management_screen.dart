@@ -200,9 +200,9 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
           const Spacer(),
           Text(
             '${controller.bookings.fold<int>(0, (sum, booking) => sum + booking.numberOfGuests)} total guests',
-            style: TextStyle(
+            style: const TextStyle(
               fontSize: 14,
-              color: AppColors.textSecondary,
+              color: Colors.white,
             ),
           ),
         ],
@@ -228,6 +228,7 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
 
     return Card(
       margin: const EdgeInsets.all(16),
+      color: const Color(0xFF1A1A2E), // Dark background for better contrast
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Row(
@@ -285,9 +286,9 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
         ),
         Text(
           label,
-          style: TextStyle(
+          style: const TextStyle(
             fontSize: 11,
-            color: AppColors.textSecondary,
+            color: Colors.white,
           ),
           textAlign: TextAlign.center,
         ),
@@ -301,7 +302,7 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
       child: TabBar(
         controller: _tabController,
         labelColor: Colors.white,
-        unselectedLabelColor: AppColors.textSecondary,
+        unselectedLabelColor: Colors.white.withOpacity(0.7),
         indicatorColor: Colors.white,
         tabs: const [
           Tab(text: 'Unassigned'),
@@ -326,7 +327,10 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
     
     if (unassignedBookings.isEmpty) {
       return const Center(
-        child: Text('All bookings have been assigned!'),
+        child: Text(
+          'All bookings have been assigned!',
+          style: TextStyle(color: Colors.white),
+        ),
       );
     }
 
@@ -348,18 +352,31 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
   Widget _buildUnassignedBookingCard(PickupBooking booking, PickupController controller) {
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
+      color: const Color(0xFF1A1A2E), // Dark background for better contrast
       child: ListTile(
         contentPadding: const EdgeInsets.all(16),
         title: Text(
           booking.customerFullName,
-          style: const TextStyle(fontWeight: FontWeight.bold),
+          style: const TextStyle(
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
         ),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(booking.pickupPlaceName),
-            Text('${_formatTime(booking.pickupTime)} - ${booking.numberOfGuests} guests'),
-            Text('${booking.phoneNumber} • ${booking.email}'),
+            Text(
+              booking.pickupPlaceName,
+              style: const TextStyle(color: Colors.white),
+            ),
+            Text(
+              '${_formatTime(booking.pickupTime)} - ${booking.numberOfGuests} guests',
+              style: const TextStyle(color: Colors.white),
+            ),
+            Text(
+              '${booking.phoneNumber} • ${booking.email}',
+              style: const TextStyle(color: Colors.white),
+            ),
           ],
         ),
         trailing: Row(
@@ -387,7 +404,10 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
         const PopupMenuItem(
           value: '',
           enabled: false,
-          child: Text('Loading guides...'),
+          child: Text(
+            'Loading guides...',
+            style: TextStyle(color: Colors.white),
+          ),
         ),
       ];
     }
@@ -397,7 +417,10 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
         const PopupMenuItem(
           value: '',
           enabled: false,
-          child: Text('No guides available'),
+          child: Text(
+            'No guides available',
+            style: TextStyle(color: Colors.white),
+          ),
         ),
       ];
     }
@@ -412,8 +435,16 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
         enabled: canAdd,
         child: Row(
           children: [
-            Expanded(child: Text(guide.name)),
-            Text('$currentPassengers/19'),
+            Expanded(
+              child: Text(
+                guide.name,
+                style: const TextStyle(color: Colors.white),
+              ),
+            ),
+            Text(
+              '$currentPassengers/19',
+              style: const TextStyle(color: Colors.white),
+            ),
             if (!canAdd) const Icon(Icons.warning, color: AppColors.error, size: 16),
           ],
         ),
@@ -426,7 +457,10 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
     
     if (guideLists.isEmpty) {
       return const Center(
-        child: Text('No guides have been assigned yet'),
+        child: Text(
+          'No guides have been assigned yet',
+          style: TextStyle(color: Colors.white),
+        ),
       );
     }
 
@@ -457,13 +491,17 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
     
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
+      color: const Color(0xFF1A1A2E), // Dark background for better contrast
       child: ExpansionTile(
         title: Row(
           children: [
             Expanded(
               child: Text(
                 guideList.guideName,
-                style: const TextStyle(fontWeight: FontWeight.bold),
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
               ),
             ),
             Container(
@@ -491,7 +529,10 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
             ),
           ],
         ),
-        subtitle: Text('${guideList.bookings.length} pickups'),
+        subtitle: Text(
+          '${guideList.bookings.length} pickups',
+          style: const TextStyle(color: Colors.white),
+        ),
         children: [
           Container(
             height: 300, // Fixed height for scrollable area
@@ -628,7 +669,7 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
             style: TextStyle(
               fontSize: 14,
               decoration: booking.isNoShow ? TextDecoration.lineThrough : null,
-              color: booking.isNoShow ? AppColors.error : AppColors.textPrimary,
+              color: booking.isNoShow ? AppColors.error : Colors.white,
             ),
           ),
         ],
@@ -639,16 +680,16 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
           const SizedBox(height: 4),
           Text(
             '${_formatTime(booking.pickupTime)} - ${booking.numberOfGuests} guest${booking.numberOfGuests > 1 ? 's' : ''}',
-            style: TextStyle(
+            style: const TextStyle(
               fontSize: 12,
-              color: AppColors.textSecondary,
+              color: Colors.white,
             ),
           ),
           Text(
             booking.phoneNumber,
-            style: TextStyle(
+            style: const TextStyle(
               fontSize: 12,
-              color: AppColors.textSecondary,
+              color: Colors.white,
             ),
           ),
         ],
@@ -677,15 +718,24 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
             itemBuilder: (context) => [
               const PopupMenuItem(
                 value: 'edit',
-                child: Text('Edit Pickup Place'),
+                child: Text(
+                  'Edit Pickup Place',
+                  style: TextStyle(color: Colors.white),
+                ),
               ),
               const PopupMenuItem(
                 value: 'move',
-                child: Text('Move to another guide'),
+                child: Text(
+                  'Move to another guide',
+                  style: TextStyle(color: Colors.white),
+                ),
               ),
               const PopupMenuItem(
                 value: 'unassign',
-                child: Text('Unassign'),
+                child: Text(
+                  'Unassign',
+                  style: TextStyle(color: Colors.white),
+                ),
               ),
             ],
           ),

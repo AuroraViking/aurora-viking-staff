@@ -96,7 +96,7 @@ class PhotoService {
   Future<bool> uploadPhotos({
     required List<io.File> photos,
     required String guideName,
-    required String busName,
+    String? busName, // Made optional since it's not used
     required DateTime date,
     Function(double)? onProgress,
   }) async {

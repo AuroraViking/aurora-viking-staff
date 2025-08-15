@@ -154,8 +154,8 @@ class _AdminTourCalendarScreenState extends State<AdminTourCalendarScreen> {
                     ),
                     Text(
                       '${tourDate.totalPassengers}',
-                      style: TextStyle(
-                        color: AppColors.textSecondary,
+                      style: const TextStyle(
+                        color: Colors.white,
                         fontSize: 10,
                       ),
                     ),
@@ -173,7 +173,10 @@ class _AdminTourCalendarScreenState extends State<AdminTourCalendarScreen> {
   Widget _buildSelectedDayContent() {
     if (_selectedDay == null) {
       return const Center(
-        child: Text('Select a date to view tour details'),
+        child: Text(
+          'Select a date to view tour details',
+          style: TextStyle(color: Colors.white),
+        ),
       );
     }
 
@@ -187,22 +190,22 @@ class _AdminTourCalendarScreenState extends State<AdminTourCalendarScreen> {
             Icon(
               Icons.event_busy,
               size: 64,
-              color: AppColors.textSecondary,
+              color: Colors.white,
             ),
             const SizedBox(height: 16),
             Text(
               'No tours scheduled',
-              style: TextStyle(
+              style: const TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
-                color: AppColors.textSecondary,
+                color: Colors.white,
               ),
             ),
             const SizedBox(height: 8),
             Text(
               'Select another date or create a new tour',
-              style: TextStyle(
-                color: AppColors.textSecondary,
+              style: const TextStyle(
+                color: Colors.white,
               ),
             ),
           ],
@@ -227,6 +230,7 @@ class _AdminTourCalendarScreenState extends State<AdminTourCalendarScreen> {
 
   Widget _buildTourDateHeader(TourDate tourDate) {
     return Card(
+      color: const Color(0xFF1A1A2E), // Dark background for better contrast
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -237,6 +241,7 @@ class _AdminTourCalendarScreenState extends State<AdminTourCalendarScreen> {
               style: const TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.bold,
+                color: Colors.white,
               ),
             ),
             const SizedBox(height: 8),
@@ -289,9 +294,9 @@ class _AdminTourCalendarScreenState extends State<AdminTourCalendarScreen> {
         ),
         Text(
           label,
-          style: TextStyle(
+          style: const TextStyle(
             fontSize: 12,
-            color: AppColors.textSecondary,
+            color: Colors.white,
           ),
           textAlign: TextAlign.center,
         ),
@@ -301,6 +306,7 @@ class _AdminTourCalendarScreenState extends State<AdminTourCalendarScreen> {
 
   Widget _buildGuideApplications(TourDate tourDate) {
     return Card(
+      color: const Color(0xFF1A1A2E), // Dark background for better contrast
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -313,6 +319,7 @@ class _AdminTourCalendarScreenState extends State<AdminTourCalendarScreen> {
                   style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
+                    color: Colors.white,
                   ),
                 ),
                 const Spacer(),
@@ -331,7 +338,10 @@ class _AdminTourCalendarScreenState extends State<AdminTourCalendarScreen> {
           if (tourDate.guideApplications.isEmpty)
             const Padding(
               padding: EdgeInsets.all(16),
-              child: Text('No guide applications yet'),
+              child: Text(
+                'No guide applications yet',
+                style: TextStyle(color: Colors.white),
+              ),
             )
           else
             ListView.builder(
@@ -357,12 +367,21 @@ class _AdminTourCalendarScreenState extends State<AdminTourCalendarScreen> {
           style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
       ),
-      title: Text(application.guideName),
+      title: Text(
+        application.guideName,
+        style: const TextStyle(color: Colors.white),
+      ),
       subtitle: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(_getTourTypeDisplayName(application.tourType)),
-          Text('Applied: ${_formatDateTime(application.appliedAt)}'),
+          Text(
+            _getTourTypeDisplayName(application.tourType),
+            style: const TextStyle(color: Colors.white),
+          ),
+          Text(
+            'Applied: ${_formatDateTime(application.appliedAt)}',
+            style: const TextStyle(color: Colors.white),
+          ),
         ],
       ),
       trailing: _buildApplicationStatusChip(application),
@@ -407,6 +426,7 @@ class _AdminTourCalendarScreenState extends State<AdminTourCalendarScreen> {
 
   Widget _buildBusAssignments(TourDate tourDate) {
     return Card(
+      color: const Color(0xFF1A1A2E), // Dark background for better contrast
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -419,6 +439,7 @@ class _AdminTourCalendarScreenState extends State<AdminTourCalendarScreen> {
                   style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
+                    color: Colors.white,
                   ),
                 ),
                 const Spacer(),
@@ -437,7 +458,10 @@ class _AdminTourCalendarScreenState extends State<AdminTourCalendarScreen> {
           if (tourDate.busAssignments.isEmpty)
             const Padding(
               padding: EdgeInsets.all(16),
-              child: Text('No bus assignments yet'),
+              child: Text(
+                'No bus assignments yet',
+                style: TextStyle(color: Colors.white),
+              ),
             )
           else
             ListView.builder(
@@ -463,13 +487,25 @@ class _AdminTourCalendarScreenState extends State<AdminTourCalendarScreen> {
           color: Colors.white,
         ),
       ),
-      title: Text(assignment.busName),
+      title: Text(
+        assignment.busName,
+        style: const TextStyle(color: Colors.white),
+      ),
       subtitle: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Guide: ${assignment.assignedGuideName}'),
-          Text('${assignment.totalPassengers}/${assignment.maxPassengers} passengers'),
-          Text(_getTourTypeDisplayName(assignment.tourType)),
+          Text(
+            'Guide: ${assignment.assignedGuideName}',
+            style: const TextStyle(color: Colors.white),
+          ),
+          Text(
+            '${assignment.totalPassengers}/${assignment.maxPassengers} passengers',
+            style: const TextStyle(color: Colors.white),
+          ),
+          Text(
+            _getTourTypeDisplayName(assignment.tourType),
+            style: const TextStyle(color: Colors.white),
+          ),
         ],
       ),
       trailing: assignment.isFull
@@ -486,7 +522,7 @@ class _AdminTourCalendarScreenState extends State<AdminTourCalendarScreen> {
       case 'northern_lights':
         return AppColors.secondary;
       default:
-        return AppColors.textSecondary;
+        return AppColors.accent;
     }
   }
 
