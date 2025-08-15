@@ -11,6 +11,7 @@ import '../../core/models/shift_model.dart';
 import '../../core/auth/auth_controller.dart';
 import '../shifts/shifts_service.dart';
 import '../../core/services/bus_management_service.dart';
+import '../../theme/colors.dart';
 
 class AdminShiftManagementScreen extends StatefulWidget {
   const AdminShiftManagementScreen({super.key});
@@ -140,12 +141,12 @@ class _AdminShiftManagementScreenState extends State<AdminShiftManagementScreen>
     return Container(
       height: 400,
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AVColors.slate,
         boxShadow: [
           BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
+            color: Colors.black.withOpacity(0.2),
             spreadRadius: 1,
-            blurRadius: 3,
+            blurRadius: 6,
             offset: const Offset(0, 2),
           ),
         ],
@@ -175,15 +176,38 @@ class _AdminShiftManagementScreenState extends State<AdminShiftManagementScreen>
         },
         calendarStyle: const CalendarStyle(
           outsideDaysVisible: false,
-          weekendTextStyle: TextStyle(color: Colors.red),
-          holidayTextStyle: TextStyle(color: Colors.red),
+          defaultTextStyle: TextStyle(color: AVColors.textHigh),
+          weekendTextStyle: TextStyle(color: AVColors.textHigh),
+          holidayTextStyle: TextStyle(color: AVColors.textHigh),
+          outsideTextStyle: TextStyle(color: AVColors.textLow),
+          todayDecoration: BoxDecoration(
+            color: Colors.transparent,
+            border: Border.fromBorderSide(BorderSide(color: AVColors.primaryTeal, width: 1.2)),
+            shape: BoxShape.circle,
+          ),
+          selectedDecoration: BoxDecoration(
+            color: AVColors.tealGlowMid,
+            shape: BoxShape.circle,
+          ),
           markerDecoration: BoxDecoration(
             color: Colors.transparent,
           ),
         ),
+        daysOfWeekStyle: const DaysOfWeekStyle(
+          weekdayStyle: TextStyle(color: AVColors.textLow),
+          weekendStyle: TextStyle(color: AVColors.textLow),
+        ),
         headerStyle: const HeaderStyle(
           formatButtonVisible: true,
           titleCentered: true,
+          titleTextStyle: TextStyle(color: AVColors.textHigh, fontWeight: FontWeight.bold),
+          formatButtonTextStyle: TextStyle(color: AVColors.textHigh),
+          formatButtonDecoration: BoxDecoration(
+            color: AVColors.slateElev,
+            borderRadius: BorderRadius.all(Radius.circular(12)),
+          ),
+          leftChevronIcon: Icon(Icons.chevron_left, color: AVColors.textHigh),
+          rightChevronIcon: Icon(Icons.chevron_right, color: AVColors.textHigh),
         ),
         calendarBuilders: CalendarBuilders(
           markerBuilder: (context, date, events) {

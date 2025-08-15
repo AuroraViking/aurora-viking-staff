@@ -4,8 +4,10 @@ import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
 import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'location_service.dart';
 import '../../core/services/bus_management_service.dart';
+import '../../core/services/platform_service.dart';
 
 class TrackingScreen extends StatefulWidget {
   const TrackingScreen({super.key});
@@ -21,6 +23,12 @@ class _TrackingScreenState extends State<TrackingScreen> {
   String _status = 'Not tracking.';
   Timer? _positionUpdateTimer;
   
+  // Permission and optimization status
+  bool _hasPreciseLocation = false;
+  bool _hasBackgroundLocation = false;
+  bool _ignoresBatteryOptimization = false;
+  bool _isOptimizedForTracking = false;
+  
   final LocationService _locationService = LocationService();
   final BusManagementService _busService = BusManagementService();
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -31,7 +39,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
   @override
   void initState() {
     super.initState();
-    _checkLocationPermission();
+    _checkAllPermissions();
     _loadBuses();
     _checkTrackingStatus();
   }
@@ -43,38 +51,10 @@ class _TrackingScreenState extends State<TrackingScreen> {
     super.dispose();
   }
 
-  void _loadBuses() {
-    print('🔄 Loading buses...');
-    _busService.getActiveBuses().listen(
-      (buses) {
-        print('📋 Loaded ${buses.length} buses');
-        for (final bus in buses) {
-          print('  - ${bus['name']} (${bus['licensePlate']})');
-        }
-        if (mounted) {
-          setState(() {
-            _buses = buses;
-            _isLoadingBuses = false;
-          });
-        }
-      },
-      onError: (error) {
-        print('❌ Error loading buses: $error');
-        print('🔄 Using fallback bus list...');
-        // Fallback to hardcoded buses if database fails
-        final fallbackBuses = [
-          {'id': 'luxusinn_ayx70', 'name': 'Lúxusinn - AYX70', 'licensePlate': 'AYX70'},
-          {'id': 'afi_stjani_maf43', 'name': 'Afi Stjáni - MAF43', 'licensePlate': 'MAF43'},
-          {'id': 'meistarinn_tze50', 'name': 'Meistarinn - TZE50', 'licensePlate': 'TZE50'},
-        ];
-        if (mounted) {
-          setState(() {
-            _buses = fallbackBuses;
-            _isLoadingBuses = false;
-          });
-        }
-      },
-    );
+  Future<void> _checkAllPermissions() async {
+    await _checkLocationPermission();
+    await _checkBatteryOptimization();
+    await _checkTrackingOptimization();
   }
 
   Future<void> _checkLocationPermission() async {
@@ -104,9 +84,125 @@ class _TrackingScreenState extends State<TrackingScreen> {
       return;
     }
 
+    // Check for precise location
+    _hasPreciseLocation = permission == LocationPermission.always || permission == LocationPermission.whileInUse;
+    
+    // Check for background location
+    _hasBackgroundLocation = permission == LocationPermission.always;
+
     setState(() {
-      _status = 'Ready to track.';
+      _status = _hasBackgroundLocation ? 'Ready to track (background enabled).' : 'Ready to track (foreground only).';
     });
+  }
+
+  Future<void> _checkBatteryOptimization() async {
+    final status = await Permission.ignoreBatteryOptimizations.status;
+    _ignoresBatteryOptimization = status.isGranted;
+    
+    if (!_ignoresBatteryOptimization) {
+      print('🔋 Battery optimization is enabled - this may affect tracking reliability');
+    }
+  }
+
+  Future<void> _checkTrackingOptimization() async {
+    _isOptimizedForTracking = _hasPreciseLocation && _hasBackgroundLocation && _ignoresBatteryOptimization;
+  }
+
+  Future<void> _requestBatteryOptimizationBypass() async {
+    try {
+      final status = await Permission.ignoreBatteryOptimizations.request();
+      if (status.isGranted) {
+        setState(() {
+          _ignoresBatteryOptimization = true;
+        });
+        await _checkTrackingOptimization();
+        _showAlert('Battery optimization bypass granted! Tracking will be more reliable.');
+      } else {
+        _showAlert('Battery optimization bypass denied. Tracking may be interrupted when the app is in the background.');
+      }
+    } catch (e) {
+      print('❌ Error requesting battery optimization bypass: $e');
+    }
+  }
+
+  Future<void> _requestBackgroundLocation() async {
+    try {
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.whileInUse) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.always) {
+          setState(() {
+            _hasBackgroundLocation = true;
+          });
+          await _checkTrackingOptimization();
+          _showAlert('Background location permission granted! Tracking will continue when the app is minimized.');
+        } else {
+          _showAlert('Background location permission denied. Tracking will stop when the app is minimized.');
+        }
+      }
+    } catch (e) {
+      print('❌ Error requesting background location: $e');
+    }
+  }
+
+  void _loadBuses() {
+    print('🔄 Loading buses...');
+    
+    // Set a timeout to prevent infinite loading
+    Timer(const Duration(seconds: 10), () {
+      if (mounted && _isLoadingBuses) {
+        print('⏰ Bus loading timeout, using fallback buses');
+        setState(() {
+          _isLoadingBuses = false;
+          if (_buses.isEmpty) {
+            _buses = [
+              {'id': 'luxusinn_ayx70', 'name': 'Lúxusinn - AYX70', 'licensePlate': 'AYX70'},
+              {'id': 'afi_stjani_maf43', 'name': 'Afi Stjáni - MAF43', 'licensePlate': 'MAF43'},
+              {'id': 'meistarinn_tze50', 'name': 'Meistarinn - TZE50', 'licensePlate': 'TZE50'},
+            ];
+          }
+        });
+      }
+    });
+    
+    _busService.getActiveBuses().listen(
+      (buses) {
+        print('📋 Loaded ${buses.length} buses');
+        for (final bus in buses) {
+          print('  - ${bus['name']} (${bus['licensePlate']})');
+        }
+        if (mounted) {
+          setState(() {
+            _buses = buses;
+            _isLoadingBuses = false;
+          });
+        }
+      },
+      onError: (error) {
+        print('❌ Error loading buses: $error');
+        print('🔄 Using fallback bus list...');
+        // Fallback to hardcoded buses if database fails
+        final fallbackBuses = [
+          {'id': 'luxusinn_ayx70', 'name': 'Lúxusinn - AYX70', 'licensePlate': 'AYX70'},
+          {'id': 'afi_stjani_maf43', 'name': 'Afi Stjáni - MAF43', 'licensePlate': 'MAF43'},
+          {'id': 'meistarinn_tze50', 'name': 'Meistarinn - TZE50', 'licensePlate': 'TZE50'},
+        ];
+        if (mounted) {
+          setState(() {
+            _buses = fallbackBuses;
+            _isLoadingBuses = false;
+          });
+        }
+      },
+      onDone: () {
+        print('✅ Bus loading stream completed');
+        if (mounted && _isLoadingBuses) {
+          setState(() {
+            _isLoadingBuses = false;
+          });
+        }
+      },
+    );
   }
 
   Future<void> _checkTrackingStatus() async {
@@ -264,47 +360,79 @@ class _TrackingScreenState extends State<TrackingScreen> {
           ),
         ),
         child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(20.0),
-            child: Column(
-              children: [
-                // Header
-                _buildHeader(),
-                const SizedBox(height: 40),
-                
-                // Bus Selection
-                _buildBusSelection(),
-                const SizedBox(height: 30),
-                
-                // Control Buttons
-                _buildControlButtons(),
-                const SizedBox(height: 30),
-                
-                // Status and Location Info
-                _buildStatusSection(),
-              ],
-            ),
+          child: Column(
+            children: [
+              // Header - Fixed height
+              Container(
+                height: 80,
+                padding: const EdgeInsets.all(20.0),
+                child: const Center(
+                  child: Text(
+                    'Location Tracking',
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ),
+              
+              // Main content area - Takes remaining space
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20.0),
+                  child: _buildMainContent(),
+                ),
+              ),
+            ],
           ),
         ),
       ),
     );
   }
 
-  Widget _buildHeader() {
-    return const Center(
-      child: Text(
-        'Location Tracking',
-        style: TextStyle(
-          fontSize: 24,
-          fontWeight: FontWeight.bold,
-          color: Colors.white,
+  Widget _buildMainContent() {
+    if (_isLoadingBuses) {
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(color: Colors.white),
+            SizedBox(height: 20),
+            Text(
+              'Loading tracking system...',
+              style: TextStyle(color: Colors.white, fontSize: 16),
+            ),
+          ],
         ),
-      ),
+      );
+    }
+
+    return ListView(
+      children: [
+        // Bus Selection
+        _buildBusSelection(),
+        const SizedBox(height: 20),
+        
+        // Tracking Optimization Status
+        _buildOptimizationStatus(),
+        const SizedBox(height: 20),
+        
+        // Control Buttons
+        _buildControlButtons(),
+        const SizedBox(height: 20),
+        
+        // Status and Location Info
+        _buildStatusSection(),
+        const SizedBox(height: 20),
+      ],
     );
   }
 
   Widget _buildBusSelection() {
     return Container(
+      width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.1),
@@ -313,6 +441,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
           const Text(
             'Select Bus',
@@ -323,23 +452,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
             ),
           ),
           const SizedBox(height: 12),
-          if (_isLoadingBuses)
-            Container(
-              padding: const EdgeInsets.all(16),
-              child: const Center(
-                child: Column(
-                  children: [
-                    CircularProgressIndicator(color: Colors.white),
-                    SizedBox(height: 8),
-                    Text(
-                      'Loading buses...',
-                      style: TextStyle(color: Colors.white),
-                    ),
-                  ],
-                ),
-              ),
-            )
-          else if (_buses.isEmpty)
+          if (_buses.isEmpty)
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -347,36 +460,25 @@ class _TrackingScreenState extends State<TrackingScreen> {
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(color: Colors.orange.withOpacity(0.5)),
               ),
-              child: Column(
+              child: const Column(
                 children: [
-                  const Icon(Icons.warning, color: Colors.orange, size: 32),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Database Connection Issue',
+                  Icon(Icons.warning, color: Colors.orange, size: 32),
+                  SizedBox(height: 8),
+                  Text(
+                    'No buses available',
                     style: TextStyle(
                       color: Colors.orange,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  const Text(
-                    'Using fallback bus list. Please deploy Firestore rules to see your custom buses.',
+                  SizedBox(height: 4),
+                  Text(
+                    'Please add buses in the admin section.',
                     style: TextStyle(
                       color: Colors.orange,
                       fontSize: 12,
                     ),
                     textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 12),
-                  ElevatedButton(
-                    onPressed: () {
-                      Navigator.of(context).pop();
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.orange,
-                      foregroundColor: Colors.white,
-                    ),
-                    child: const Text('Go Back'),
                   ),
                 ],
               ),
@@ -402,6 +504,132 @@ class _TrackingScreenState extends State<TrackingScreen> {
                 });
               },
             ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOptimizationStatus() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withOpacity(0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text(
+            'Tracking Optimization',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Optimized for tracking: ${_isOptimizedForTracking ? 'Yes' : 'No'}',
+                  style: TextStyle(
+                    color: _isOptimizedForTracking ? Colors.green : Colors.red,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 16),
+              ElevatedButton(
+                onPressed: _requestBatteryOptimizationBypass,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                child: const Text('Bypass Optimization'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Background location enabled: ${_hasBackgroundLocation ? 'Yes' : 'No'}',
+                  style: TextStyle(
+                    color: _hasBackgroundLocation ? Colors.green : Colors.red,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 16),
+              ElevatedButton(
+                onPressed: _requestBackgroundLocation,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.purple,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                child: const Text('Request Background'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Precise location enabled: ${_hasPreciseLocation ? 'Yes' : 'No'}',
+                  style: TextStyle(
+                    color: _hasPreciseLocation ? Colors.green : Colors.red,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 16),
+              ElevatedButton(
+                onPressed: _checkAllPermissions,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                child: const Text('Refresh Status'),
+              ),
+            ],
+          ),
+          if (!_isOptimizedForTracking) ...[
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.orange.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.orange.withOpacity(0.5)),
+              ),
+              child: const Text(
+                'For optimal tracking, enable all permissions and bypass battery optimization. This ensures reliable location updates even when the app is minimized.',
+                style: TextStyle(
+                  color: Colors.orange,
+                  fontSize: 12,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ],
         ],
       ),
     );

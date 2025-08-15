@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../core/theme/colors.dart';
+import '../../theme/colors.dart' as av;
 import '../../core/auth/auth_controller.dart';
+import '../shifts/shifts_screen.dart';
+import '../shifts/shifts_service.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -11,81 +13,98 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  // Sample shift statistics (in a real app, this would come from your data source)
-  final Map<String, int> _monthlyShifts = {
-    'January': 12,
-    'February': 8,
-    'March': 15,
-    'April': 10,
-    'May': 18,
-    'June': 22,
-    'July': 25,
-    'August': 20,
-    'September': 16,
-    'October': 14,
-    'November': 9,
-    'December': 11,
-  };
+  final ShiftsService _shiftsService = ShiftsService();
 
-  // Sample previous month breakdown
-  final Map<String, int> _previousMonthBreakdown = {
-    'Day Tours': 8,
-    'Northern Lights': 6,
-  };
+  // Dynamic stats populated from Firebase
+  int _totalShiftsAllTime = 0;
+  int _avgPerMonth = 0;
+  int _thisMonthShifts = 0;
+  int _prevMonthDayTours = 0;
+  int _prevMonthNorthernLights = 0;
 
-  // Sample current month data
-  final int _thisMonthShifts = 7;
-
-  // Profile data (in a real app, this would come from Firebase)
-  String _userName = 'John Doe';
-  String _userRole = 'Senior Tour Guide';
-  double _userRating = 4.8;
-  String _userEmail = 'john.doe@auroraviking.com';
-  String _userPhone = '+1 (555) 123-4567';
-  String _emergencyContact = 'Jane Doe - +1 (555) 987-6543';
+  // Profile data
+  String _userName = 'Unknown Guide';
+  String _userRole = 'Tour Guide';
+  String _userEmail = '';
+  String _userPhone = '';
+  String _emergencyContact = 'Not provided';
 
   @override
   void initState() {
     super.initState();
-    // Load user data from AuthController
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadUserData();
+      _loadShiftStats();
     });
   }
 
   void _loadUserData() {
     final authController = context.read<AuthController>();
     final user = authController.currentUser;
-    
     if (user != null) {
       setState(() {
         _userName = user.fullName;
         _userRole = user.role == 'admin' ? 'Administrator' : 'Tour Guide';
         _userEmail = user.email;
         _userPhone = user.phoneNumber.isNotEmpty ? user.phoneNumber : 'Not provided';
-        _emergencyContact = 'Not provided'; // This would come from additional user data
       });
     }
+  }
+
+  void _loadShiftStats() {
+    // Compute stats from guide's shifts
+    _shiftsService.getGuideShifts().listen((shifts) {
+      if (!mounted) return;
+
+      final now = DateTime.now();
+      final thisMonthStart = DateTime(now.year, now.month, 1);
+      final prevMonthStart = DateTime(now.year, now.month - 1, 1);
+      final prevMonthEnd = DateTime(now.year, now.month, 0);
+
+      final total = shifts.length;
+      // Group by month for average (over distinct months present)
+      final months = <String, int>{};
+      for (final s in shifts) {
+        final key = '${s.date.year}-${s.date.month}';
+        months[key] = (months[key] ?? 0) + 1;
+      }
+      final avg = months.isNotEmpty
+          ? (months.values.reduce((a, b) => a + b) / months.length).round()
+          : 0;
+
+      final thisMonth = shifts.where((s) => s.date.isAfter(thisMonthStart.subtract(const Duration(days: 1))) && s.date.month == now.month && s.date.year == now.year).length;
+
+      final prevMonthDay = shifts.where((s) => s.type.name == 'dayTour' && s.date.isAfter(prevMonthStart.subtract(const Duration(days: 1))) && s.date.isBefore(prevMonthEnd.add(const Duration(days: 1)))).length;
+      final prevMonthNl = shifts.where((s) => s.type.name == 'northernLights' && s.date.isAfter(prevMonthStart.subtract(const Duration(days: 1))) && s.date.isBefore(prevMonthEnd.add(const Duration(days: 1)))).length;
+
+      setState(() {
+        _totalShiftsAllTime = total;
+        _avgPerMonth = avg;
+        _thisMonthShifts = thisMonth;
+        _prevMonthDayTours = prevMonthDay;
+        _prevMonthNorthernLights = prevMonthNl;
+      });
+    });
   }
 
   Widget _buildStatCard(String title, String value, IconData icon, Color color) {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withOpacity(0.3)),
+        color: av.AVColors.slateElev,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: av.AVColors.outline),
       ),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(icon, size: 32, color: color),
+          Icon(icon, size: 28, color: color),
           const SizedBox(height: 8),
           Text(
             title,
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
               fontWeight: FontWeight.w600,
-              color: AppColors.primary,
+              color: av.AVColors.textLow,
             ),
             textAlign: TextAlign.center,
           ),
@@ -94,7 +113,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             value,
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
               fontWeight: FontWeight.bold,
-              color: AppColors.primary,
+              color: av.AVColors.textHigh,
             ),
             textAlign: TextAlign.center,
           ),
@@ -104,7 +123,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   void _editProfile() async {
-    // Show edit profile dialog
     final result = await showDialog<Map<String, String>>(
       context: context,
       builder: (BuildContext context) {
@@ -127,67 +145,43 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _emergencyContact = result['emergency'] ?? _emergencyContact;
       });
 
-      // Update Firebase with new profile data
       try {
         final authController = context.read<AuthController>();
         final currentUser = authController.currentUser;
-        
         if (currentUser != null) {
-          // Create updated user object
           final updatedUser = currentUser.copyWith(
             fullName: _userName,
             email: _userEmail,
             phoneNumber: _userPhone,
             role: _userRole.toLowerCase().contains('admin') ? 'admin' : 'guide',
           );
-          
-          // Save to Firebase
           await authController.updateUserProfile(updatedUser);
-          
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Profile updated successfully!'),
-              backgroundColor: Colors.green,
-            ),
+            const SnackBar(content: Text('Profile updated successfully!'), backgroundColor: Colors.green),
           );
         }
       } catch (e) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to update profile: $e'),
-            backgroundColor: Colors.red,
-          ),
+          SnackBar(content: Text('Failed to update profile: $e'), backgroundColor: Colors.red),
         );
       }
     }
   }
 
   void _viewSchedule() {
-    // TODO: Navigate to schedule screen with Firebase data
-    // Navigator.push(
-    //   context,
-    //   MaterialPageRoute(
-    //     builder: (context) => ScheduleScreen(
-    //       userId: FirebaseAuth.instance.currentUser?.uid,
-    //     ),
-    //   ),
-    // );
-
-    // For now, show a placeholder
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Schedule View'),
-          content: const Text('This will show your upcoming shifts and schedule once Firebase is connected.'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('OK'),
-            ),
-          ],
-        );
-      },
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => Scaffold(
+          appBar: AppBar(
+            title: const Text('My Schedule'),
+            backgroundColor: av.AVColors.slate,
+            foregroundColor: av.AVColors.textHigh,
+            elevation: 0,
+          ),
+          body: const ShiftsScreen(),
+        ),
+      ),
     );
   }
 
@@ -196,43 +190,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Profile'),
-        backgroundColor: AppColors.primary,
-        foregroundColor: Colors.white,
+        backgroundColor: av.AVColors.slate,
+        foregroundColor: av.AVColors.textHigh,
+        elevation: 0,
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Profile Header
+            // Profile Header (no picture, no rating)
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.grey.withOpacity(0.1),
-                    spreadRadius: 1,
-                    blurRadius: 4,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
+                color: av.AVColors.slate,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: av.AVColors.outline),
               ),
               child: Row(
                 children: [
-                  // Profile Picture
-                  CircleAvatar(
-                    radius: 40,
-                    backgroundColor: AppColors.primary.withOpacity(0.2),
-                    child: Icon(
-                      Icons.person,
-                      size: 40,
-                      color: AppColors.primary,
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  // Profile Info
+                  // Name and role only
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -241,69 +218,37 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           _userName,
                           style: Theme.of(context).textTheme.titleLarge?.copyWith(
                             fontWeight: FontWeight.bold,
-                            color: AppColors.primary,
+                            color: av.AVColors.textHigh,
                           ),
                         ),
                         const SizedBox(height: 4),
                         Text(
                           _userRole,
                           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: Colors.grey[600],
+                            color: av.AVColors.textLow,
                             fontWeight: FontWeight.w500,
                           ),
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.star,
-                              size: 16,
-                              color: Colors.amber[600],
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              _userRating.toString(),
-                              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                fontWeight: FontWeight.w600,
-                                color: Colors.amber[600],
-                              ),
-                            ),
-                            Text(
-                              ' Rating',
-                              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                color: Colors.grey[600],
-                              ),
-                            ),
-                          ],
                         ),
                       ],
                     ),
                   ),
-                  // Edit Button
                   IconButton(
                     onPressed: _editProfile,
-                    icon: Icon(Icons.edit, color: AppColors.primary),
+                    icon: const Icon(Icons.edit, color: av.AVColors.textHigh),
                   ),
                 ],
               ),
             ),
-            
+
             const SizedBox(height: 20),
-            
+
             // Contact Information
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.grey.withOpacity(0.1),
-                    spreadRadius: 1,
-                    blurRadius: 4,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
+                color: av.AVColors.slate,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: av.AVColors.outline),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -312,7 +257,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     'Contact Information',
                     style: Theme.of(context).textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.bold,
-                      color: AppColors.primary,
+                      color: av.AVColors.textHigh,
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -322,23 +267,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ],
               ),
             ),
-            
+
             const SizedBox(height: 20),
-            
-            // Shift Statistics
+
+            // Shift Statistics (from Firebase)
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.grey.withOpacity(0.1),
-                    spreadRadius: 1,
-                    blurRadius: 4,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
+                color: av.AVColors.slate,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: av.AVColors.outline),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -347,18 +285,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     'Shift Statistics',
                     style: Theme.of(context).textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.bold,
-                      color: AppColors.primary,
+                      color: av.AVColors.textHigh,
                     ),
                   ),
                   const SizedBox(height: 16),
-                  
+
                   // Previous Month Breakdown
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: AppColors.primary.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: AppColors.primary.withOpacity(0.3)),
+                      color: av.AVColors.slateElev,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: av.AVColors.outline),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -367,7 +305,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           'Previous Month Breakdown',
                           style: Theme.of(context).textTheme.titleMedium?.copyWith(
                             fontWeight: FontWeight.w600,
-                            color: AppColors.primary,
+                            color: av.AVColors.textHigh,
                           ),
                         ),
                         const SizedBox(height: 8),
@@ -376,7 +314,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             Expanded(
                               child: _buildStatCard(
                                 'Day Tours',
-                                _previousMonthBreakdown['Day Tours']?.toString() ?? '0',
+                                '$_prevMonthDayTours',
                                 Icons.wb_sunny,
                                 Colors.orange,
                               ),
@@ -385,7 +323,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             Expanded(
                               child: _buildStatCard(
                                 'Northern Lights',
-                                _previousMonthBreakdown['Northern Lights']?.toString() ?? '0',
+                                '$_prevMonthNorthernLights',
                                 Icons.nightlight_round,
                                 Colors.indigo,
                               ),
@@ -395,25 +333,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ],
                     ),
                   ),
-                  
+
                   const SizedBox(height: 16),
-                  
+
                   // Overall Statistics
                   Row(
                     children: [
                       Expanded(
                         child: _buildStatCard(
                           'Total Shifts',
-                          _monthlyShifts.values.reduce((a, b) => a + b).toString(),
+                          '$_totalShiftsAllTime',
                           Icons.work,
-                          AppColors.primary,
+                          av.AVColors.primaryTeal,
                         ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: _buildStatCard(
                           'Avg/Month',
-                          (_monthlyShifts.values.reduce((a, b) => a + b) / 12).round().toString(),
+                          '$_avgPerMonth',
                           Icons.trending_up,
                           Colors.green,
                         ),
@@ -426,7 +364,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       Expanded(
                         child: _buildStatCard(
                           'This Month',
-                          _thisMonthShifts.toString(),
+                          '$_thisMonthShifts',
                           Icons.calendar_month,
                           Colors.purple,
                         ),
@@ -436,23 +374,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ],
               ),
             ),
-            
+
             const SizedBox(height: 20),
-            
+
             // Quick Actions
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.grey.withOpacity(0.1),
-                    spreadRadius: 1,
-                    blurRadius: 4,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
+                color: av.AVColors.slate,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: av.AVColors.outline),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -461,32 +392,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     'Quick Actions',
                     style: Theme.of(context).textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.bold,
-                      color: AppColors.primary,
+                      color: av.AVColors.textHigh,
                     ),
                   ),
                   const SizedBox(height: 16),
-                  
-                  // View Schedule Button
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton.icon(
                       onPressed: _viewSchedule,
                       icon: const Icon(Icons.schedule),
                       label: const Text('View Schedule'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
                     ),
                   ),
                 ],
               ),
             ),
-            
+
             const SizedBox(height: 20),
           ],
         ),
@@ -506,7 +427,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               label,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                 fontWeight: FontWeight.w600,
-                color: Colors.grey[700],
+                color: av.AVColors.textLow,
               ),
             ),
           ),
@@ -514,7 +435,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             child: Text(
               value,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: AppColors.primary,
+                color: av.AVColors.textHigh,
               ),
             ),
           ),

@@ -10,6 +10,7 @@ import 'modules/pickup/pickup_controller.dart';
 import 'modules/photos/photo_controller.dart';
 import 'core/auth/auth_controller.dart';
 import 'core/services/firebase_service.dart';
+import 'theme/av_theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -50,18 +51,8 @@ class AuroraVikingStaffApp extends StatelessWidget {
       ],
       child: MaterialApp(
         title: 'Aurora Viking Staff',
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: const Color(0xFF1E3A8A), // Blue color for Viking theme
-            brightness: Brightness.light,
-          ),
-          useMaterial3: true,
-          appBarTheme: const AppBarTheme(
-            backgroundColor: Color(0xFF1E3A8A),
-            foregroundColor: Colors.white,
-            elevation: 2,
-          ),
-        ),
+        debugShowCheckedModeBanner: false,
+        theme: avTheme(),
         home: const AuthWrapper(),
       ),
     );

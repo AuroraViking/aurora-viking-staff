@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:geolocator/geolocator.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 class LocationService {
   static final LocationService _instance = LocationService._internal();
@@ -20,8 +21,8 @@ class LocationService {
   String? _currentUserId;
   bool _isTracking = false;
 
-  static const int _updateIntervalSeconds = 30;
-  static const int _distanceFilterMeters = 10;
+  static const int _updateIntervalSeconds = 15; // Reduced for better tracking
+  static const int _distanceFilterMeters = 5; // More precise tracking
   static const int _historyRetentionHours = 48; // 48-hour history
 
   bool get isTracking => _isTracking;
@@ -29,13 +30,14 @@ class LocationService {
 
   Future<bool> initialize() async {
     try {
-      // Check location permissions
+      // Check location permissions with enhanced permission handling
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
         print('❌ Location services are disabled');
         return false;
       }
 
+      // Request precise location permission
       LocationPermission permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
@@ -50,6 +52,18 @@ class LocationService {
         return false;
       }
 
+      // Request background location permission
+      if (permission == LocationPermission.whileInUse) {
+        print('🔒 Requesting background location permission...');
+        permission = await Geolocator.requestPermission();
+        if (permission != LocationPermission.always) {
+          print('⚠️ Background location permission not granted, tracking may be limited');
+        }
+      }
+
+      // Request additional permissions for better tracking
+      await _requestAdditionalPermissions();
+
       // Start cleanup timer to remove old location history
       _startCleanupTimer();
       
@@ -58,6 +72,24 @@ class LocationService {
     } catch (e) {
       print('❌ Error initializing LocationService: $e');
       return false;
+    }
+  }
+
+  Future<void> _requestAdditionalPermissions() async {
+    try {
+      // Request ignore battery optimization permission
+      if (await Permission.ignoreBatteryOptimizations.isDenied) {
+        print('🔋 Requesting battery optimization bypass...');
+        await Permission.ignoreBatteryOptimizations.request();
+      }
+
+      // Request system alert window for better foreground service
+      if (await Permission.systemAlertWindow.isDenied) {
+        print('🪟 Requesting system alert window permission...');
+        await Permission.systemAlertWindow.request();
+      }
+    } catch (e) {
+      print('⚠️ Some additional permissions could not be requested: $e');
     }
   }
 
@@ -71,11 +103,12 @@ class LocationService {
       _currentUserId = userId;
       _isTracking = true;
 
-      // Start location stream
+      // Start location stream with high accuracy and frequent updates
       _positionStreamSubscription = Geolocator.getPositionStream(
         locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
+          accuracy: LocationAccuracy.bestForNavigation, // Best accuracy for navigation
           distanceFilter: _distanceFilterMeters,
+          timeLimit: Duration(seconds: 30), // Timeout for location requests
         ),
       ).listen(
         (Position position) {
@@ -86,18 +119,29 @@ class LocationService {
         },
       );
 
-      // Set up periodic location updates for history
+      // Set up periodic location updates for history with backup positioning
       _locationUpdateTimer = Timer.periodic(
         Duration(seconds: _updateIntervalSeconds),
         (timer) async {
           if (_isTracking) {
             try {
               final position = await Geolocator.getCurrentPosition(
-                desiredAccuracy: LocationAccuracy.high,
+                desiredAccuracy: LocationAccuracy.bestForNavigation,
+                timeLimit: const Duration(seconds: 15),
               );
               _saveLocationToFirebase(position, busId, userId);
             } catch (e) {
               print('❌ Error getting periodic location: $e');
+              // Try with lower accuracy as fallback
+              try {
+                final fallbackPosition = await Geolocator.getCurrentPosition(
+                  desiredAccuracy: LocationAccuracy.high,
+                  timeLimit: const Duration(seconds: 10),
+                );
+                _saveLocationToFirebase(fallbackPosition, busId, userId);
+              } catch (fallbackError) {
+                print('❌ Fallback location also failed: $fallbackError');
+              }
             }
           } else {
             timer.cancel();
@@ -105,7 +149,7 @@ class LocationService {
         },
       );
 
-      print('✅ Started tracking for bus: $busId');
+      print('✅ Started tracking for bus: $busId with enhanced accuracy');
       return true;
     } catch (e) {
       print('❌ Error starting tracking: $e');
