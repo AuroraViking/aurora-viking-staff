@@ -61,6 +61,9 @@ dependencies:
   share_plus: ^7.2.1
   google_fonts: ^6.2.1
   
+  # Package info for app version
+  package_info_plus: ^8.0.2
+  
   # Chart library for Bz chart
   fl_chart: ^0.66.2
 

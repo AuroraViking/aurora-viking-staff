@@ -6,6 +6,7 @@ import '../modules/shifts/shifts_screen.dart';
 import '../modules/tracking/tracking_screen.dart';
 import '../modules/photos/photo_upload_screen.dart';
 import '../modules/profile/profile_screen.dart';
+import '../modules/profile/settings_screen.dart';
 import '../modules/pickup/pickup_screen.dart';
 import '../modules/forecast/forecast_screen.dart';
 import '../modules/admin/admin_dashboard.dart';
@@ -80,23 +81,9 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               onTap: () {
                 Navigator.pop(context);
-                // TODO: Navigate to settings
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Settings - Coming Soon')),
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.help, color: Colors.white),
-              title: const Text(
-                'Help & Support',
-                style: TextStyle(color: Colors.white),
-              ),
-              onTap: () {
-                Navigator.pop(context);
-                // TODO: Navigate to help
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Help & Support - Coming Soon')),
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const SettingsScreen()),
                 );
               },
             ),
