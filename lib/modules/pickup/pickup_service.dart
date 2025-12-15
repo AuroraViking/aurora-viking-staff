@@ -64,76 +64,91 @@ class PickupService {
     };
   }
 
-  // Fetch booking questions from Bokun API
-  Future<Map<String, dynamic>?> _fetchBookingQuestions(String bookingId) async {
-    try {
-      if (!_hasApiCredentials) {
-        print('❌ Booking Questions: Bokun API credentials not found');
-        return null;
+  /// Extract pickup location from the pickupPlace object (predefined pickup locations)
+  /// According to Bokun API, PickupDropoffPlace has: title (string), address (Address object)
+  String? _extractPickupFromPickupPlaceObject(dynamic pickupPlace) {
+    if (pickupPlace == null) return null;
+    
+    print('🔍 Extracting from pickupPlace object: $pickupPlace');
+    print('🔍 pickupPlace type: ${pickupPlace.runtimeType}');
+    
+    if (pickupPlace is Map) {
+      // Try 'title' first (per Bokun API spec: PickupDropoffPlace has title and address)
+      if (pickupPlace['title'] != null && pickupPlace['title'].toString().trim().isNotEmpty) {
+        final title = pickupPlace['title'].toString().trim();
+        print('✅ Found pickupPlace.title: $title');
+        
+        // If there's also an address, append it for more context
+        String fullLocation = title;
+        if (pickupPlace['address'] != null) {
+          final address = pickupPlace['address'];
+          if (address is Map) {
+            final addressParts = <String>[];
+            if (address['addressLine1'] != null && address['addressLine1'].toString().trim().isNotEmpty) {
+              addressParts.add(address['addressLine1'].toString().trim());
+            }
+            if (address['addressLine2'] != null && address['addressLine2'].toString().trim().isNotEmpty) {
+              addressParts.add(address['addressLine2'].toString().trim());
+            }
+            if (address['city'] != null && address['city'].toString().trim().isNotEmpty) {
+              addressParts.add(address['city'].toString().trim());
+            }
+            if (address['postCode'] != null && address['postCode'].toString().trim().isNotEmpty) {
+              addressParts.add(address['postCode'].toString().trim());
+            }
+            if (addressParts.isNotEmpty) {
+              fullLocation = '$title, ${addressParts.join(', ')}';
+            }
+          } else if (address is String && address.trim().isNotEmpty) {
+            fullLocation = '$title, ${address.trim()}';
+          }
+        }
+        return fullLocation;
       }
-
-      final url = '$_baseUrl/booking.json/$bookingId/questions';
-      print('🌐 Booking Questions API URL: $url');
-
-      final headers = _getHeaders('');
       
-      final response = await http.get(
-        Uri.parse(url),
-        headers: headers,
-      );
-
-      print('📡 Booking Questions API Response Status: ${response.statusCode}');
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        print('✅ Booking Questions API call successful!');
-        print('📊 Booking Questions Raw response: ${data.toString().substring(0, data.toString().length > 500 ? 500 : data.toString().length)}...');
-        return data;
-      } else {
-        print('❌ Booking Questions API Error: ${response.statusCode}');
-        print('📄 Booking Questions Error Response: ${response.body}');
-        return null;
+      // Fallback to 'name' if title not present
+      if (pickupPlace['name'] != null && pickupPlace['name'].toString().trim().isNotEmpty) {
+        final name = pickupPlace['name'].toString().trim();
+        print('✅ Found pickupPlace.name: $name');
+        return name;
       }
-    } catch (e) {
-      print('❌ Booking Questions Service: Error fetching questions for booking $bookingId: $e');
-      return null;
-    }
-  }
-
-  // Fetch booking details from Bokun API
-  Future<Map<String, dynamic>?> _fetchBookingDetails(String confirmationCode) async {
-    try {
-      if (!_hasApiCredentials) {
-        print('❌ Booking Details: Bokun API credentials not found');
-        return null;
-      }
-
-      final url = '$_baseUrl/booking.json/$confirmationCode';
-      print('🌐 Booking Details API URL: $url');
-
-      final headers = _getHeaders('');
       
-      final response = await http.get(
-        Uri.parse(url),
-        headers: headers,
-      );
-
-      print('📡 Booking Details API Response Status: ${response.statusCode}');
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        print('✅ Booking Details API call successful!');
-        print('📊 Booking Details Raw response: ${data.toString().substring(0, data.toString().length > 500 ? 500 : data.toString().length)}...');
-        return data;
-      } else {
-        print('❌ Booking Details API Error: ${response.statusCode}');
-        print('📄 Booking Details Error Response: ${response.body}');
-        return null;
+      // Fallback to 'description' 
+      if (pickupPlace['description'] != null && pickupPlace['description'].toString().trim().isNotEmpty) {
+        final description = pickupPlace['description'].toString().trim();
+        print('✅ Found pickupPlace.description: $description');
+        return description;
       }
-    } catch (e) {
-      print('❌ Booking Details Service: Error fetching details for confirmation code $confirmationCode: $e');
-      return null;
+      
+      // Try to construct from address only if no title/name
+      if (pickupPlace['address'] != null) {
+        final address = pickupPlace['address'];
+        if (address is Map) {
+          final addressParts = <String>[];
+          if (address['addressLine1'] != null && address['addressLine1'].toString().trim().isNotEmpty) {
+            addressParts.add(address['addressLine1'].toString().trim());
+          }
+          if (address['city'] != null && address['city'].toString().trim().isNotEmpty) {
+            addressParts.add(address['city'].toString().trim());
+          }
+          if (addressParts.isNotEmpty) {
+            final fullAddress = addressParts.join(', ');
+            print('✅ Constructed address from pickupPlace.address: $fullAddress');
+            return fullAddress;
+          }
+        } else if (address is String && address.trim().isNotEmpty) {
+          print('✅ Found pickupPlace.address (string): ${address.trim()}');
+          return address.trim();
+        }
+      }
+    } else if (pickupPlace is String && pickupPlace.trim().isNotEmpty) {
+      // Sometimes it might just be a string
+      print('✅ pickupPlace is a string: ${pickupPlace.trim()}');
+      return pickupPlace.trim();
     }
+    
+    print('⚠️ Could not extract location from pickupPlace object');
+    return null;
   }
 
   // Extract pickup information from supplier notes
@@ -169,7 +184,8 @@ class PickupService {
                 
                 // Only return if it's not the default "select later" message
                 if (pickupLocation.isNotEmpty && 
-                    !pickupLocation.contains('I will select my pickup location later')) {
+                    !pickupLocation.toLowerCase().contains('i will select my pickup location later') &&
+                    !pickupLocation.toLowerCase().contains('i will contact the supplier later')) {
                   print('✅ Found pickup location in supplier notes: $pickupLocation');
                   return pickupLocation;
                 }
@@ -184,243 +200,207 @@ class PickupService {
     return null;
   }
 
-  // Parse pickup information from booking details
-  String? _parsePickupFromBookingDetails(Map<String, dynamic> bookingDetails) {
-    print('🔍 === PARSING PICKUP FROM BOOKING DETAILS ===');
+  /// Check if a pickup value is a placeholder that means "no pickup selected yet"
+  bool _isPlaceholderPickup(String? value) {
+    if (value == null || value.trim().isEmpty) return true;
     
-    try {
-      // Check product bookings for pickup information
-      if (bookingDetails['productBookings'] != null) {
-        for (var productBooking in bookingDetails['productBookings']) {
-          print('🔍 Product booking ID: ${productBooking['id']}');
-          
-          // Check for pickup fields at the product booking level
-          if (productBooking['pickup'] == true) {
-            print('✅ Pickup is enabled for this booking');
-            
-            // Look for pickupPlace object (this might contain the actual pickup location)
-            if (productBooking['pickupPlace'] != null) {
-              final pickupPlace = productBooking['pickupPlace'];
-              print('🔍 Found pickupPlace object: $pickupPlace');
-              
-              // Extract pickup location name
-              if (pickupPlace['name'] != null) {
-                final pickupName = pickupPlace['name'].toString();
-                print('✅ Found pickup location name: $pickupName');
-                return pickupName;
-              }
-              
-              // Also check for title or description
-              if (pickupPlace['title'] != null) {
-                final pickupTitle = pickupPlace['title'].toString();
-                print('✅ Found pickup location title: $pickupTitle');
-                return pickupTitle;
-              }
-            }
-            
-            // Check for pickupPlaceId and description from ActivityPickupAction
-            if (productBooking['pickupPlaceId'] != null) {
-              print('✅ Found pickupPlaceId: ${productBooking['pickupPlaceId']}');
-              
-              // If there's a description, use it
-              if (productBooking['pickupDescription'] != null) {
-                final description = productBooking['pickupDescription'].toString();
-                print('✅ Found pickup description: $description');
-                return description;
-              }
-            }
-            
-            // Check fields object for pickup information
-            if (productBooking['fields'] != null) {
-              final fields = productBooking['fields'];
-              
-              // These might be the modified pickup fields from ActivityPickupAction
-              if (fields['pickupPlaceDescription'] != null && fields['pickupPlaceDescription'].toString().isNotEmpty) {
-                final description = fields['pickupPlaceDescription'].toString();
-                print('✅ Found pickup place description in fields: $description');
-                return description;
-              }
-              
-              if (fields['pickupDescription'] != null && fields['pickupDescription'].toString().isNotEmpty) {
-                final description = fields['pickupDescription'].toString();
-                print('✅ Found pickup description in fields: $description');
-                return description;
-              }
-            }
-            
-            // Check for pickup information in notes (sometimes added there)
-            if (productBooking['notes'] != null) {
-              for (var note in productBooking['notes']) {
-                if (note['body'] != null) {
-                  final noteBody = note['body'].toString();
-                  if (noteBody.toLowerCase().contains('pickup') && noteBody.toLowerCase().contains('bus stop')) {
-                    print('✅ Found pickup info in notes: $noteBody');
-                    // Extract just the pickup location from the note
-                    final lines = noteBody.split('\n');
-                    for (var line in lines) {
-                      if (line.toLowerCase().contains('bus stop') || line.toLowerCase().contains('pickup')) {
-                        return line.trim();
-                      }
-                    }
-                  }
-                }
+    final lowerValue = value.toLowerCase().trim();
+    return lowerValue.contains('i will select my pickup location later') ||
+           lowerValue.contains('i will contact the supplier later') ||
+           lowerValue.contains('select later') ||
+           lowerValue.contains('contact supplier') ||
+           lowerValue == 'meet on location' ||
+           lowerValue == 'pickup arranged';
+  }
+
+  /// Main method to extract pickup location from all possible sources
+  /// Priority order:
+  /// 1. pickupPlace object (predefined pickup locations with checkmark in Bokun UI)
+  /// 2. pickupPlaceDescription (free text/custom locations)
+  /// 3. Supplier notes (pickup point changed messages)
+  /// 4. Various answer fields
+  /// 5. Fallback defaults
+  String _extractPickupLocation({
+    required Map<String, dynamic> fields,
+    required Map<String, dynamic> productBooking,
+    required Map<String, dynamic> booking,
+  }) {
+    print('🔍 === EXTRACTING PICKUP LOCATION ===');
+    
+    // Debug: Print all potential pickup fields
+    print('🔍 fields[pickupPlace]: ${fields['pickupPlace']}');
+    print('🔍 fields[pickupPlaceDescription]: ${fields['pickupPlaceDescription']}');
+    print('🔍 fields[pickupPlaceId]: ${fields['pickupPlaceId']}');
+    print('🔍 fields[pickupDescription]: ${fields['pickupDescription']}');
+    print('🔍 fields[pickup]: ${fields['pickup']}');
+    
+    // If pickup is not enabled, return meet on location
+    if (fields['pickup'] != true) {
+      print('ℹ️ Pickup not enabled, returning "Meet on location"');
+      return 'Meet on location';
+    }
+    
+    // PRIORITY 1: Check pickupPlace OBJECT (predefined pickup locations - shown with checkmark in Bokun UI)
+    // According to Bokun API, PickupDropoffPlace has: title (required), address (required)
+    final pickupPlaceResult = _extractPickupFromPickupPlaceObject(fields['pickupPlace']);
+    if (pickupPlaceResult != null && !_isPlaceholderPickup(pickupPlaceResult)) {
+      print('✅ FINAL: Using pickupPlace object: $pickupPlaceResult');
+      return pickupPlaceResult;
+    }
+    
+    // Also check at productBooking level
+    final productPickupPlaceResult = _extractPickupFromPickupPlaceObject(productBooking['pickupPlace']);
+    if (productPickupPlaceResult != null && !_isPlaceholderPickup(productPickupPlaceResult)) {
+      print('✅ FINAL: Using productBooking.pickupPlace object: $productPickupPlaceResult');
+      return productPickupPlaceResult;
+    }
+    
+    // PRIORITY 2: Check pickupPlaceDescription (free text/custom locations)
+    if (fields['pickupPlaceDescription'] != null) {
+      final description = fields['pickupPlaceDescription'].toString().trim();
+      if (description.isNotEmpty && !_isPlaceholderPickup(description)) {
+        print('✅ FINAL: Using pickupPlaceDescription: $description');
+        return description;
+      }
+    }
+    
+    // Also check pickupDescription
+    if (fields['pickupDescription'] != null) {
+      final description = fields['pickupDescription'].toString().trim();
+      if (description.isNotEmpty && !_isPlaceholderPickup(description)) {
+        print('✅ FINAL: Using pickupDescription: $description');
+        return description;
+      }
+    }
+    
+    // PRIORITY 3: Check supplier notes for pickup changes
+    final notesPickup = _extractPickupFromNotes(productBooking['notes']);
+    if (notesPickup != null && !_isPlaceholderPickup(notesPickup)) {
+      print('✅ FINAL: Using notes pickup: $notesPickup');
+      return notesPickup;
+    }
+    
+    // PRIORITY 4: Check priceCategoryBookings for pickup answers
+    if (fields['priceCategoryBookings'] != null && fields['priceCategoryBookings'] is List) {
+      final priceCategoryBookings = fields['priceCategoryBookings'] as List;
+      for (final priceBooking in priceCategoryBookings) {
+        // Check answers array
+        if (priceBooking['answers'] != null && priceBooking['answers'] is List) {
+          final answers = priceBooking['answers'] as List;
+          for (final answer in answers) {
+            if (answer is Map) {
+              final question = answer['question']?.toString().toLowerCase() ?? '';
+              final answerText = answer['answer']?.toString().trim() ?? '';
+              if ((question.contains('pickup') || question.contains('pick-up') || question.contains('pick up')) && 
+                  answerText.isNotEmpty && !_isPlaceholderPickup(answerText)) {
+                print('✅ FINAL: Using priceCategoryBookings answer: $answerText');
+                return answerText;
               }
             }
           }
         }
-      }
-      
-      // Also check at the main booking level
-      if (bookingDetails['pickup'] == true) {
-        print('✅ Main booking has pickup enabled');
         
-        // Check for pickup place at main level
-        if (bookingDetails['pickupPlace'] != null) {
-          final pickupPlace = bookingDetails['pickupPlace'];
-          if (pickupPlace['name'] != null) {
-            final pickupName = pickupPlace['name'].toString();
-            print('✅ Found main pickup location: $pickupName');
-            return pickupName;
+        // Check bookingAnswers array
+        if (priceBooking['bookingAnswers'] != null && priceBooking['bookingAnswers'] is List) {
+          final answers = priceBooking['bookingAnswers'] as List;
+          for (final answer in answers) {
+            if (answer is Map) {
+              final question = answer['question']?.toString().toLowerCase() ?? '';
+              final answerText = answer['answer']?.toString().trim() ?? '';
+              if ((question.contains('pickup') || question.contains('pick-up') || question.contains('pick up')) && 
+                  answerText.isNotEmpty && !_isPlaceholderPickup(answerText)) {
+                print('✅ FINAL: Using priceCategoryBookings bookingAnswer: $answerText');
+                return answerText;
+              }
+            }
           }
         }
       }
-      
-      print('🔍 No pickup location found in booking details');
-      return null;
-    } catch (e) {
-      print('❌ Error parsing pickup from booking details: $e');
-      return null;
     }
-  }
-
-  // Parse pickup information from booking questions
-  String? _parsePickupFromQuestions(Map<String, dynamic> questionsData) {
-    print('🔍 === PARSING PICKUP FROM QUESTIONS ===');
     
-    try {
-      // Check for pickup questions in activity bookings
-      if (questionsData['activityBookings'] != null) {
-        for (var activityBooking in questionsData['activityBookings']) {
-          print('🔍 Activity booking: ${activityBooking['bookingId']}');
-          
-          // Check pickup questions
-          if (activityBooking['pickupQuestions'] != null) {
-            for (var question in activityBooking['pickupQuestions']) {
-              print('🔍 Pickup question: ${question}');
-              
-              // Look for pickup location in answers
-              if (question['answer'] != null && question['answer'] is String) {
-                final answer = question['answer'] as String;
-                if (answer.isNotEmpty) {
-                  print('✅ Found pickup location in pickup questions: $answer');
-                  return answer;
-                }
-              }
-              
-              // Also check if the answer is in a different format
-              if (question['answers'] != null) {
-                for (var answer in question['answers']) {
-                  if (answer is String && answer.isNotEmpty) {
-                    print('✅ Found pickup location in pickup questions array: $answer');
-                    return answer;
-                  }
-                }
-              }
-            }
-          }
-          
-          // Check general pickup answers
-          if (activityBooking['pickupAnswers'] != null) {
-            for (var answer in activityBooking['pickupAnswers']) {
-              print('🔍 Pickup answer: ${answer}');
-              if (answer['answer'] != null && answer['answer'] is String) {
-                final answerText = answer['answer'] as String;
-                if (answerText.isNotEmpty) {
-                  print('✅ Found pickup location in pickup answers: $answerText');
-                  return answerText;
-                }
-              }
-            }
-          }
-          
-          // Check all answers for pickup-related content
-          if (activityBooking['answers'] != null) {
-            for (var answer in activityBooking['answers']) {
-              print('🔍 General answer: ${answer}');
-              
-              // Check if this is a pickup-related question
-              if (answer['question'] != null && 
-                  answer['question']['questionCode'] != null &&
-                  answer['question']['questionCode'].toString().toLowerCase().contains('pickup')) {
-                
-                if (answer['answer'] != null && answer['answer'] is String) {
-                  final answerText = answer['answer'] as String;
-                  print('✅ Found pickup location in general answers: $answerText');
-                  return answerText;
-                }
-              }
-            }
+    // PRIORITY 5: Check main booking answers
+    if (booking['answers'] != null && booking['answers'] is List) {
+      final answers = booking['answers'] as List;
+      for (final answer in answers) {
+        if (answer is Map) {
+          final question = answer['question']?.toString().toLowerCase() ?? '';
+          final answerText = answer['answer']?.toString().trim() ?? '';
+          if ((question.contains('pickup') || question.contains('pick-up') || question.contains('pick up')) && 
+              answerText.isNotEmpty && !_isPlaceholderPickup(answerText)) {
+            print('✅ FINAL: Using main booking answer: $answerText');
+            return answerText;
           }
         }
       }
-      
-      // Also check for pickup questions in the main questions structure
-      if (questionsData['pickupQuestions'] != null) {
-        for (var question in questionsData['pickupQuestions']) {
-          print('🔍 Main pickup question: ${question}');
-          
-          if (question['answer'] != null && question['answer'] is String) {
-            final answer = question['answer'] as String;
-            if (answer.isNotEmpty) {
-              print('✅ Found pickup location in main pickup questions: $answer');
-              return answer;
-            }
+    }
+    
+    // PRIORITY 6: Check productBooking answers
+    if (productBooking['answers'] != null && productBooking['answers'] is List) {
+      final answers = productBooking['answers'] as List;
+      for (final answer in answers) {
+        if (answer is Map) {
+          final question = answer['question']?.toString().toLowerCase() ?? '';
+          final answerText = answer['answer']?.toString().trim() ?? '';
+          if ((question.contains('pickup') || question.contains('pick-up') || question.contains('pick up')) && 
+              answerText.isNotEmpty && !_isPlaceholderPickup(answerText)) {
+            print('✅ FINAL: Using productBooking answer: $answerText');
+            return answerText;
           }
         }
       }
-      
-      print('🔍 No pickup location found in questions');
-      return null;
-    } catch (e) {
-      print('❌ Error parsing pickup from questions: $e');
-      return null;
     }
-  }
-
-  // Fetch individual booking details from Bokun API
-  Future<Map<String, dynamic>?> _fetchIndividualBooking(String bookingId) async {
-    try {
-      if (!_hasApiCredentials) {
-        print('❌ Individual Booking: Bokun API credentials not found');
-        return null;
+    
+    // PRIORITY 7: Check pickupAnswers at various levels
+    for (final source in [booking, productBooking, fields]) {
+      if (source['pickupAnswers'] != null && source['pickupAnswers'] is List) {
+        final pickupAnswers = source['pickupAnswers'] as List;
+        for (final answer in pickupAnswers) {
+          if (answer is Map && answer['answer'] != null) {
+            final answerText = answer['answer'].toString().trim();
+            if (answerText.isNotEmpty && !_isPlaceholderPickup(answerText)) {
+              print('✅ FINAL: Using pickupAnswers: $answerText');
+              return answerText;
+            }
+          } else if (answer is String && answer.trim().isNotEmpty && !_isPlaceholderPickup(answer)) {
+            print('✅ FINAL: Using pickupAnswers (string): ${answer.trim()}');
+            return answer.trim();
+          }
+        }
       }
-
-      final url = '$_baseUrl/booking.json/booking/$bookingId';
-      print('🌐 Individual Booking API URL: $url');
-
-      final headers = _getHeaders('');
-      
-      final response = await http.get(
-        Uri.parse(url),
-        headers: headers,
-      );
-
-      print('📡 Individual Booking API Response Status: ${response.statusCode}');
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        print('✅ Individual Booking API call successful!');
-        print('📊 Individual Booking Raw response: ${data.toString().substring(0, data.toString().length > 500 ? 500 : data.toString().length)}...');
-        return data;
-      } else {
-        print('❌ Individual Booking API Error: ${response.statusCode}');
-        print('📄 Individual Booking Error Response: ${response.body}');
-        return null;
-      }
-    } catch (e) {
-      print('❌ Individual Booking Service: Error fetching booking $bookingId: $e');
-      return null;
     }
+    
+    // PRIORITY 8: Check specialRequests
+    if (productBooking['specialRequests'] != null) {
+      final specialRequests = productBooking['specialRequests'].toString().trim();
+      if (specialRequests.isNotEmpty && 
+          (specialRequests.toLowerCase().contains('pickup') || 
+           specialRequests.toLowerCase().contains('pick up') ||
+           specialRequests.toLowerCase().contains('bus stop') ||
+           specialRequests.toLowerCase().contains('hotel'))) {
+        print('✅ FINAL: Using specialRequests: $specialRequests');
+        return specialRequests;
+      }
+    }
+    
+    // PRIORITY 9: Check room number as last resort
+    if (fields['pickupPlaceRoomNumber'] != null && 
+        fields['pickupPlaceRoomNumber'].toString().trim().isNotEmpty) {
+      final roomNumber = fields['pickupPlaceRoomNumber'].toString().trim();
+      print('✅ FINAL: Using room number: Room $roomNumber');
+      return 'Room $roomNumber';
+    }
+    
+    // FALLBACK: Return placeholder values if they exist, otherwise "Pickup pending"
+    if (fields['pickupPlaceDescription'] != null) {
+      final description = fields['pickupPlaceDescription'].toString().trim();
+      if (description.isNotEmpty) {
+        print('ℹ️ FINAL: Returning placeholder pickup: $description');
+        return description;
+      }
+    }
+    
+    print('ℹ️ FINAL: No pickup found, returning "Pickup pending"');
+    return 'Pickup pending';
   }
 
   // Fetch bookings from Bokun API for a specific date
@@ -550,7 +530,7 @@ class PickupService {
               continue;
             }
             
-            final pickupBooking = await _parseBokunBooking(booking);
+            final pickupBooking = _parseBokunBooking(booking);
             if (pickupBooking != null) {
               bookings.add(pickupBooking);
               
@@ -593,173 +573,8 @@ class PickupService {
     }
   }
 
-  // Parse individual Bokun API booking data (for detailed booking calls)
-  Future<PickupBooking?> _parseIndividualBokunBooking(Map<String, dynamic> booking) async {
-    try {
-      print('🔍 Parsing individual booking: ${booking.keys.toList()}');
-      
-      // Extract customer information
-      final customer = booking['customer'] ?? booking['leadCustomer'] ?? {};
-      final customerFullName = '${customer['firstName'] ?? ''} ${customer['lastName'] ?? ''}'.trim();
-      
-      if (customerFullName.isEmpty) {
-        print('⚠️ Individual Booking: No customer name found');
-        return null;
-      }
-      
-      // Get the first product booking (assuming one product per booking)
-      final productBookings = booking['productBookings'] as List<dynamic>? ?? [];
-      if (productBookings.isEmpty) {
-        print('⚠️ Individual Booking: No product bookings found');
-        return null;
-      }
-      
-      final productBooking = productBookings.first;
-      
-      // Extract pickup information with enhanced debugging
-      final fields = productBooking['fields'] ?? {};
-      String pickupPlaceName = 'Meet on location';
-      
-      print('🔍 === INDIVIDUAL BOOKING PICKUP DEBUG ===');
-      print('🔍 Individual booking fields: $fields');
-      
-      // Check for pickup info in all possible locations (ENHANCED to check notes)
-      if (fields['pickup'] == true) {
-        // 1. Check pickupPlaceDescription first (most reliable)
-        if (fields['pickupPlaceDescription'] != null && fields['pickupPlaceDescription'].toString().trim().isNotEmpty) {
-          pickupPlaceName = fields['pickupPlaceDescription'];
-          print('✅ Individual: Found pickupPlaceDescription: $pickupPlaceName');
-        } 
-        // 2. Check pickupDescription
-        else if (fields['pickupDescription'] != null && fields['pickupDescription'].toString().trim().isNotEmpty) {
-          pickupPlaceName = fields['pickupDescription'];
-          print('✅ Individual: Found pickupDescription: $pickupPlaceName');
-        }
-        // 3. NEW: Check supplier notes for pickup information
-        else {
-          final notesPickup = _extractPickupFromNotes(productBooking['notes']);
-          if (notesPickup != null) {
-            pickupPlaceName = notesPickup;
-          } else {
-            // 4. Check for pickup info in answers
-            if (productBooking['answers'] != null && productBooking['answers'] is List) {
-              final answers = productBooking['answers'] as List;
-              for (final answer in answers) {
-                if (answer is Map) {
-                  final question = answer['question'] ?? '';
-                  final answerText = answer['answer'] ?? '';
-                  if (question.toString().toLowerCase().contains('pickup') && 
-                      answerText.toString().trim().isNotEmpty) {
-                    pickupPlaceName = answerText.toString().trim();
-                    print('✅ Individual: Found pickup info in answers: $pickupPlaceName');
-                    break;
-                  }
-                }
-              }
-            }
-            
-            // 5. Check for pickup info in priceCategoryBookings answers
-            if (fields['priceCategoryBookings'] != null && fields['priceCategoryBookings'] is List) {
-              final priceCategoryBookings = fields['priceCategoryBookings'] as List;
-              for (final priceBooking in priceCategoryBookings) {
-                if (priceBooking['answers'] != null && priceBooking['answers'] is List) {
-                  final answers = priceBooking['answers'] as List;
-                  for (final answer in answers) {
-                    if (answer is Map) {
-                      final question = answer['question'] ?? '';
-                      final answerText = answer['answer'] ?? '';
-                      if (question.toString().toLowerCase().contains('pickup') && 
-                          answerText.toString().trim().isNotEmpty) {
-                        pickupPlaceName = answerText.toString().trim();
-                        print('✅ Individual: Found pickup info in priceCategoryBookings answers: $pickupPlaceName');
-                        break;
-                      }
-                    }
-                  }
-                }
-              }
-            }
-            
-            if (pickupPlaceName == 'Meet on location') {
-              pickupPlaceName = 'Pickup arranged';
-            }
-          }
-        }
-      }
-      
-      // Extract other booking details (similar to regular parsing)
-      final startDateStr = productBooking['startDate'];
-      DateTime pickupTime;
-      
-      if (fields['startHour'] != null && fields['startMinute'] != null) {
-        final startHour = fields['startHour'];
-        final startMinute = fields['startMinute'];
-        
-        if (startDateStr != null) {
-          try {
-            final baseDate = DateTime.fromMillisecondsSinceEpoch(startDateStr);
-            pickupTime = DateTime(baseDate.year, baseDate.month, baseDate.day, startHour, startMinute);
-          } catch (e) {
-            pickupTime = DateTime.now();
-          }
-        } else {
-          pickupTime = DateTime.now();
-        }
-      } else {
-        final startDateTime = productBooking['startDateTime'] ?? productBooking['startDate'];
-        if (startDateTime != null) {
-          try {
-            if (startDateTime is String) {
-              pickupTime = DateTime.parse(startDateTime);
-            } else if (startDateTime is int) {
-              pickupTime = DateTime.fromMillisecondsSinceEpoch(startDateTime);
-            } else {
-              pickupTime = DateTime.now();
-            }
-          } catch (e) {
-            pickupTime = DateTime.now();
-          }
-        } else {
-          pickupTime = DateTime.now();
-        }
-      }
-      
-      final numberOfGuests = productBooking['totalParticipants'] ?? 1;
-      
-      // Extract booking ID for questions API calls
-      final bookingId = productBooking['parentBookingId']?.toString() ?? 
-                       productBooking['id']?.toString() ?? 
-                       booking['id']?.toString();
-      
-      // Extract confirmation code for booking details API calls
-      final confirmationCode = booking['confirmationCode']?.toString() ?? 
-                              booking['externalBookingReference']?.toString() ??
-                              productBooking['productConfirmationCode']?.toString();
-      
-      return PickupBooking(
-        id: booking['id']?.toString() ?? '',
-        customerFullName: customerFullName,
-        pickupPlaceName: pickupPlaceName,
-        pickupTime: pickupTime,
-        numberOfGuests: numberOfGuests,
-        phoneNumber: customer['phoneNumber']?.toString() ?? '',
-        email: customer['email']?.toString() ?? '',
-        isArrived: false,
-        isNoShow: false,
-        assignedGuideId: '',
-        assignedGuideName: '',
-        createdAt: DateTime.now(),
-        bookingId: bookingId,
-        confirmationCode: confirmationCode,
-      );
-    } catch (e) {
-      print('❌ Error parsing individual booking: $e');
-      return null;
-    }
-  }
-
   // Parse Bokun API booking data
-  Future<PickupBooking?> _parseBokunBooking(Map<String, dynamic> booking) async {
+  PickupBooking? _parseBokunBooking(Map<String, dynamic> booking) {
     try {
       print('🔍 Parsing booking: ${booking.keys.toList()}');
       
@@ -783,66 +598,6 @@ class PickupService {
       // Use the first product booking for pickup details
       final productBooking = productBookings.first;
       print('🔍 ProductBooking keys: ${productBooking.keys.toList()}');
-      
-      // Debug: Check for pickup info in nested fields
-      print('🔍 Checking for pickup info in nested fields:');
-      
-      // Check if pickup info is in 'product' field
-      if (productBooking['product'] != null) {
-        print('  Product keys: ${productBooking['product'].keys.toList()}');
-        final product = productBooking['product'];
-        if (product['pickup'] != null) print('  Product.pickup: ${product['pickup']}');
-        if (product['pickupPlace'] != null) print('  Product.pickupPlace: ${product['pickupPlace']}');
-      }
-      
-      // Check if there are activity-specific fields
-      if (productBooking['activityPickup'] != null) {
-        print('  ActivityPickup: ${productBooking['activityPickup']}');
-      }
-      
-      // Check the 'fields' object for custom data
-      if (productBooking['fields'] != null) {
-        print('  Fields: ${productBooking['fields']}');
-      }
-      
-      // Check 'specialRequests' for pickup info
-      if (productBooking['specialRequests'] != null) {
-        print('  SpecialRequests: ${productBooking['specialRequests']}');
-      }
-      
-      // Check for pickup in various possible locations
-      if (productBooking['pickup'] != null) print('  Direct pickup: ${productBooking['pickup']}');
-      if (productBooking['pickupPlace'] != null) print('  Direct pickupPlace: ${productBooking['pickupPlace']}');
-      if (productBooking['pickupPlaceDescription'] != null) print('  Direct pickupPlaceDescription: ${productBooking['pickupPlaceDescription']}');
-      if (productBooking['pickupLocation'] != null) print('  Direct pickupLocation: ${productBooking['pickupLocation']}');
-      if (productBooking['pickupAddress'] != null) print('  Direct pickupAddress: ${productBooking['pickupAddress']}');
-      
-      // Check for pickup info in the main booking object
-      print('🔍 Checking main booking object for pickup info:');
-      if (booking['pickup'] != null) print('  Main booking pickup: ${booking['pickup']}');
-      if (booking['pickupPlace'] != null) print('  Main booking pickupPlace: ${booking['pickupPlace']}');
-      if (booking['pickupPlaceDescription'] != null) print('  Main booking pickupPlaceDescription: ${booking['pickupPlaceDescription']}');
-      if (booking['pickupLocation'] != null) print('  Main booking pickupLocation: ${booking['pickupLocation']}');
-      if (booking['pickupAddress'] != null) print('  Main booking pickupAddress: ${booking['pickupAddress']}');
-      
-      // Check for pickup info in notes
-      if (booking['notes'] != null) {
-        print('  Main booking notes: ${booking['notes']}');
-      }
-      if (productBooking['notes'] != null) {
-        print('  Product booking notes: ${productBooking['notes']}');
-      }
-      
-      // Check for pickup info in labels
-      if (booking['labels'] != null) {
-        print('  Main booking labels: ${booking['labels']}');
-      }
-      if (productBooking['labels'] != null) {
-        print('  Product booking labels: ${productBooking['labels']}');
-      }
-      
-      // Print the full raw productBooking to see all available data
-      print('🔍 Full ProductBooking data: $productBooking');
       
       // Extract tour time
       final startDateStr = productBooking['startDate'];
@@ -884,7 +639,7 @@ class PickupService {
             print('✅ Parsed fallback time: $pickupTime');
           } catch (e) {
             print('⚠️ Could not parse tour time: $startDateTime, error: $e');
-            pickupTime = DateTime.now(); // Use current time as last resort
+            pickupTime = DateTime.now();
           }
         } else {
           print('⚠️ No startDate found, using current time');
@@ -896,304 +651,21 @@ class PickupService {
       final numberOfGuests = productBooking['totalParticipants'] ?? 
                             productBooking['totalPax'] ??
                             productBooking['pax'] ??
+                            fields['totalParticipants'] ??
                             1;
       print('✅ Parsed guest count: $numberOfGuests');
       
-            // Extract pickup information from the 'fields' object (ENHANCED to check notes)
-      String pickupPlaceName = 'Meet on location';
-
-      if (fields['pickup'] == true) {
-        // 1. Check for pickupPlaceDescription first (most reliable)
-        if (fields['pickupPlaceDescription'] != null &&
-            fields['pickupPlaceDescription'].toString().trim().isNotEmpty) {
-          pickupPlaceName = fields['pickupPlaceDescription'];
-          print('✅ Found pickupPlaceDescription: $pickupPlaceName');
-        }
-        // 2. Check for pickupDescription (free text description)
-        else if (fields['pickupDescription'] != null &&
-            fields['pickupDescription'].toString().trim().isNotEmpty) {
-          pickupPlaceName = fields['pickupDescription'];
-          print('✅ Found pickupDescription: $pickupPlaceName');
-        }
-        // 3. NEW: Check supplier notes for pickup information
-        else {
-          final notesPickup = _extractPickupFromNotes(productBooking['notes']);
-          if (notesPickup != null) {
-            pickupPlaceName = notesPickup;
-          } else {
-            // 4. Check for pickup info in priceCategoryBookings answers
-            if (fields['priceCategoryBookings'] != null && fields['priceCategoryBookings'] is List) {
-              final priceCategoryBookings = fields['priceCategoryBookings'] as List;
-              for (final priceBooking in priceCategoryBookings) {
-                if (priceBooking['answers'] != null && priceBooking['answers'] is List) {
-                  final answers = priceBooking['answers'] as List;
-                  for (final answer in answers) {
-                    if (answer is Map) {
-                      final question = answer['question'] ?? '';
-                      final answerText = answer['answer'] ?? '';
-                      if (question.toString().toLowerCase().contains('pickup') &&
-                          answerText.toString().trim().isNotEmpty) {
-                        pickupPlaceName = answerText.toString().trim();
-                        print('✅ Found pickup info in priceCategoryBookings answers: $pickupPlaceName');
-                        break;
-                      }
-                    }
-                  }
-                }
-              }
-            }
-            // 5. Check for pickup info in main booking answers
-            else if (booking['answers'] != null && booking['answers'] is List) {
-              final answers = booking['answers'] as List;
-              for (final answer in answers) {
-                if (answer is Map) {
-                  final question = answer['question'] ?? '';
-                  final answerText = answer['answer'] ?? '';
-                  if (question.toString().toLowerCase().contains('pickup') &&
-                      answerText.toString().trim().isNotEmpty) {
-                    pickupPlaceName = answerText.toString().trim();
-                    print('✅ Found pickup info in main booking answers: $pickupPlaceName');
-                    break;
-                  }
-                }
-              }
-            }
-            // 6. Check for pickup info in productBooking answers
-            else if (productBooking['answers'] != null && productBooking['answers'] is List) {
-              final answers = productBooking['answers'] as List;
-              for (final answer in answers) {
-                if (answer is Map) {
-                  final question = answer['question'] ?? '';
-                  final answerText = answer['answer'] ?? '';
-                  if (question.toString().toLowerCase().contains('pickup') &&
-                      answerText.toString().trim().isNotEmpty) {
-                    pickupPlaceName = answerText.toString().trim();
-                    print('✅ Found pickup info in productBooking answers: $pickupPlaceName');
-                    break;
-                  }
-                }
-              }
-            }
-            // 7. Check for room number info
-            else if (fields['pickupPlaceRoomNumber'] != null &&
-                     fields['pickupPlaceRoomNumber'].toString().trim().isNotEmpty) {
-              pickupPlaceName = 'Room ${fields['pickupPlaceRoomNumber']}';
-              print('✅ Found pickupPlaceRoomNumber: ${fields['pickupPlaceRoomNumber']}');
-            }
-            // 8. Check if startTimeLabel has actual place info (not just time)
-            else if (fields['startTimeLabel'] != null) {
-              final startTimeLabel = fields['startTimeLabel'].toString();
-
-              // Only use startTimeLabel if it contains actual location info
-              // Skip if it's just time + "Pickup"
-              if (!RegExp(r'^\d{1,2}:\d{2}\s*Pickup$').hasMatch(startTimeLabel)) {
-                pickupPlaceName = startTimeLabel;
-                print('✅ Using startTimeLabel with location info: $pickupPlaceName');
-              } else {
-                // It's just "HH:MM Pickup" - use generic message
-                pickupPlaceName = 'Pickup arranged';
-                print('✅ Using generic pickup message (time only in startTimeLabel)');
-              }
-            }
-            // 9. Fallback for pickup without location details
-            else {
-              pickupPlaceName = 'Pickup arranged';
-              print('✅ General pickup arranged');
-            }
-          }
-        }
-      } else {
-        pickupPlaceName = 'Meet on location';
-        print('✅ Meet on location');
-      }
+      // Extract pickup location using the unified extraction method
+      final pickupPlaceName = _extractPickupLocation(
+        fields: fields,
+        productBooking: productBooking,
+        booking: booking,
+      );
       
-      // Debug pickup information
-      print('🔍 === PICKUP DEBUG INFO ===');
-      print('🔍 Fields object: $fields');
-      
-      // Enhanced debugging for all potential pickup locations
-      print('🔍 === ENHANCED PICKUP DEBUG ===');
-      
-      // Check for pickupPlaceId and pickupDescription in fields
-      print('🔍 Checking pickupPlaceId: ${fields['pickupPlaceId']}');
-      print('🔍 Checking pickupDescription: ${fields['pickupDescription']}');
-      
-      // Check for pickup info in priceCategoryBookings answers
-      if (fields['priceCategoryBookings'] != null && fields['priceCategoryBookings'] is List) {
-        print('🔍 Checking priceCategoryBookings for pickup answers:');
-        final priceCategoryBookings = fields['priceCategoryBookings'] as List;
-        for (int i = 0; i < priceCategoryBookings.length; i++) {
-          final priceBooking = priceCategoryBookings[i];
-          print('  PriceCategoryBooking $i answers: ${priceBooking['answers']}');
-          print('  PriceCategoryBooking $i bookingAnswers: ${priceBooking['bookingAnswers']}');
-          
-          // Check for pickup-related questions in answers
-          if (priceBooking['answers'] != null && priceBooking['answers'] is List) {
-            final answers = priceBooking['answers'] as List;
-            for (final answer in answers) {
-              if (answer is Map) {
-                final question = answer['question'] ?? '';
-                final answerText = answer['answer'] ?? '';
-                if (question.toString().toLowerCase().contains('pickup') || 
-                    answerText.toString().toLowerCase().contains('pickup')) {
-                  print('    🔍 PICKUP ANSWER FOUND: Question: $question, Answer: $answerText');
-                }
-              }
-            }
-          }
-        }
-      }
-      
-      // Check for pickupAnswers in the main booking object
-      print('🔍 Checking main booking pickupAnswers: ${booking['pickupAnswers']}');
-      
-      // Check for pickup info in booking answers
-      if (booking['answers'] != null && booking['answers'] is List) {
-        print('🔍 Checking main booking answers for pickup info:');
-        final answers = booking['answers'] as List;
-        for (final answer in answers) {
-          if (answer is Map) {
-            final question = answer['question'] ?? '';
-            final answerText = answer['answer'] ?? '';
-            if (question.toString().toLowerCase().contains('pickup') || 
-                answerText.toString().toLowerCase().contains('pickup')) {
-              print('    🔍 PICKUP ANSWER FOUND: Question: $question, Answer: $answerText');
-            }
-          }
-        }
-      }
-      
-      // Check for pickup info in productBooking answers
-      if (productBooking['answers'] != null && productBooking['answers'] is List) {
-        print('🔍 Checking productBooking answers for pickup info:');
-        final answers = productBooking['answers'] as List;
-        for (final answer in answers) {
-          if (answer is Map) {
-            final question = answer['question'] ?? '';
-            final answerText = answer['answer'] ?? '';
-            if (question.toString().toLowerCase().contains('pickup') || 
-                answerText.toString().toLowerCase().contains('pickup')) {
-              print('    🔍 PICKUP ANSWER FOUND: Question: $question, Answer: $answerText');
-            }
-          }
-        }
-      }
-      
-      // Check for pickup info in specialRequests
-      if (productBooking['specialRequests'] != null) {
-        print('🔍 Checking specialRequests for pickup info: ${productBooking['specialRequests']}');
-      }
-      
-      // Check for pickup info in notes
-      if (productBooking['notes'] != null) {
-        print('🔍 Checking productBooking notes for pickup info: ${productBooking['notes']}');
-      }
-      
-      // Check for pickup info in labels
-      if (productBooking['labels'] != null) {
-        print('🔍 Checking productBooking labels for pickup info: ${productBooking['labels']}');
-      }
-      
-      // Check for pickup location in priceCategoryBookings
-      if (fields['priceCategoryBookings'] != null && fields['priceCategoryBookings'] is List) {
-        print('🔍 Checking priceCategoryBookings for pickup info:');
-        final priceCategoryBookings = fields['priceCategoryBookings'] as List;
-        for (int i = 0; i < priceCategoryBookings.length; i++) {
-          final priceBooking = priceCategoryBookings[i];
-          print('  PriceCategoryBooking $i: $priceBooking');
-          if (priceBooking['answers'] != null && priceBooking['answers'] is List) {
-            final answers = priceBooking['answers'] as List;
-            for (final answer in answers) {
-              print('    Answer: $answer');
-            }
-          }
-        }
-      }
-      
-      // Check for pickup location in bookedExtras
-      if (fields['bookedExtras'] != null && fields['bookedExtras'] is List) {
-        print('🔍 Checking bookedExtras for pickup info:');
-        final bookedExtras = fields['bookedExtras'] as List;
-        for (final extra in bookedExtras) {
-          print('  BookedExtra: $extra');
-        }
-      }
-      
-      // Check for pickup location in partnerBookings
-      if (fields['partnerBookings'] != null && fields['partnerBookings'] is List) {
-        print('🔍 Checking partnerBookings for pickup info:');
-        final partnerBookings = fields['partnerBookings'] as List;
-        for (final partnerBooking in partnerBookings) {
-          print('  PartnerBooking: $partnerBooking');
-        }
-      }
-      print('🔍 ProductBooking pickup fields:');
-      if (productBooking['pickup'] != null) {
-        print('  Pickup: ${productBooking['pickup']}');
-      }
-      if (productBooking['pickupPlace'] != null) {
-        print('  PickupPlace: ${productBooking['pickupPlace']}');
-      }
-      if (productBooking['pickupPlaceDescription'] != null) {
-        print('  PickupPlaceDescription: ${productBooking['pickupPlaceDescription']}');
-      }
-      if (productBooking['pickupAddress'] != null) {
-        print('  PickupAddress: ${productBooking['pickupAddress']}');
-      }
-      if (productBooking['pickupLocation'] != null) {
-        print('  PickupLocation: ${productBooking['pickupLocation']}');
-      }
-      if (productBooking['activityPickup'] != null) {
-        print('  ActivityPickup: ${productBooking['activityPickup']}');
-      }
-      if (productBooking['specialRequests'] != null) {
-        print('  SpecialRequests: ${productBooking['specialRequests']}');
-      }
-      if (productBooking['notes'] != null) {
-        print('  Notes: ${productBooking['notes']}');
-      }
-      
-      // Check product object if it exists
-      if (productBooking['product'] != null) {
-        print('🔍 Product object pickup fields:');
-        final product = productBooking['product'];
-        if (product['pickup'] != null) {
-          print('  Product.pickup: ${product['pickup']}');
-        }
-        if (product['pickupPlace'] != null) {
-          print('  Product.pickupPlace: ${product['pickupPlace']}');
-        }
-        if (product['pickupPlaceDescription'] != null) {
-          print('  Product.pickupPlaceDescription: ${product['pickupPlaceDescription']}');
-        }
-      }
-      
-      // Check main booking object
-      print('🔍 Main booking pickup fields:');
-      if (booking['pickup'] != null) {
-        print('  Main pickup: ${booking['pickup']}');
-      }
-      if (booking['pickupPlace'] != null) {
-        print('  Main pickupPlace: ${booking['pickupPlace']}');
-      }
-      if (booking['pickupPlaceDescription'] != null) {
-        print('  Main pickupPlaceDescription: ${booking['pickupPlaceDescription']}');
-      }
-      if (booking['pickupLocation'] != null) {
-        print('  Main pickupLocation: ${booking['pickupLocation']}');
-      }
-      if (booking['pickupAddress'] != null) {
-        print('  Main pickupAddress: ${booking['pickupAddress']}');
-      }
-      if (booking['notes'] != null) {
-        print('  Main notes: ${booking['notes']}');
-      }
-      if (booking['labels'] != null) {
-        print('  Main labels: ${booking['labels']}');
-      }
-      
-      print('🔍 Final pickup place name: $pickupPlaceName');
-      print('🔍 === END PICKUP DEBUG ===');
+      print('🔍 === FINAL PICKUP RESULT ===');
+      print('🔍 Customer: $customerFullName');
+      print('🔍 Pickup Location: $pickupPlaceName');
+      print('🔍 ===========================');
 
       // Extract booking ID for questions API calls
       final bookingId = productBooking['parentBookingId']?.toString() ?? 
@@ -1390,4 +862,4 @@ class PickupService {
 
   // Get maximum passengers per bus
   int get maxPassengersPerBus => _maxPassengersPerBus;
-} 
+}
