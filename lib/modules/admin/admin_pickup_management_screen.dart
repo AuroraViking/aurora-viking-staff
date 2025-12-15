@@ -24,7 +24,6 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
   
   // State to track reordered booking lists for each guide
   Map<String, List<PickupBooking>> _reorderedBookings = {};
-  int _lastBookingCount = 0; // To track if booking count has changed significantly
 
   @override
   void initState() {
@@ -489,21 +488,81 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
     final reorderedList = _reorderedBookings[guideList.guideId]!;
     print('📋 Using reordered list for guide ${guideList.guideName}: ${reorderedList.map((b) => b.customerFullName).toList()}');
     
+    // Calculate picked up passengers count
+    final pickedUpPassengers = guideList.bookings
+        .where((booking) => booking.isArrived)
+        .fold<int>(0, (sum, booking) => sum + booking.numberOfGuests);
+    
+    // Check if all pickups are complete (all bookings have isArrived = true)
+    final allPickupsComplete = guideList.bookings.isNotEmpty && 
+                                guideList.bookings.every((booking) => booking.isArrived);
+    
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
       color: const Color(0xFF1A1A2E), // Dark background for better contrast
       child: ExpansionTile(
         title: Row(
           children: [
+            // Completion status icon
+            Container(
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: allPickupsComplete 
+                    ? AppColors.success.withOpacity(0.2)
+                    : AppColors.warning.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(
+                allPickupsComplete 
+                    ? Icons.check_circle
+                    : Icons.pending_actions,
+                color: allPickupsComplete 
+                    ? AppColors.success
+                    : AppColors.warning,
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 8),
             Expanded(
               child: Text(
                 guideList.guideName,
-                style: const TextStyle(
+                style: TextStyle(
                   fontWeight: FontWeight.bold,
-                  color: Colors.white,
+                  color: allPickupsComplete 
+                      ? AppColors.success
+                      : Colors.white,
                 ),
               ),
             ),
+            // Picked up count
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: pickedUpPassengers > 0 ? AppColors.primary : Colors.grey.withOpacity(0.3),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.check_circle,
+                    size: 14,
+                    color: Colors.white,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    '$pickedUpPassengers',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            // Total passengers count
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
@@ -664,13 +723,33 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
             ),
           ),
           const SizedBox(height: 4),
-          Text(
-            booking.customerFullName,
-            style: TextStyle(
-              fontSize: 14,
-              decoration: booking.isNoShow ? TextDecoration.lineThrough : null,
-              color: booking.isNoShow ? AppColors.error : Colors.white,
-            ),
+          Row(
+            children: [
+              Checkbox(
+                value: booking.isArrived,
+                onChanged: (value) {
+                  controller.markBookingAsArrived(booking.id, value ?? false);
+                },
+                activeColor: AppColors.primary,
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                visualDensity: VisualDensity.compact,
+              ),
+              Expanded(
+                child: Text(
+                  booking.customerFullName,
+                  style: TextStyle(
+                    fontSize: 14,
+                    decoration: booking.isNoShow ? TextDecoration.lineThrough : null,
+                    color: booking.isNoShow 
+                        ? AppColors.error 
+                        : booking.isArrived 
+                            ? Colors.green 
+                            : Colors.white,
+                    fontWeight: booking.isArrived ? FontWeight.w600 : FontWeight.normal,
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),
