@@ -11,7 +11,7 @@ class AppConstants {
   static const String appVersion = '1.0.0';
   
   // Admin Configuration
-  static const String adminPassword = 'aurora2024'; // TODO: Move to secure storage
+  static const String adminPassword = 'a'; // TODO: Move to secure storage
   
   // Default Values
   static const int defaultPageSize = 20;

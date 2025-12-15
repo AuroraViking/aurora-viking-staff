@@ -13,6 +13,8 @@ import '../../core/auth/auth_controller.dart';
 import '../shifts/shifts_service.dart';
 import '../../core/services/bus_management_service.dart';
 import '../../theme/colors.dart';
+import '../pickup/pickup_service.dart';
+import 'dart:math' as math;
 
 class AdminShiftManagementScreen extends StatefulWidget {
   const AdminShiftManagementScreen({super.key});
@@ -24,6 +26,7 @@ class AdminShiftManagementScreen extends StatefulWidget {
 class _AdminShiftManagementScreenState extends State<AdminShiftManagementScreen> {
   final ShiftsService _shiftsService = ShiftsService();
   final BusManagementService _busService = BusManagementService();
+  final PickupService _pickupService = PickupService();
   List<Shift> _allShifts = [];
   List<Map<String, dynamic>> _availableBuses = [];
   bool _isLoading = false;
@@ -35,6 +38,10 @@ class _AdminShiftManagementScreenState extends State<AdminShiftManagementScreen>
   late CalendarFormat _calendarFormat;
   Map<DateTime, List<Shift>> _shiftsByDate = {};
   Timer? _autoCompleteTimer;
+  
+  // Booking data by date (from Bokun API)
+  Map<DateTime, BookingData> _bookingsByDate = {};
+  bool _isLoadingBookings = false;
 
   @override
   void initState() {
@@ -50,6 +57,7 @@ class _AdminShiftManagementScreenState extends State<AdminShiftManagementScreen>
       _loadShifts();
       _loadStatistics();
       _loadAvailableBuses();
+      _loadBookingsForMonth(_focusedDay);
       
       // Set up periodic auto-completion check (every hour)
       _autoCompleteTimer = Timer.periodic(const Duration(hours: 1), (timer) {
@@ -115,6 +123,68 @@ class _AdminShiftManagementScreenState extends State<AdminShiftManagementScreen>
         });
       }
     });
+  }
+
+  // Load bookings for a specific month from Bokun API
+  Future<void> _loadBookingsForMonth(DateTime month) async {
+    if (_isLoadingBookings) return;
+    
+    setState(() {
+      _isLoadingBookings = true;
+    });
+
+    try {
+      final endOfMonth = DateTime(month.year, month.month + 1, 0);
+      
+      // Fetch bookings for each day in the month
+      final bookingsMap = <DateTime, BookingData>{};
+      
+      for (int day = 1; day <= endOfMonth.day; day++) {
+        final date = DateTime(month.year, month.month, day);
+        try {
+          final bookings = await _pickupService.fetchBookingsForDate(date);
+          
+          if (bookings.isNotEmpty) {
+            final totalPassengers = bookings.fold<int>(
+              0, 
+              (sum, booking) => sum + booking.numberOfGuests
+            );
+            final guidesNeeded = math.max(
+              1, 
+              (totalPassengers / _pickupService.maxPassengersPerBus).ceil()
+            );
+            
+            bookingsMap[date] = BookingData(
+              totalBookings: bookings.length,
+              totalPassengers: totalPassengers,
+              guidesNeeded: guidesNeeded,
+            );
+          }
+        } catch (e) {
+          print('Error loading bookings for ${date.toString()}: $e');
+        }
+      }
+      
+      if (mounted) {
+        setState(() {
+          _bookingsByDate = bookingsMap;
+          _isLoadingBookings = false;
+        });
+      }
+    } catch (e) {
+      print('Error loading bookings for month: $e');
+      if (mounted) {
+        setState(() {
+          _isLoadingBookings = false;
+        });
+      }
+    }
+  }
+
+  // Get booking data for a specific date
+  BookingData? _getBookingDataForDate(DateTime date) {
+    final dateKey = DateTime(date.year, date.month, date.day);
+    return _bookingsByDate[dateKey];
   }
 
 
@@ -192,7 +262,10 @@ class _AdminShiftManagementScreenState extends State<AdminShiftManagementScreen>
           });
         },
         onPageChanged: (focusedDay) {
-          _focusedDay = focusedDay;
+          setState(() {
+            _focusedDay = focusedDay;
+          });
+          _loadBookingsForMonth(focusedDay);
         },
         calendarStyle: const CalendarStyle(
           outsideDaysVisible: false,
@@ -230,24 +303,86 @@ class _AdminShiftManagementScreenState extends State<AdminShiftManagementScreen>
           rightChevronIcon: Icon(Icons.chevron_right, color: AVColors.textHigh),
         ),
         calendarBuilders: CalendarBuilders(
-          markerBuilder: (context, date, events) {
-            if (events.isNotEmpty) {
-              final shifts = events as List<Shift>;
-              final color = _getMarkerColor(shifts);
-              if (color != Colors.transparent) {
-                return Positioned(
-                  bottom: 1,
-                  child: Container(
-                    width: 8,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      color: color,
-                      shape: BoxShape.circle,
+          defaultBuilder: (context, date, focusedDay) {
+            final bookingData = _getBookingDataForDate(date);
+            final shifts = _getShiftsForDay(date);
+            final hasShifts = shifts.isNotEmpty;
+            final hasBookings = bookingData != null;
+            final isSelected = isSameDay(_selectedDay, date);
+            final isToday = isSameDay(date, DateTime.now());
+            
+            return Container(
+              margin: const EdgeInsets.all(0.5),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  // Day number
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(
+                      '${date.day}',
+                      style: TextStyle(
+                        color: isSelected
+                            ? Colors.white
+                            : isToday
+                                ? AVColors.primaryTeal
+                                : AVColors.textHigh,
+                        fontWeight: isToday || isSelected
+                            ? FontWeight.bold
+                            : FontWeight.normal,
+                        fontSize: 15,
+                      ),
                     ),
                   ),
-                );
-              }
-            }
+                  // Booking info - only show if exists
+                  if (hasBookings) ...[
+                    const SizedBox(height: 1),
+                    Container(
+                      width: double.infinity,
+                      margin: const EdgeInsets.symmetric(horizontal: 1),
+                      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? Colors.white.withOpacity(0.3)
+                            : AVColors.primaryTeal.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(3),
+                      ),
+                      child: Text(
+                        '${bookingData.totalPassengers}p • ${bookingData.guidesNeeded}g',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: isSelected ? Colors.white : AVColors.primaryTeal,
+                          fontWeight: FontWeight.bold,
+                          height: 1.0,
+                        ),
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                  // Shift marker
+                  if (hasShifts)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 1),
+                      child: Container(
+                        width: 5,
+                        height: 5,
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? Colors.white
+                              : _getMarkerColor(shifts),
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            );
+          },
+          markerBuilder: (context, date, events) {
+            // Markers are now handled in defaultBuilder
             return null;
           },
         ),
@@ -880,7 +1015,6 @@ class _AdminShiftManagementScreenState extends State<AdminShiftManagementScreen>
 
   Future<DateTime?> _showMonthSelectionDialog() async {
     final now = DateTime.now();
-    final currentMonth = DateTime(now.year, now.month, 1);
     
     return showDialog<DateTime>(
       context: context,
@@ -1248,4 +1382,17 @@ class _AdminShiftManagementScreenState extends State<AdminShiftManagementScreen>
         return 'Available';
     }
   }
+}
+
+// Data class to store booking information for a date
+class BookingData {
+  final int totalBookings;
+  final int totalPassengers;
+  final int guidesNeeded;
+
+  BookingData({
+    required this.totalBookings,
+    required this.totalPassengers,
+    required this.guidesNeeded,
+  });
 } 
