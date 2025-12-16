@@ -1,9 +1,9 @@
 // Tracking screen for guide-side location sending and admin-side map view 
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:intl/intl.dart';
 import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'location_service.dart';
 import '../../core/services/bus_management_service.dart';
@@ -16,7 +16,9 @@ class TrackingScreen extends StatefulWidget {
   State<TrackingScreen> createState() => _TrackingScreenState();
 }
 
-class _TrackingScreenState extends State<TrackingScreen> {
+class _TrackingScreenState extends State<TrackingScreen> with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true; // Keep widget alive when navigating away
   String? _selectedBus;
   bool _isTracking = false;
   Position? _currentPosition;
@@ -36,19 +38,67 @@ class _TrackingScreenState extends State<TrackingScreen> {
   List<Map<String, dynamic>> _buses = [];
   bool _isLoadingBuses = true;
 
+  bool _hasInitialized = false;
+
   @override
   void initState() {
     super.initState();
-    _checkAllPermissions();
-    _loadBuses();
+    // Only initialize once - don't reinitialize if widget is recreated
+    if (!_hasInitialized) {
+      _hasInitialized = true;
+      _checkAllPermissions();
+      _loadBuses();
+    }
+    // Always check tracking status when widget becomes visible
     _checkTrackingStatus();
+    // Check service status periodically to sync UI with native service
+    _startServiceStatusChecker();
   }
 
   @override
   void dispose() {
     _positionUpdateTimer?.cancel();
-    _locationService.dispose();
+    _serviceStatusTimer?.cancel();
+    // Don't call _locationService.dispose() here - it would stop tracking
+    // The service should continue running even when navigating away
+    // Only stop tracking when explicitly requested via _stopTracking()
     super.dispose();
+  }
+
+  Timer? _serviceStatusTimer;
+
+  void _startServiceStatusChecker() {
+    _serviceStatusTimer?.cancel();
+    _serviceStatusTimer = Timer.periodic(const Duration(seconds: 3), (timer) async {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      await _syncServiceStatus();
+    });
+  }
+
+  Future<void> _syncServiceStatus() async {
+    try {
+      // Check if native service is running
+      final isNativeServiceRunning = await PlatformService.isLocationServiceRunning();
+      
+      // If native service is running but UI thinks it's not, sync the UI
+      if (isNativeServiceRunning && !_isTracking) {
+        print('🔄 Native service is running but UI is not synced, updating UI...');
+        await _checkTrackingStatus();
+      }
+      // If native service is not running but UI thinks it is, sync the UI
+      else if (!isNativeServiceRunning && _isTracking) {
+        print('⚠️ Native service stopped but UI thinks it\'s running, updating UI...');
+        setState(() {
+          _isTracking = false;
+          _status = 'Tracking stopped (service not running).';
+        });
+      }
+    } catch (e) {
+      print('⚠️ Error checking service status: $e');
+    }
   }
 
   Future<void> _checkAllPermissions() async {
@@ -206,13 +256,75 @@ class _TrackingScreenState extends State<TrackingScreen> {
   }
 
   Future<void> _checkTrackingStatus() async {
-    if (_locationService.isTracking) {
-      setState(() {
-        _isTracking = true;
-        _selectedBus = _locationService.currentBusId;
-        _status = 'Resuming tracking: ${_getBusNameById(_locationService.currentBusId)}';
-      });
-      _startPositionUpdates();
+    try {
+      // Check both Flutter service state and native service state
+      final isFlutterTracking = _locationService.isTracking;
+      final isNativeServiceRunning = await PlatformService.isLocationServiceRunning();
+      
+      print('🔍 Checking tracking status: Flutter=$isFlutterTracking, Native=$isNativeServiceRunning');
+      
+      // If native service is running, we should show tracking as active
+      if (isNativeServiceRunning) {
+        print('✅ Native service is running');
+        
+        // Get bus ID from Firebase or LocationService
+        String? busId = _locationService.currentBusId;
+        
+        // If we don't have busId from LocationService, try to get it from Firebase
+        if (busId == null) {
+          // Try to get the active tracking bus from Firebase
+          try {
+            final firestore = FirebaseFirestore.instance;
+            final snapshot = await firestore
+                .collection('bus_locations')
+                .where('isTracking', isEqualTo: true)
+                .limit(1)
+                .get();
+            
+            if (snapshot.docs.isNotEmpty) {
+              busId = snapshot.docs.first.id;
+              print('📋 Found active tracking bus from Firebase: $busId');
+            }
+          } catch (e) {
+            print('⚠️ Could not get bus ID from Firebase: $e');
+          }
+        }
+        
+        if (busId != null) {
+          if (mounted) {
+            setState(() {
+              _isTracking = true;
+              _selectedBus = busId;
+              _status = 'Tracking: ${_getBusNameById(busId)}';
+            });
+            _startPositionUpdates();
+          }
+        } else {
+          print('⚠️ Native service running but no bus ID found');
+          if (mounted) {
+            setState(() {
+              _isTracking = true;
+              _status = 'Tracking active (bus ID unknown)';
+            });
+            _startPositionUpdates();
+          }
+        }
+      } else if (isFlutterTracking) {
+        // Flutter side thinks it's tracking but native service is not running
+        print('⚠️ Flutter thinks tracking but native service not running');
+        // Don't change UI state - let the periodic checker handle it
+      } else {
+        // Neither is tracking
+        print('ℹ️ Not tracking');
+        if (mounted && _isTracking) {
+          setState(() {
+            _isTracking = false;
+            _status = 'Not tracking.';
+          });
+        }
+      }
+    } catch (e) {
+      print('❌ Error checking tracking status: $e');
     }
   }
 
@@ -346,6 +458,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context); // Required for AutomaticKeepAliveClientMixin
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(

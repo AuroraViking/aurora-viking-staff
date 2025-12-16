@@ -176,7 +176,10 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      body: _screens[_selectedIndex],
+      body: IndexedStack(
+        index: _selectedIndex,
+        children: _screens,
+      ),
       bottomNavigationBar: BottomNavigationBar(
         type: BottomNavigationBarType.fixed,
         currentIndex: _selectedIndex,
