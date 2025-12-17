@@ -485,25 +485,54 @@ class _PickupScreenState extends State<PickupScreen> {
   }
 
   void _makePhoneCall(String phoneNumber) async {
-    final Uri phoneUri = Uri(scheme: 'tel', path: phoneNumber);
     try {
-      if (await canLaunchUrl(phoneUri)) {
-        await launchUrl(phoneUri);
-      } else {
+      print('📞 Attempting to call: $phoneNumber');
+      
+      // Clean the phone number - remove spaces, dashes, parentheses, and other non-digit characters
+      // Keep + sign if present (for international numbers)
+      String cleanedNumber = phoneNumber.trim().replaceAll(RegExp(r'[^\d+]'), '');
+      
+      print('📞 Cleaned phone number: $cleanedNumber');
+      
+      if (cleanedNumber.isEmpty) {
+        print('❌ Phone number is empty after cleaning');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Could not launch phone app'),
+              content: Text('Invalid phone number format'),
               backgroundColor: Colors.red,
             ),
           );
         }
+        return;
+      }
+      
+      final Uri phoneUri = Uri(scheme: 'tel', path: cleanedNumber);
+      print('📞 Phone URI: $phoneUri');
+      
+      // Try to launch the phone app directly
+      // Use externalApplication mode to ensure it opens the phone dialer
+      final launched = await launchUrl(
+        phoneUri,
+        mode: LaunchMode.externalApplication,
+      );
+      
+      print('📞 Launch result: $launched');
+      
+      if (!launched && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not launch phone app. Please check if a phone app is installed.'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     } catch (e) {
+      print('❌ Error making phone call: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error making call: $e'),
+            content: Text('Error making call: ${e.toString()}'),
             backgroundColor: Colors.red,
           ),
         );
