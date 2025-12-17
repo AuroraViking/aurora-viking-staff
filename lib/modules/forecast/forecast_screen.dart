@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import 'dart:async';
 import 'services/substorm_alert_service.dart';
 import 'services/solar_wind_service.dart';
 import 'services/kp_service.dart';
@@ -39,11 +40,40 @@ class _ForecastScreenState extends State<ForecastScreen> {
   double _density = 0.0;
   double _bt = 0.0;
 
+  // Timer for auto-refreshing Bz data every minute
+  Timer? _bzRefreshTimer;
+
   @override
   void initState() {
     super.initState();
     _requestLocationPermission();
     _loadAllData();
+    
+    // Start timer to refresh Bz data every minute
+    _startBzRefreshTimer();
+  }
+
+  @override
+  void dispose() {
+    _bzRefreshTimer?.cancel();
+    super.dispose();
+  }
+
+  void _startBzRefreshTimer() {
+    // Cancel existing timer if any
+    _bzRefreshTimer?.cancel();
+    
+    // Refresh Bz data every minute
+    _bzRefreshTimer = Timer.periodic(const Duration(minutes: 1), (timer) {
+      if (mounted) {
+        print('🔄 Auto-refreshing Bz data...');
+        _loadSolarWindData();
+      } else {
+        timer.cancel();
+      }
+    });
+    
+    print('⏱️ Started Bz auto-refresh timer (every 1 minute)');
   }
 
   Future<void> _requestLocationPermission() async {
