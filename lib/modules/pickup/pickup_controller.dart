@@ -49,6 +49,13 @@ class PickupController extends ChangeNotifier {
     try {
       final bookings = await _pickupService.fetchBookingsForDate(date);
       
+      // Don't clear existing bookings if API returns empty - might be a temporary issue
+      if (bookings.isEmpty && _bookings.isNotEmpty) {
+        print('⚠️ API returned empty bookings but we have existing bookings. Keeping existing data.');
+        _setLoading(false);
+        return;
+      }
+      
       // Load statuses from Firebase
       final dateStr = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
       final statuses = await FirebaseService.getBookingStatuses(dateStr);
@@ -143,7 +150,6 @@ class PickupController extends ChangeNotifier {
         return;
       }
       
-      final startDate = DateTime(month.year, month.month, 1);
       final endDate = DateTime(month.year, month.month + 1, 0);
       
       _monthData.clear();

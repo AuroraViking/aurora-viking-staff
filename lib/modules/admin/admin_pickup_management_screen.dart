@@ -29,10 +29,13 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       final controller = context.read<PickupController>();
-      controller.loadBookingsForDate(controller.selectedDate);
-      _loadGuides();
+      await controller.loadBookingsForDate(controller.selectedDate);
+      await _loadGuides();
+      
+      // Load reordered bookings from Firebase after data is loaded
+      await _updateReorderedBookings(controller);
       
       // Add listener to reset reordered bookings when data changes
       controller.addListener(_onControllerDataChanged);
@@ -52,13 +55,22 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
     if (mounted) {
       final controller = context.read<PickupController>();
       
-      // Update existing reordered lists with new assignment data
-      _updateReorderedBookings(controller);
+      // Only update if we have bookings - don't clear on empty data
+      if (controller.bookings.isNotEmpty || _reorderedBookings.isNotEmpty) {
+        // Update existing reordered lists with new assignment data
+        _updateReorderedBookings(controller); // Now async, but we don't await it
+      }
     }
   }
 
   // Update reordered bookings with new assignment data while preserving custom order
-  void _updateReorderedBookings(PickupController controller) {
+  Future<void> _updateReorderedBookings(PickupController controller) async {
+    // Don't update if we have no bookings - might be a temporary API issue
+    if (controller.bookings.isEmpty && _reorderedBookings.isNotEmpty) {
+      print('⚠️ Controller has no bookings but we have reordered lists. Preserving existing order.');
+      return;
+    }
+    
     final updatedReorderedBookings = <String, List<PickupBooking>>{};
     
     for (final guideList in controller.guideLists) {
@@ -66,36 +78,89 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
       
       if (existingReorderedList != null && guideList.bookings.isNotEmpty) {
         // Preserve custom order but update booking data
-        final updatedList = existingReorderedList.map((reorderedBooking) {
-          // Find the updated booking data
+        final updatedList = <PickupBooking>[];
+        final processedIds = <String>{};
+        
+        // First, update existing bookings in their current order
+        for (final reorderedBooking in existingReorderedList) {
           final updatedBooking = guideList.bookings.firstWhere(
             (booking) => booking.id == reorderedBooking.id,
             orElse: () => reorderedBooking,
           );
-          return updatedBooking;
-        }).toList();
+          // Only add if it still exists in the guide list
+          if (guideList.bookings.any((b) => b.id == updatedBooking.id)) {
+            updatedList.add(updatedBooking);
+            processedIds.add(updatedBooking.id);
+          }
+        }
         
-        // Only keep bookings that still exist in the guide list
-        final validBookings = updatedList.where((booking) => 
-          guideList.bookings.any((b) => b.id == booking.id)
-        ).toList();
+        // Then, add any new bookings that weren't in the reordered list (at the end)
+        for (final booking in guideList.bookings) {
+          if (!processedIds.contains(booking.id)) {
+            updatedList.add(booking);
+          }
+        }
         
-        if (validBookings.isNotEmpty) {
-          updatedReorderedBookings[guideList.guideId] = validBookings;
+        if (updatedList.isNotEmpty) {
+          updatedReorderedBookings[guideList.guideId] = updatedList;
         }
       } else if (guideList.bookings.isNotEmpty) {
-        // Initialize new reordered list for this guide
-        final sortedList = List<PickupBooking>.from(guideList.bookings)
-          ..sort((a, b) => a.pickupPlaceName.compareTo(b.pickupPlaceName));
-        updatedReorderedBookings[guideList.guideId] = sortedList;
+        // Only initialize if we don't have an existing list - load from Firebase first
+        if (!_reorderedBookings.containsKey(guideList.guideId)) {
+          // Try to load from Firebase first
+          final dateStr = '${controller.selectedDate.year}-${controller.selectedDate.month.toString().padLeft(2, '0')}-${controller.selectedDate.day.toString().padLeft(2, '0')}';
+          final savedBookingIds = await FirebaseService.getReorderedBookings(
+            guideId: guideList.guideId,
+            date: dateStr,
+          );
+          
+          if (savedBookingIds.isNotEmpty) {
+            // Reconstruct list from saved order
+            final reorderedList = <PickupBooking>[];
+            for (final bookingId in savedBookingIds) {
+              try {
+                final booking = guideList.bookings.firstWhere(
+                  (b) => b.id == bookingId,
+                );
+                reorderedList.add(booking);
+              } catch (e) {
+                // Booking not found, skip it
+                print('⚠️ Booking $bookingId not found in guide list, skipping');
+              }
+            }
+            
+            // Add any new bookings that weren't in the saved order
+            for (final booking in guideList.bookings) {
+              if (!savedBookingIds.contains(booking.id)) {
+                reorderedList.add(booking);
+              }
+            }
+            
+            print('🔄 Loaded saved reordered list from Firebase for guide ${guideList.guideName}: ${reorderedList.length} bookings');
+            updatedReorderedBookings[guideList.guideId] = reorderedList;
+          } else {
+            // No saved order, create new sorted list
+            final sortedList = List<PickupBooking>.from(guideList.bookings)
+              ..sort((a, b) => a.pickupPlaceName.compareTo(b.pickupPlaceName));
+            updatedReorderedBookings[guideList.guideId] = sortedList;
+            print('🔄 Created new sorted list for guide ${guideList.guideName}: ${sortedList.length} bookings');
+          }
+        } else {
+          // Keep existing list
+          updatedReorderedBookings[guideList.guideId] = _reorderedBookings[guideList.guideId]!;
+        }
       }
     }
     
-    setState(() {
-      _reorderedBookings = updatedReorderedBookings;
-    });
-    
-    print('🔄 Updated reordered bookings for ${updatedReorderedBookings.length} guides');
+    // Only update if we have changes
+    if (updatedReorderedBookings.isNotEmpty) {
+      setState(() {
+        // Merge with existing to preserve lists that weren't updated
+        _reorderedBookings.addAll(updatedReorderedBookings);
+      });
+      
+      print('🔄 Updated reordered bookings for ${updatedReorderedBookings.length} guides');
+    }
   }
 
   Future<void> _loadGuides() async {
@@ -127,10 +192,12 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
     }
   }
 
-  // Reset reordered bookings when data changes
+  // Reset reordered bookings when data changes - but only if really necessary
   void _resetReorderedBookings() {
-    _reorderedBookings.clear();
-    print('🔄 Reset reordered bookings');
+    // Don't clear if we have existing reordered lists - preserve user's custom order
+    // Only clear if we're actually reloading guides (which shouldn't happen often)
+    print('🔄 Guides reloaded, but preserving existing reordered bookings');
+    // Don't clear - let _updateReorderedBookings handle it
   }
 
   @override
@@ -466,6 +533,8 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
     return RefreshIndicator(
       onRefresh: () async {
         await _refreshData(controller);
+        // Reload reordered bookings from Firebase after refresh
+        await _updateReorderedBookings(controller);
       },
       child: ListView.builder(
         padding: const EdgeInsets.all(16),
