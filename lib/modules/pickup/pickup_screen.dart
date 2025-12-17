@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'dart:async';
 import '../../core/theme/colors.dart';
 import '../../core/auth/auth_controller.dart';
+import '../../core/models/pickup_models.dart';
 import '../../widgets/common/loading_widget.dart';
 import '../../widgets/common/error_widget.dart';
 import 'pickup_controller.dart';
@@ -15,10 +17,25 @@ class PickupScreen extends StatefulWidget {
 }
 
 class _PickupScreenState extends State<PickupScreen> {
+  // Timer state for no-show countdowns (bookingId -> Timer)
+  final Map<String, Timer> _noShowTimers = {};
+  final Map<String, int> _noShowTimeRemaining = {}; // bookingId -> seconds remaining
+  
   @override
   void initState() {
     super.initState();
     _loadTodayBookings();
+  }
+  
+  @override
+  void dispose() {
+    // Cancel all timers
+    for (final timer in _noShowTimers.values) {
+      timer.cancel();
+    }
+    _noShowTimers.clear();
+    _noShowTimeRemaining.clear();
+    super.dispose();
   }
 
   void _loadTodayBookings() {
@@ -70,6 +87,13 @@ class _PickupScreenState extends State<PickupScreen> {
           final bookings = controller.currentUserBookings;
           final totalGuests = bookings.fold<int>(0, (sum, booking) => sum + booking.numberOfGuests);
           final pickedUpGuests = bookings.where((booking) => booking.isArrived).fold<int>(0, (sum, booking) => sum + booking.numberOfGuests);
+          
+          // Stop timers for bookings that are no longer marked as no-show
+          final noShowBookingIds = bookings.where((b) => b.isNoShow).map((b) => b.id).toSet();
+          final timerIdsToRemove = _noShowTimers.keys.where((id) => !noShowBookingIds.contains(id)).toList();
+          for (final id in timerIdsToRemove) {
+            _stopNoShowTimer(id);
+          }
 
           return Column(
             children: [
@@ -283,15 +307,18 @@ class _PickupScreenState extends State<PickupScreen> {
                                         constraints: const BoxConstraints(),
                                       ),
                                     
-                                    // No show button (only if not arrived)
-                                    if (!booking.isArrived)
-                                      IconButton(
-                                        icon: const Icon(Icons.no_transfer, color: Colors.red, size: 18),
-                                        onPressed: () => _markAsNoShow(booking.id),
-                                        tooltip: 'Mark as No Show',
-                                        padding: EdgeInsets.zero,
-                                        constraints: const BoxConstraints(),
+                                    // No show button - toggleable (can mark/unmark)
+                                    IconButton(
+                                      icon: Icon(
+                                        booking.isNoShow ? Icons.undo : Icons.no_transfer,
+                                        color: booking.isNoShow ? Colors.orange : Colors.red,
+                                        size: 18,
                                       ),
+                                      onPressed: () => _toggleNoShow(booking),
+                                      tooltip: booking.isNoShow ? 'Unmark No Show' : 'Mark as No Show',
+                                      padding: EdgeInsets.zero,
+                                      constraints: const BoxConstraints(),
+                                    ),
                                   ],
                                 ),
                                 
@@ -317,6 +344,58 @@ class _PickupScreenState extends State<PickupScreen> {
                                     ),
                                   ),
                                 ],
+                                
+                                // No-show timer countdown (if active)
+                                if (booking.isNoShow && _noShowTimeRemaining.containsKey(booking.id))
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 4),
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: _noShowTimeRemaining[booking.id]! <= 30 
+                                            ? AppColors.error.withOpacity(0.3)
+                                            : Colors.orange.withOpacity(0.3),
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(
+                                          color: _noShowTimeRemaining[booking.id]! <= 30 
+                                              ? AppColors.error
+                                              : Colors.orange,
+                                          width: 1,
+                                        ),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(
+                                            Icons.timer,
+                                            size: 14,
+                                            color: _noShowTimeRemaining[booking.id]! <= 30 
+                                                ? AppColors.error
+                                                : Colors.orange,
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            _formatTimer(_noShowTimeRemaining[booking.id]!),
+                                            style: TextStyle(
+                                              color: _noShowTimeRemaining[booking.id]! <= 30 
+                                                  ? AppColors.error
+                                                  : Colors.orange,
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            'until departure',
+                                            style: TextStyle(
+                                              color: Colors.white70,
+                                              fontSize: 10,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
                                 
                                 // Status indicators
                                 if (booking.isNoShow || booking.isArrived)
@@ -434,6 +513,83 @@ class _PickupScreenState extends State<PickupScreen> {
     return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
   }
 
+  String _formatTimer(int seconds) {
+    final minutes = seconds ~/ 60;
+    final secs = seconds % 60;
+    return '${minutes.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}';
+  }
+
+  void _startNoShowTimer(String bookingId, String customerName, String pickupPlace) {
+    // Cancel existing timer if any
+    _noShowTimers[bookingId]?.cancel();
+    
+    // Set initial time to 3 minutes (180 seconds)
+    _noShowTimeRemaining[bookingId] = 180;
+    
+    // Start countdown timer
+    _noShowTimers[bookingId] = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      
+      setState(() {
+        final remaining = _noShowTimeRemaining[bookingId] ?? 0;
+        if (remaining > 0) {
+          _noShowTimeRemaining[bookingId] = remaining - 1;
+        } else {
+          // Timer reached 0
+          timer.cancel();
+          _noShowTimers.remove(bookingId);
+          _noShowTimeRemaining.remove(bookingId);
+          
+          // Show alert that time is up
+          _showTimerExpiredAlert(customerName, pickupPlace);
+        }
+      });
+    });
+    
+    print('⏱️ Started 3-minute timer for booking $bookingId');
+  }
+
+  void _stopNoShowTimer(String bookingId) {
+    _noShowTimers[bookingId]?.cancel();
+    _noShowTimers.remove(bookingId);
+    _noShowTimeRemaining.remove(bookingId);
+    print('⏱️ Stopped timer for booking $bookingId');
+  }
+
+  void _showTimerExpiredAlert(String customerName, String pickupPlace) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.warning, color: Colors.red, size: 28),
+            SizedBox(width: 8),
+            Text('Time Expired'),
+          ],
+        ),
+        content: Text(
+          'The 3-minute wait time for $customerName at $pickupPlace has expired.\n\n'
+          'You may now leave the pickup location.',
+          style: const TextStyle(fontSize: 16),
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _markAsArrived(String bookingId, bool arrived) {
     final controller = context.read<PickupController>();
     controller.markBookingAsArrived(bookingId, arrived);
@@ -448,12 +604,39 @@ class _PickupScreenState extends State<PickupScreen> {
     }
   }
 
-  void _markAsNoShow(String bookingId) {
+  void _toggleNoShow(PickupBooking booking) {
+    if (booking.isNoShow) {
+      // Unmark no-show
+      _unmarkNoShow(booking.id);
+    } else {
+      // Mark as no-show with confirmation and email
+      _markAsNoShow(booking);
+    }
+  }
+
+  void _markAsNoShow(PickupBooking booking) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Mark as No Show'),
-        content: const Text('Are you sure you want to mark this customer as a no-show?'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Are you sure you want to mark this customer as a no-show?'),
+            const SizedBox(height: 12),
+            if (booking.email.isNotEmpty)
+              const Text(
+                'An email will be sent to the customer informing them that:\n\n• Their phone has been called\n• The driver will wait 3 minutes before leaving',
+                style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic),
+              )
+            else
+              const Text(
+                'Note: No email will be sent (customer email not available)',
+                style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: Colors.orange),
+              ),
+          ],
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
@@ -463,12 +646,26 @@ class _PickupScreenState extends State<PickupScreen> {
             onPressed: () async {
               Navigator.of(context).pop();
               final controller = context.read<PickupController>();
-              final success = await controller.markBookingAsNoShow(bookingId);
+              
+              // Mark as no-show
+              final success = await controller.markBookingAsNoShow(booking.id);
+              
               if (success && mounted) {
+                // Start 3-minute timer
+                _startNoShowTimer(booking.id, booking.customerFullName, booking.pickupPlaceName);
+                
+                // Send email if email is available
+                if (booking.email.isNotEmpty) {
+                  await _sendNoShowEmail(booking.email, booking.customerFullName, booking.pickupPlaceName);
+                }
+                
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Customer marked as no-show'),
+                  SnackBar(
+                    content: Text(booking.email.isNotEmpty 
+                      ? 'Customer marked as no-show. Email sent. 3-minute timer started.'
+                      : 'Customer marked as no-show. 3-minute timer started.'),
                     backgroundColor: Colors.red,
+                    duration: const Duration(seconds: 4),
                   ),
                 );
               }
@@ -482,6 +679,74 @@ class _PickupScreenState extends State<PickupScreen> {
         ],
       ),
     );
+  }
+
+  void _unmarkNoShow(String bookingId) {
+    // Stop the timer if running
+    _stopNoShowTimer(bookingId);
+    
+    final controller = context.read<PickupController>();
+    controller.markBookingAsNoShow(bookingId, isNoShow: false);
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No-show status removed. Timer cancelled.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    }
+  }
+
+  Future<void> _sendNoShowEmail(String email, String customerName, String pickupPlace) async {
+    try {
+      final authController = context.read<AuthController>();
+      final guideName = authController.currentUser?.fullName ?? 'Your Guide';
+      
+      final emailBody = 'Hi $customerName,\n\n'
+          'We have attempted to contact you by phone regarding your pickup at $pickupPlace.\n\n'
+          'Your driver will wait for 3 minutes before leaving. Please make your way to the pickup location as soon as possible.\n\n'
+          'If you have any questions or concerns, please contact us immediately.\n\n'
+          'Best regards,\n'
+          '$guideName\n'
+          'Aurora Viking Staff';
+
+      // Manually construct the query string with proper encoding
+      // Use Uri.encodeComponent to properly encode spaces and special characters
+      final encodedSubject = Uri.encodeComponent('Urgent: Pickup Location - $pickupPlace');
+      final encodedBody = Uri.encodeComponent(emailBody);
+      
+      final emailUri = Uri.parse('mailto:$email?subject=$encodedSubject&body=$encodedBody');
+      
+      print('📧 Sending no-show email to: $email');
+      print('📧 Subject: Urgent: Pickup Location - $pickupPlace');
+      
+      final launched = await launchUrl(
+        emailUri,
+        mode: LaunchMode.externalApplication,
+      );
+      
+      if (!launched && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not launch email app. Please send email manually.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      } else {
+        print('✅ Email app launched successfully');
+      }
+    } catch (e) {
+      print('❌ Error sending no-show email: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error sending email: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   void _makePhoneCall(String phoneNumber) async {

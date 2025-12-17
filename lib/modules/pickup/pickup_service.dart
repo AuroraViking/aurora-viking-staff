@@ -729,15 +729,17 @@ class PickupService {
     }
   }
 
-  // Mark booking as no-show
-  Future<bool> markBookingAsNoShow(String bookingId) async {
+  // Mark or unmark booking as no-show
+  Future<bool> markBookingAsNoShow(String bookingId, {bool isNoShow = true}) async {
     try {
       // In a real implementation, this would update the backend
       // For now, we'll just return success
+      // The actual state is managed in Firebase via the controller
       await Future.delayed(const Duration(milliseconds: 500));
+      print('${isNoShow ? "Marked" : "Unmarked"} booking $bookingId as ${isNoShow ? "no-show" : "not no-show"}');
       return true;
     } catch (e) {
-      print('Error marking booking as no-show: $e');
+      print('Error ${isNoShow ? "marking" : "unmarking"} booking as no-show: $e');
       return false;
     }
   }

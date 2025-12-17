@@ -212,15 +212,22 @@ class PickupController extends ChangeNotifier {
     }
   }
 
-  // Mark booking as no-show
-  Future<bool> markBookingAsNoShow(String bookingId) async {
+  // Mark or unmark booking as no-show
+  Future<bool> markBookingAsNoShow(String bookingId, {bool isNoShow = true}) async {
     try {
-      final success = await _pickupService.markBookingAsNoShow(bookingId);
+      final success = await _pickupService.markBookingAsNoShow(bookingId, isNoShow: isNoShow);
       if (success) {
         // Update local state
         final bookingIndex = _bookings.indexWhere((booking) => booking.id == bookingId);
         if (bookingIndex != -1) {
-          _bookings[bookingIndex] = _bookings[bookingIndex].copyWith(isNoShow: true);
+          _bookings[bookingIndex] = _bookings[bookingIndex].copyWith(isNoShow: isNoShow);
+          
+          // Also update current user bookings if this booking is in the list
+          final userBookingIndex = _currentUserBookings.indexWhere((booking) => booking.id == bookingId);
+          if (userBookingIndex != -1) {
+            _currentUserBookings[userBookingIndex] = _currentUserBookings[userBookingIndex].copyWith(isNoShow: isNoShow);
+          }
+          
           _updateGuideLists();
           notifyListeners();
         }
@@ -230,12 +237,12 @@ class PickupController extends ChangeNotifier {
         await FirebaseService.updateBookingStatus(
           bookingId: bookingId,
           date: dateStr,
-          isNoShow: true,
+          isNoShow: isNoShow,
         );
       }
       return success;
     } catch (e) {
-      _error = 'Failed to mark booking as no-show: $e';
+      _error = 'Failed to ${isNoShow ? "mark" : "unmark"} booking as no-show: $e';
       notifyListeners();
       return false;
     }
