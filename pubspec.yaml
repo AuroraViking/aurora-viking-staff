@@ -59,7 +59,12 @@ dependencies:
   # File operations and sharing
   path_provider: ^2.1.1
   share_plus: ^7.2.1
+  file_picker: ^8.0.0
+  shared_preferences: ^2.2.2
   google_fonts: ^6.2.1
+  
+  # Photo management for auto-selection
+  photo_manager: ^3.6.0
   
   # Package info for app version
   package_info_plus: ^8.0.2
