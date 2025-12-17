@@ -6,16 +6,16 @@ import '../../core/services/firebase_service.dart';
 
 class PickupController extends ChangeNotifier {
   final PickupService _pickupService = PickupService();
-  
+
   DateTime _selectedDate = DateTime.now();
   List<PickupBooking> _currentUserBookings = [];
   User? _currentUser;
   bool _isLoading = false;
   String? _error;
-  
+
   // Properties for calendar functionality
   Map<DateTime, List<PickupBooking>> _monthData = {};
-  
+
   // Properties for admin functionality
   List<PickupBooking> _bookings = [];
   List<GuidePickupList> _guideLists = [];
@@ -27,45 +27,74 @@ class PickupController extends ChangeNotifier {
   User? get currentUser => _currentUser;
   bool get isLoading => _isLoading;
   String? get error => _error;
-  
+
   // Calendar getters
   bool get hasError => _error != null;
   String get errorMessage => _error ?? 'Unknown error';
   Map<DateTime, List<PickupBooking>> get monthData => _monthData;
-  
+
   // Admin getters
   List<PickupBooking> get bookings => _bookings;
   List<GuidePickupList> get guideLists => _guideLists;
   PickupListStats? get stats => _stats;
-  
+
   // Get unassigned bookings
-  List<PickupBooking> get unassignedBookings => 
+  List<PickupBooking> get unassignedBookings =>
       _bookings.where((booking) => booking.assignedGuideId == null).toList();
 
   // Load bookings for a specific date with Firebase statuses
+  // FIX: Added comprehensive error handling and guaranteed loading state reset
   Future<void> loadBookingsForDate(DateTime date) async {
+    // FIX: Guard against calling when user is null
+    if (_currentUser == null) {
+      print('⚠️ Cannot load bookings: current user is null');
+      _currentUserBookings = [];
+      _error = null; // Don't show error for this expected case
+      notifyListeners();
+      return;
+    }
+
     _setLoading(true);
     _error = null;
+
     try {
+      print('📥 Loading bookings for date: $date, user: ${_currentUser!.fullName} (${_currentUser!.id})');
+
       final bookings = await _pickupService.fetchBookingsForDate(date);
-      
+
       // Don't clear existing bookings if API returns empty - might be a temporary issue
       if (bookings.isEmpty && _bookings.isNotEmpty) {
         print('⚠️ API returned empty bookings but we have existing bookings. Keeping existing data.');
         _setLoading(false);
         return;
       }
-      
+
       // Load statuses from Firebase
       final dateStr = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
-      final statuses = await FirebaseService.getBookingStatuses(dateStr);
-      
-      // Load individual assignments from Firebase
-      final assignments = await FirebaseService.getIndividualPickupAssignments(dateStr);
-      
-      // Load updated pickup places from Firebase
-      final updatedPickupPlaces = await FirebaseService.getUpdatedPickupPlaces(dateStr);
-      
+
+      // FIX: Wrap Firebase calls in individual try-catch blocks
+      Map<String, Map<String, dynamic>> statuses = {};
+      Map<String, Map<String, dynamic>> assignments = {};
+      Map<String, String> updatedPickupPlaces = {};
+
+      try {
+        statuses = await FirebaseService.getBookingStatuses(dateStr);
+      } catch (e) {
+        print('⚠️ Failed to load booking statuses: $e');
+      }
+
+      try {
+        assignments = await FirebaseService.getIndividualPickupAssignments(dateStr);
+      } catch (e) {
+        print('⚠️ Failed to load pickup assignments: $e');
+      }
+
+      try {
+        updatedPickupPlaces = await FirebaseService.getUpdatedPickupPlaces(dateStr);
+      } catch (e) {
+        print('⚠️ Failed to load updated pickup places: $e');
+      }
+
       // Apply statuses and assignments to bookings
       final updatedBookings = bookings.map((booking) {
         // Apply status
@@ -77,7 +106,7 @@ class PickupController extends ChangeNotifier {
             isNoShow: status['isNoShow'] ?? false,
           );
         }
-        
+
         // Apply assignment
         final assignment = assignments[booking.id];
         if (assignment != null) {
@@ -87,7 +116,7 @@ class PickupController extends ChangeNotifier {
           );
           print('✅ Applied assignment for booking ${booking.id}: ${assignment['guideName']}');
         }
-        
+
         // Apply updated pickup place
         final updatedPickupPlace = updatedPickupPlaces[booking.id];
         if (updatedPickupPlace != null) {
@@ -96,40 +125,69 @@ class PickupController extends ChangeNotifier {
           );
           print('✅ Applied updated pickup place for booking ${booking.id}: $updatedPickupPlace');
         }
-        
+
         return updatedBooking;
       }).toList();
-      
+
       // Sort bookings alphabetically by pickup place name
       updatedBookings.sort((a, b) => a.pickupPlaceName.compareTo(b.pickupPlaceName));
-      
+
       // Filter bookings for current user if set
+      // FIX: Additional null check here
       if (_currentUser != null) {
         final userBookings = updatedBookings
             .where((booking) => booking.assignedGuideId == _currentUser!.id)
             .toList();
-        
-        // Try to load saved reordered list
-        final reorderedList = await _loadReorderedBookings(userBookings);
-        _currentUserBookings = reorderedList;
-        
+
+        // FIX: Only try to load reordered bookings if user has assignments
+        if (userBookings.isEmpty) {
+          print('👤 No pickups assigned to current user: ${_currentUser!.fullName}');
+          _currentUserBookings = [];
+        } else {
+          // Try to load saved reordered list (with timeout protection)
+          try {
+            final reorderedList = await _loadReorderedBookings(userBookings)
+                .timeout(const Duration(seconds: 5), onTimeout: () {
+              print('⚠️ Timeout loading reordered bookings, using default order');
+              return userBookings;
+            });
+            _currentUserBookings = reorderedList;
+          } catch (e) {
+            print('⚠️ Failed to load reordered bookings: $e');
+            _currentUserBookings = userBookings;
+          }
+        }
+
         print('👤 Filtered ${_currentUserBookings.length} bookings for current user: ${_currentUser!.fullName}');
       } else {
         _currentUserBookings = updatedBookings;
       }
-      
+
       _bookings = updatedBookings; // Also update admin bookings
       _selectedDate = date;
-      _stats = await _pickupService.getPickupListStats(date);
-      
+
+      // FIX: Wrap stats loading in try-catch
+      try {
+        _stats = await _pickupService.getPickupListStats(date);
+      } catch (e) {
+        print('⚠️ Failed to load stats: $e');
+      }
+
       // Update guide lists from the bookings with assignments
       _updateGuideLists();
-      
+
       print('📊 Loaded ${updatedBookings.length} bookings with ${assignments.length} assignments');
       print('👥 Updated guide lists: ${_guideLists.length} guides with assignments');
     } catch (e) {
+      print('❌ Error loading bookings: $e');
       _error = e.toString();
+      // FIX: Don't leave user with stale data that might cause confusion
+      // Keep existing data if we have some, otherwise clear it
+      if (_bookings.isEmpty) {
+        _currentUserBookings = [];
+      }
     } finally {
+      // FIX: ALWAYS reset loading state - this was the main bug causing infinite loading
       _setLoading(false);
     }
   }
@@ -138,7 +196,7 @@ class PickupController extends ChangeNotifier {
   Future<void> fetchMonthData(DateTime month) async {
     _setLoading(true);
     _error = null;
-    
+
     try {
       // Check if month is too far in the past
       final now = DateTime.now();
@@ -149,21 +207,21 @@ class PickupController extends ChangeNotifier {
         _setLoading(false);
         return;
       }
-      
+
       final endDate = DateTime(month.year, month.month + 1, 0);
-      
+
       _monthData.clear();
-      
+
       // Fetch data for each day in the month
       for (int day = 1; day <= endDate.day; day++) {
         final date = DateTime(month.year, month.month, day);
-        
+
         // Skip dates that are too far in the past
         final thirtyDaysAgo = now.subtract(const Duration(days: 30));
         if (date.isBefore(thirtyDaysAgo)) {
           continue;
         }
-        
+
         try {
           final bookings = await _pickupService.fetchBookingsForDate(date);
           if (bookings.isNotEmpty) {
@@ -198,7 +256,7 @@ class PickupController extends ChangeNotifier {
             assignedGuideId: guideId,
             assignedGuideName: guideName,
           );
-          
+
           // Update guide lists
           _updateGuideLists();
           notifyListeners();
@@ -221,13 +279,13 @@ class PickupController extends ChangeNotifier {
         final bookingIndex = _bookings.indexWhere((booking) => booking.id == bookingId);
         if (bookingIndex != -1) {
           _bookings[bookingIndex] = _bookings[bookingIndex].copyWith(isNoShow: isNoShow);
-          
+
           // Also update current user bookings if this booking is in the list
           final userBookingIndex = _currentUserBookings.indexWhere((booking) => booking.id == bookingId);
           if (userBookingIndex != -1) {
             _currentUserBookings[userBookingIndex] = _currentUserBookings[userBookingIndex].copyWith(isNoShow: isNoShow);
           }
-          
+
           _updateGuideLists();
           notifyListeners();
         }
@@ -258,7 +316,7 @@ class PickupController extends ChangeNotifier {
         _updateGuideLists();
         notifyListeners();
       }
-      
+
       // Also update current user bookings if this is for the current user
       final currentUserBookingIndex = _currentUserBookings.indexWhere((booking) => booking.id == bookingId);
       if (currentUserBookingIndex != -1) {
@@ -283,51 +341,39 @@ class PickupController extends ChangeNotifier {
   Future<void> distributeBookings(List<User> guides) async {
     _setLoading(true);
     _error = null;
-    
+
     try {
-      _guideLists = await _pickupService.distributeBookings(
-        unassignedBookings,
-        guides,
-        _selectedDate,
-      );
-      
-      // Update bookings with assignments
-      for (final guideList in _guideLists) {
-        for (final booking in guideList.bookings) {
-          final bookingIndex = _bookings.indexWhere((b) => b.id == booking.id);
-          if (bookingIndex != -1) {
-            _bookings[bookingIndex] = booking;
-          }
-        }
-      }
-      
-      _updateGuideLists();
-      _setLoading(false);
+      _guideLists = await _pickupService.distributeBookings(_bookings, guides, _selectedDate);
+      notifyListeners();
     } catch (e) {
       _error = 'Failed to distribute bookings: $e';
+    } finally {
       _setLoading(false);
     }
   }
 
-  // Move booking between guides (drag and drop)
-  Future<bool> moveBookingBetweenGuides(
-    String bookingId,
-    String fromGuideId,
-    String toGuideId,
-    String toGuideName,
-  ) async {
+  // Move booking between guides (alias for compatibility)
+  Future<bool> moveBookingBetweenGuides(String bookingId, String? fromGuideId, String toGuideId, String toGuideName) async {
+    return moveBookingToGuide(bookingId, fromGuideId, toGuideId, toGuideName);
+  }
+
+  // Move booking between guides
+  Future<bool> moveBookingToGuide(String bookingId, String? fromGuideId, String toGuideId, String toGuideName) async {
     try {
-      // Remove from source guide
-      final sourceGuideIndex = _guideLists.indexWhere((list) => list.guideId == fromGuideId);
-      if (sourceGuideIndex != -1) {
-        final sourceGuide = _guideLists[sourceGuideIndex];
-        final updatedBookings = sourceGuide.bookings.where((b) => b.id != bookingId).toList();
-        final newTotalPassengers = updatedBookings.fold(0, (sum, b) => sum + b.numberOfGuests);
-        
-        _guideLists[sourceGuideIndex] = sourceGuide.copyWith(
-          bookings: updatedBookings,
-          totalPassengers: newTotalPassengers,
-        );
+      // Remove from source guide if it was assigned
+      if (fromGuideId != null) {
+        final sourceGuideIndex = _guideLists.indexWhere((list) => list.guideId == fromGuideId);
+        if (sourceGuideIndex != -1) {
+          final sourceGuide = _guideLists[sourceGuideIndex];
+          final updatedBookings = List<PickupBooking>.from(sourceGuide.bookings)
+            ..removeWhere((b) => b.id == bookingId);
+          final newTotalPassengers = updatedBookings.fold(0, (sum, b) => sum + b.numberOfGuests);
+
+          _guideLists[sourceGuideIndex] = sourceGuide.copyWith(
+            bookings: updatedBookings,
+            totalPassengers: newTotalPassengers,
+          );
+        }
       }
 
       // Add to destination guide
@@ -339,17 +385,17 @@ class PickupController extends ChangeNotifier {
           assignedGuideId: toGuideId,
           assignedGuideName: toGuideName,
         );
-        
+
         final updatedBookings = List<PickupBooking>.from(destGuide.bookings)..add(updatedBooking);
         final newTotalPassengers = updatedBookings.fold(0, (sum, b) => sum + b.numberOfGuests);
-        
+
         // Check passenger limit
         if (newTotalPassengers > _pickupService.maxPassengersPerBus) {
           _error = 'Cannot move booking: would exceed passenger limit (${_pickupService.maxPassengersPerBus})';
           notifyListeners();
           return false;
         }
-        
+
         _guideLists[destGuideIndex] = destGuide.copyWith(
           bookings: updatedBookings,
           totalPassengers: newTotalPassengers,
@@ -387,7 +433,7 @@ class PickupController extends ChangeNotifier {
   bool validatePassengerCount(String guideId, int additionalPassengers) {
     final guideList = getGuideList(guideId);
     if (guideList == null) return true;
-    
+
     return _pickupService.validatePassengerCount(
       guideList.totalPassengers,
       additionalPassengers,
@@ -396,6 +442,7 @@ class PickupController extends ChangeNotifier {
 
   // Set current user
   void setCurrentUser(User user) {
+    print('👤 Setting current user: ${user.fullName} (${user.id})');
     _currentUser = user;
     notifyListeners();
   }
@@ -404,7 +451,7 @@ class PickupController extends ChangeNotifier {
   void updateCurrentUserBookingsOrder(List<PickupBooking> reorderedBookings) {
     _currentUserBookings = reorderedBookings;
     notifyListeners();
-    
+
     // Save the reordered list to Firebase for persistence
     _saveReorderedBookings(reorderedBookings);
   }
@@ -414,70 +461,57 @@ class PickupController extends ChangeNotifier {
     if (_currentUserBookings.isNotEmpty) {
       final sortedBookings = List<PickupBooking>.from(_currentUserBookings)
         ..sort((a, b) => a.pickupPlaceName.compareTo(b.pickupPlaceName));
-      
+
       _currentUserBookings = sortedBookings;
       notifyListeners();
-      
+
       // Remove saved reordered list from Firebase
       _removeReorderedBookings();
     }
   }
 
   // Update pickup place for a booking
-  void updatePickupPlace(String bookingId, String newPickupPlace) {
+  Future<void> updatePickupPlace(String bookingId, String newPickupPlace) async {
     // Update in current user bookings
     final currentUserIndex = _currentUserBookings.indexWhere((booking) => booking.id == bookingId);
     if (currentUserIndex != -1) {
       _currentUserBookings[currentUserIndex] = _currentUserBookings[currentUserIndex].copyWith(
         pickupPlaceName: newPickupPlace,
       );
+      notifyListeners();
     }
-    
-    // Update in main bookings list
+
+    // Update in main bookings
     final mainIndex = _bookings.indexWhere((booking) => booking.id == bookingId);
     if (mainIndex != -1) {
       _bookings[mainIndex] = _bookings[mainIndex].copyWith(
         pickupPlaceName: newPickupPlace,
       );
     }
-    
-    notifyListeners();
-    
-    // Save the updated pickup place to Firebase
-    _saveUpdatedPickupPlace(bookingId, newPickupPlace);
-  }
 
-  // Save updated pickup place to Firebase
-  Future<void> _saveUpdatedPickupPlace(String bookingId, String newPickupPlace) async {
-    try {
-      final dateStr = '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}';
-      
-      await FirebaseService.saveUpdatedPickupPlace(
-        bookingId: bookingId,
-        date: dateStr,
-        pickupPlace: newPickupPlace,
-      );
-      
-      print('💾 Saved updated pickup place for booking $bookingId: $newPickupPlace');
-    } catch (e) {
-      print('❌ Failed to save updated pickup place: $e');
-    }
+    // Save to Firebase
+    final dateStr = '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}';
+    await FirebaseService.saveUpdatedPickupPlace(
+      bookingId: bookingId,
+      date: dateStr,
+      pickupPlace: newPickupPlace,
+    );
   }
 
   // Save reordered bookings to Firebase
   Future<void> _saveReorderedBookings(List<PickupBooking> reorderedBookings) async {
     if (_currentUser == null) return;
-    
+
     try {
       final dateStr = '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}';
       final bookingIds = reorderedBookings.map((b) => b.id).toList();
-      
+
       await FirebaseService.saveReorderedBookings(
         guideId: _currentUser!.id,
         date: dateStr,
         bookingIds: bookingIds,
       );
-      
+
       print('💾 Saved reordered bookings for guide ${_currentUser!.fullName} on $dateStr');
     } catch (e) {
       print('❌ Failed to save reordered bookings: $e');
@@ -487,15 +521,15 @@ class PickupController extends ChangeNotifier {
   // Remove reordered bookings from Firebase
   Future<void> _removeReorderedBookings() async {
     if (_currentUser == null) return;
-    
+
     try {
       final dateStr = '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}';
-      
+
       await FirebaseService.removeReorderedBookings(
         guideId: _currentUser!.id,
         date: dateStr,
       );
-      
+
       print('🗑️ Removed reordered bookings for guide ${_currentUser!.fullName} on $dateStr');
     } catch (e) {
       print('❌ Failed to remove reordered bookings: $e');
@@ -503,40 +537,52 @@ class PickupController extends ChangeNotifier {
   }
 
   // Load reordered bookings from Firebase
+  // FIX: Added better error handling and empty list handling
   Future<List<PickupBooking>> _loadReorderedBookings(List<PickupBooking> userBookings) async {
     if (_currentUser == null) return userBookings;
-    
+
+    // FIX: If userBookings is empty, return immediately
+    if (userBookings.isEmpty) {
+      print('📋 No bookings to reorder for user');
+      return userBookings;
+    }
+
     try {
       final dateStr = '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}';
-      
+
       // Try to load existing reordered list from Firebase
       final savedBookingIds = await FirebaseService.getReorderedBookings(
         guideId: _currentUser!.id,
         date: dateStr,
       );
-      
+
       if (savedBookingIds.isNotEmpty) {
         // Reconstruct list from saved order
         final reorderedList = <PickupBooking>[];
+        final processedIds = <String>{};
+
         for (final bookingId in savedBookingIds) {
-          try {
-            final booking = userBookings.firstWhere(
-              (b) => b.id == bookingId,
-            );
+          // FIX: Use try-catch with orElse instead of firstWhere which throws
+          final booking = userBookings.cast<PickupBooking?>().firstWhere(
+                (b) => b?.id == bookingId,
+            orElse: () => null,
+          );
+
+          if (booking != null) {
             reorderedList.add(booking);
-          } catch (e) {
-            // Booking not found, skip it
+            processedIds.add(bookingId);
+          } else {
             print('⚠️ Booking $bookingId not found in user bookings, skipping');
           }
         }
-        
+
         // Add any new bookings that weren't in the saved order
         for (final booking in userBookings) {
-          if (!savedBookingIds.contains(booking.id)) {
+          if (!processedIds.contains(booking.id)) {
             reorderedList.add(booking);
           }
         }
-        
+
         print('🔄 Loaded saved reordered list for guide ${_currentUser!.fullName}: ${reorderedList.length} bookings');
         return reorderedList;
       } else {
@@ -564,9 +610,9 @@ class PickupController extends ChangeNotifier {
   // Update guide lists from current bookings
   void _updateGuideLists() {
     print('🔄 Updating guide lists from ${_bookings.length} bookings...');
-    
+
     final guideGroups = <String, List<PickupBooking>>{};
-    
+
     for (final booking in _bookings) {
       if (booking.assignedGuideId != null) {
         guideGroups.putIfAbsent(booking.assignedGuideId!, () => []);
@@ -587,7 +633,7 @@ class PickupController extends ChangeNotifier {
       print('👥 Created guide list for ${guideList.guideName}: ${guideList.bookings.length} bookings, ${guideList.totalPassengers} passengers');
       return guideList;
     }).toList();
-    
+
     print('✅ Updated guide lists: ${_guideLists.length} guides total');
   }
-} 
+}

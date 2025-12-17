@@ -20,13 +20,19 @@ class _PickupScreenState extends State<PickupScreen> {
   // Timer state for no-show countdowns (bookingId -> Timer)
   final Map<String, Timer> _noShowTimers = {};
   final Map<String, int> _noShowTimeRemaining = {}; // bookingId -> seconds remaining
-  
+
+  // FIX: Track initialization state
+  bool _isInitialized = false;
+
   @override
   void initState() {
     super.initState();
-    _loadTodayBookings();
+    // FIX: Use post-frame callback to ensure context is fully available
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _initializeAndLoad();
+    });
   }
-  
+
   @override
   void dispose() {
     // Cancel all timers
@@ -38,15 +44,63 @@ class _PickupScreenState extends State<PickupScreen> {
     super.dispose();
   }
 
+  // FIX: Better initialization with retry logic
+  Future<void> _initializeAndLoad() async {
+    if (!mounted) return;
+
+    final authController = context.read<AuthController>();
+    final pickupController = context.read<PickupController>();
+
+    // FIX: Wait for auth to be ready if it's still loading
+    int retries = 0;
+    while (authController.isLoading && retries < 10) {
+      await Future.delayed(const Duration(milliseconds: 200));
+      retries++;
+      if (!mounted) return;
+    }
+
+    // FIX: Check if we have a valid user
+    if (authController.currentUser == null) {
+      print('⚠️ PickupScreen: No authenticated user found');
+      if (mounted) {
+        setState(() {
+          _isInitialized = true;
+        });
+      }
+      return;
+    }
+
+    // Set the current user in the pickup controller
+    pickupController.setCurrentUser(authController.currentUser!);
+
+    // Load bookings
+    await pickupController.loadBookingsForDate(DateTime.now());
+
+    if (mounted) {
+      setState(() {
+        _isInitialized = true;
+      });
+    }
+  }
+
   void _loadTodayBookings() {
     final controller = context.read<PickupController>();
     final authController = context.read<AuthController>();
-    
-    // Set the current user in the pickup controller
-    if (authController.currentUser != null) {
-      controller.setCurrentUser(authController.currentUser!);
+
+    // FIX: Guard against null user
+    if (authController.currentUser == null) {
+      print('⚠️ Cannot load bookings: user not authenticated');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please log in to view your pickup list'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
     }
-    
+
+    // Set the current user in the pickup controller
+    controller.setCurrentUser(authController.currentUser!);
     controller.loadBookingsForDate(DateTime.now());
   }
 
@@ -70,9 +124,15 @@ class _PickupScreenState extends State<PickupScreen> {
           ),
         ],
       ),
-      body: Consumer<PickupController>(
-        builder: (context, controller, child) {
-          if (controller.isLoading) {
+      body: Consumer2<PickupController, AuthController>(
+        builder: (context, controller, authController, child) {
+          // FIX: Check auth state first
+          if (authController.currentUser == null) {
+            return _buildNotAuthenticatedState();
+          }
+
+          // FIX: Show loading only during actual loading, not initialization
+          if (!_isInitialized || controller.isLoading) {
             return const LoadingWidget(message: 'Loading your pickup list...');
           }
 
@@ -87,367 +147,181 @@ class _PickupScreenState extends State<PickupScreen> {
           final bookings = controller.currentUserBookings;
           final totalGuests = bookings.fold<int>(0, (sum, booking) => sum + booking.numberOfGuests);
           final pickedUpGuests = bookings.where((booking) => booking.isArrived).fold<int>(0, (sum, booking) => sum + booking.numberOfGuests);
-          
+
           // Stop timers for bookings that are no longer marked as no-show
           final noShowBookingIds = bookings.where((b) => b.isNoShow).map((b) => b.id).toSet();
-          final timerIdsToRemove = _noShowTimers.keys.where((id) => !noShowBookingIds.contains(id)).toList();
-          for (final id in timerIdsToRemove) {
-            _stopNoShowTimer(id);
-          }
+          _noShowTimers.keys.toList().forEach((id) {
+            if (!noShowBookingIds.contains(id)) {
+              _stopNoShowTimer(id);
+            }
+          });
 
           return Column(
             children: [
-              // Date Header with Stats
+              // Summary card
               Container(
                 margin: const EdgeInsets.all(16),
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF2D3748).withOpacity(0.1), // Lighter background for better readability
+                  color: AppColors.primary.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFF2D3748).withOpacity(0.3)),
                 ),
-                child: Column(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
                   children: [
-                    // Date row
-                    Row(
-                      children: [
-                        const Icon(Icons.calendar_today, color: Colors.white, size: 24),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            '${selectedDate.day}/${selectedDate.month}/${selectedDate.year}',
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
-                        if (selectedDate.day == DateTime.now().day &&
-                            selectedDate.month == DateTime.now().month &&
-                            selectedDate.year == DateTime.now().year)
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: AppColors.primary,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: const Text(
-                              'TODAY',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-
-                    const SizedBox(height: 12),
-
-                    // Stats row
-                    if (bookings.isNotEmpty) ...[
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Total Guests',
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                                Text(
-                                  '$totalGuests',
-                                  style: const TextStyle(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Picked Up',
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                                Text(
-                                  '$pickedUpGuests of $totalGuests',
-                                  style: TextStyle(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.bold,
-                                    color: pickedUpGuests == totalGuests ? AppColors.success : AppColors.warning,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Pickups',
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                                Text(
-                                  '${bookings.length}',
-                                  style: const TextStyle(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ] else ...[
-                      Text(
-                        'No pickups assigned for this date',
-                        style: const TextStyle(
-                          fontSize: 14,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ],
+                    _buildStat('Date', '${selectedDate.day}/${selectedDate.month}'),
+                    _buildStat('Pickups', '${bookings.length}'),
+                    _buildStat('Picked Up', '$pickedUpGuests / $totalGuests'),
                   ],
                 ),
               ),
 
-              // Pickup List
+              // FIX: Better empty state handling
               Expanded(
                 child: bookings.isEmpty
-                  ? _buildEmptyState()
-                  : RefreshIndicator(
-                      onRefresh: () async {
-                        await _refreshData();
-                      },
-                      child: ListView.builder(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        itemCount: bookings.length,
-                        itemBuilder: (context, index) {
-                        final booking = bookings[index];
-                        return Card(
-                          margin: const EdgeInsets.only(bottom: 8),
-                          color: const Color(0xFF2D3748), // Lighter background for better readability
-                          child: Padding(
-                            padding: const EdgeInsets.all(12),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                // Pickup place at the top (bold)
-                                Text(
-                                  booking.pickupPlaceName,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 16,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                                
-                                const SizedBox(height: 4),
-                                
-                                // Customer name with arrived button and action buttons
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        booking.customerFullName,
-                                        style: TextStyle(
-                                          fontSize: 14,
-                                          decoration: booking.isNoShow ? TextDecoration.lineThrough : null,
-                                          color: booking.isNoShow ? AppColors.error : Colors.white,
-                                        ),
-                                      ),
-                                    ),
-                                    
-                                    // Arrived checkbox
-                                    Row(
+                    ? _buildEmptyState()
+                    : RefreshIndicator(
+                  onRefresh: () async {
+                    await _refreshData();
+                  },
+                  child: ReorderableListView.builder(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    itemCount: bookings.length,
+                    onReorder: (oldIndex, newIndex) {
+                      // Adjust newIndex for the removal
+                      if (oldIndex < newIndex) {
+                        newIndex -= 1;
+                      }
+
+                      final reorderedBookings = List<PickupBooking>.from(bookings);
+                      final item = reorderedBookings.removeAt(oldIndex);
+                      reorderedBookings.insert(newIndex, item);
+
+                      controller.updateCurrentUserBookingsOrder(reorderedBookings);
+                    },
+                    itemBuilder: (context, index) {
+                      final booking = bookings[index];
+                      return Card(
+                        key: ValueKey(booking.id),
+                        margin: const EdgeInsets.only(bottom: 4),
+                        color: const Color(0xFF2D3748),
+                        child: Padding(
+                          padding: const EdgeInsets.all(8),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Pickup place and customer name in one row
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
-                                        Checkbox(
-                                          value: booking.isArrived,
-                                          onChanged: (value) => _markAsArrived(booking.id, value ?? false),
-                                          activeColor: AppColors.primary,
-                                          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                        ),
-                                        const Text(
-                                          'Arrived',
-                                          style: TextStyle(
-                                            fontSize: 12,
+                                        Text(
+                                          booking.pickupPlaceName,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 14,
                                             color: Colors.white,
                                           ),
                                         ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          booking.customerFullName,
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            decoration: booking.isNoShow ? TextDecoration.lineThrough : null,
+                                            color: booking.isNoShow ? AppColors.error : Colors.white70,
+                                          ),
+                                        ),
                                       ],
                                     ),
-                                    
-                                    // Action buttons
-                                    if (booking.phoneNumber.isNotEmpty)
-                                      IconButton(
-                                        icon: const Icon(Icons.call, color: Colors.green, size: 18),
-                                        onPressed: () => _makePhoneCall(booking.phoneNumber),
-                                        tooltip: 'Call customer',
-                                        padding: EdgeInsets.zero,
-                                        constraints: const BoxConstraints(),
-                                      ),
-                                    
-                                    // No show button - toggleable (can mark/unmark)
-                                    IconButton(
-                                      icon: Icon(
-                                        booking.isNoShow ? Icons.undo : Icons.no_transfer,
-                                        color: booking.isNoShow ? Colors.orange : Colors.red,
-                                        size: 18,
-                                      ),
-                                      onPressed: () => _toggleNoShow(booking),
-                                      tooltip: booking.isNoShow ? 'Unmark No Show' : 'Mark as No Show',
-                                      padding: EdgeInsets.zero,
-                                      constraints: const BoxConstraints(),
-                                    ),
-                                  ],
-                                ),
-                                
-                                const SizedBox(height: 4),
-                                
-                                // Time and guest count on same line
-                                Text(
-                                  '${_formatTime(booking.pickupTime)} - ${booking.numberOfGuests} guest${booking.numberOfGuests > 1 ? 's' : ''}',
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.white,
                                   ),
-                                ),
-                                
-                                // Phone number (if available)
-                                if (booking.phoneNumber.isNotEmpty) ...[
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    booking.phoneNumber,
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.white,
-                                    ),
+                                  // Arrived checkbox (compact)
+                                  Checkbox(
+                                    value: booking.isArrived,
+                                    onChanged: (value) => _markAsArrived(booking.id, value ?? false),
+                                    activeColor: AppColors.success,
+                                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                    visualDensity: VisualDensity.compact,
                                   ),
                                 ],
-                                
-                                // No-show timer countdown (if active)
-                                if (booking.isNoShow && _noShowTimeRemaining.containsKey(booking.id))
-                                  Padding(
-                                    padding: const EdgeInsets.only(top: 4),
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                      decoration: BoxDecoration(
-                                        color: _noShowTimeRemaining[booking.id]! <= 30 
-                                            ? AppColors.error.withOpacity(0.3)
-                                            : Colors.orange.withOpacity(0.3),
-                                        borderRadius: BorderRadius.circular(8),
-                                        border: Border.all(
-                                          color: _noShowTimeRemaining[booking.id]! <= 30 
-                                              ? AppColors.error
-                                              : Colors.orange,
-                                          width: 1,
-                                        ),
-                                      ),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Icon(
-                                            Icons.timer,
-                                            size: 14,
-                                            color: _noShowTimeRemaining[booking.id]! <= 30 
-                                                ? AppColors.error
-                                                : Colors.orange,
-                                          ),
-                                          const SizedBox(width: 4),
-                                          Text(
-                                            _formatTimer(_noShowTimeRemaining[booking.id]!),
-                                            style: TextStyle(
-                                              color: _noShowTimeRemaining[booking.id]! <= 30 
-                                                  ? AppColors.error
-                                                  : Colors.orange,
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                          ),
-                                          const SizedBox(width: 4),
-                                          Text(
-                                            'until departure',
-                                            style: TextStyle(
-                                              color: Colors.white70,
-                                              fontSize: 10,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                
-                                // Status indicators
-                                if (booking.isNoShow || booking.isArrived)
-                                  Padding(
-                                    padding: const EdgeInsets.only(top: 4),
-                                    child: Row(
-                                      children: [
-                                        if (booking.isNoShow)
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                            decoration: BoxDecoration(
-                                              color: AppColors.error,
-                                              borderRadius: BorderRadius.circular(8),
-                                            ),
-                                            child: const Text(
-                                              'NO SHOW',
-                                              style: TextStyle(
-                                                color: Colors.white,
-                                                fontSize: 8,
-                                                fontWeight: FontWeight.bold,
-                                              ),
-                                            ),
-                                          )
-                                        else if (booking.isArrived)
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                            decoration: BoxDecoration(
-                                              color: AppColors.success,
-                                              borderRadius: BorderRadius.circular(8),
-                                            ),
-                                            child: const Text(
-                                              'ARRIVED',
-                                              style: TextStyle(
-                                                color: Colors.white,
-                                                fontSize: 8,
-                                                fontWeight: FontWeight.bold,
-                                              ),
-                                            ),
-                                          ),
-                                      ],
-                                    ),
-                                  ),
-                                
+                              ),
 
-                              ],
-                            ),
+                              const SizedBox(height: 4),
+
+                              // Guest count and contact buttons in one row
+                              Row(
+                                children: [
+                                  Icon(Icons.group, size: 14, color: Colors.white54),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    '${booking.numberOfGuests}',
+                                    style: const TextStyle(color: Colors.white70, fontSize: 11),
+                                  ),
+                                  const Spacer(),
+                                  // Phone button
+                                  if (booking.phoneNumber.isNotEmpty)
+                                    IconButton(
+                                      icon: const Icon(Icons.phone, size: 16),
+                                      color: AppColors.success,
+                                      onPressed: () => _makePhoneCall(booking.phoneNumber),
+                                      tooltip: 'Call',
+                                      padding: EdgeInsets.zero,
+                                      constraints: const BoxConstraints(),
+                                      visualDensity: VisualDensity.compact,
+                                    ),
+                                  // Email button
+                                  if (booking.email.isNotEmpty)
+                                    IconButton(
+                                      icon: const Icon(Icons.email, size: 16),
+                                      color: AppColors.info,
+                                      onPressed: () => _sendArrivalEmail(booking),
+                                      tooltip: 'Email',
+                                      padding: EdgeInsets.zero,
+                                      constraints: const BoxConstraints(),
+                                      visualDensity: VisualDensity.compact,
+                                    ),
+                                ],
+                              ),
+
+                              // No-show button (compact)
+                              if (booking.isNoShow && _noShowTimeRemaining.containsKey(booking.id))
+                                _buildNoShowTimer(booking)
+                              else if (booking.isNoShow)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 4),
+                                  child: TextButton(
+                                    onPressed: () => _unmarkNoShow(booking.id),
+                                    style: TextButton.styleFrom(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      minimumSize: const Size(0, 24),
+                                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                    ),
+                                    child: const Text('Undo No-Show', style: TextStyle(color: Colors.orange, fontSize: 11)),
+                                  ),
+                                )
+                              else
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 4),
+                                  child: TextButton(
+                                    onPressed: () => _showNoShowDialog(booking),
+                                    style: TextButton.styleFrom(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      minimumSize: const Size(0, 24),
+                                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                    ),
+                                    child: const Text('No-Show', style: TextStyle(color: AppColors.error, fontSize: 11)),
+                                  ),
+                                ),
+                            ],
                           ),
-                        );
-                      },
-                    ),
+                        ),
+                      );
+                    },
                   ),
                 ),
+              ),
             ],
           );
         },
@@ -455,135 +329,147 @@ class _PickupScreenState extends State<PickupScreen> {
     );
   }
 
-  Widget _buildInfoRow(IconData icon, String text) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: Row(
-        children: [
-          Icon(icon, size: 16, color: Colors.white),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              text,
+  Widget _buildStat(String label, String value) {
+    return Column(
+      children: [
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: AppColors.primary,
+          ),
+        ),
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 12,
+            color: Colors.grey,
+          ),
+        ),
+      ],
+    );
+  }
+
+  // FIX: Improved empty state with more helpful messaging
+  Widget _buildEmptyState() {
+    final authController = context.read<AuthController>();
+    final userName = authController.currentUser?.fullName ?? 'there';
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(
+              Icons.directions_bus_outlined,
+              size: 80,
+              color: Colors.grey,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Hey $userName! 👋',
               style: const TextStyle(
-                fontSize: 14,
-                color: Colors.white,
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
               ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildEmptyState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.assignment_outlined,
-            size: 64,
-            color: Colors.white,
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'No Pickups Assigned',
-            style: const TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
+            const SizedBox(height: 8),
+            const Text(
+              'No pickups assigned to you today.',
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.grey,
+              ),
+              textAlign: TextAlign.center,
             ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'You don\'t have any pickups assigned for today',
-            style: const TextStyle(
-              fontSize: 14,
-              color: Colors.white,
+            const SizedBox(height: 8),
+            const Text(
+              'If you expect to have pickups, please check with your admin.',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey,
+              ),
+              textAlign: TextAlign.center,
             ),
-            textAlign: TextAlign.center,
-          ),
-        ],
-      ),
-    );
-  }
-
-  String _formatTime(DateTime time) {
-    return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
-  }
-
-  String _formatTimer(int seconds) {
-    final minutes = seconds ~/ 60;
-    final secs = seconds % 60;
-    return '${minutes.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}';
-  }
-
-  void _startNoShowTimer(String bookingId, String customerName, String pickupPlace) {
-    // Cancel existing timer if any
-    _noShowTimers[bookingId]?.cancel();
-    
-    // Set initial time to 3 minutes (180 seconds)
-    _noShowTimeRemaining[bookingId] = 180;
-    
-    // Start countdown timer
-    _noShowTimers[bookingId] = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (!mounted) {
-        timer.cancel();
-        return;
-      }
-      
-      setState(() {
-        final remaining = _noShowTimeRemaining[bookingId] ?? 0;
-        if (remaining > 0) {
-          _noShowTimeRemaining[bookingId] = remaining - 1;
-        } else {
-          // Timer reached 0
-          timer.cancel();
-          _noShowTimers.remove(bookingId);
-          _noShowTimeRemaining.remove(bookingId);
-          
-          // Show alert that time is up
-          _showTimerExpiredAlert(customerName, pickupPlace);
-        }
-      });
-    });
-    
-    print('⏱️ Started 3-minute timer for booking $bookingId');
-  }
-
-  void _stopNoShowTimer(String bookingId) {
-    _noShowTimers[bookingId]?.cancel();
-    _noShowTimers.remove(bookingId);
-    _noShowTimeRemaining.remove(bookingId);
-    print('⏱️ Stopped timer for booking $bookingId');
-  }
-
-  void _showTimerExpiredAlert(String customerName, String pickupPlace) {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: const Row(
-          children: [
-            Icon(Icons.warning, color: Colors.red, size: 28),
-            SizedBox(width: 8),
-            Text('Time Expired'),
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              onPressed: _loadTodayBookings,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Refresh'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+              ),
+            ),
           ],
         ),
-        content: Text(
-          'The 3-minute wait time for $customerName at $pickupPlace has expired.\n\n'
-          'You may now leave the pickup location.',
-          style: const TextStyle(fontSize: 16),
-        ),
-        actions: [
-          ElevatedButton(
-            onPressed: () => Navigator.of(context).pop(),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primary,
-              foregroundColor: Colors.white,
+      ),
+    );
+  }
+
+  // FIX: New widget for not authenticated state
+  Widget _buildNotAuthenticatedState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(
+              Icons.lock_outline,
+              size: 80,
+              color: Colors.grey,
             ),
-            child: const Text('OK'),
+            const SizedBox(height: 16),
+            const Text(
+              'Not Logged In',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Please log in to view your pickup list.',
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.grey,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNoShowTimer(PickupBooking booking) {
+    final remaining = _noShowTimeRemaining[booking.id] ?? 0;
+    final minutes = remaining ~/ 60;
+    final seconds = remaining % 60;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      margin: const EdgeInsets.only(top: 8),
+      decoration: BoxDecoration(
+        color: AppColors.error.withOpacity(0.2),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            '⏱️ Leaving in: ${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}',
+            style: const TextStyle(
+              color: AppColors.error,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          TextButton(
+            onPressed: () => _unmarkNoShow(booking.id),
+            child: const Text('Cancel', style: TextStyle(color: Colors.orange)),
           ),
         ],
       ),
@@ -593,37 +479,84 @@ class _PickupScreenState extends State<PickupScreen> {
   void _markAsArrived(String bookingId, bool arrived) {
     final controller = context.read<PickupController>();
     controller.markBookingAsArrived(bookingId, arrived);
-    
-    if (mounted) {
+
+    if (arrived) {
+      // Stop no-show timer if customer arrives
+      _stopNoShowTimer(bookingId);
+
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(arrived ? 'Customer marked as arrived' : 'Arrival status removed'),
-          backgroundColor: arrived ? Colors.green : Colors.orange,
+        const SnackBar(
+          content: Text('Customer marked as arrived ✅'),
+          backgroundColor: AppColors.success,
+          duration: Duration(seconds: 2),
         ),
       );
     }
   }
 
-  void _toggleNoShow(PickupBooking booking) {
-    if (booking.isNoShow) {
-      // Unmark no-show
-      _unmarkNoShow(booking.id);
-    } else {
-      // Mark as no-show with confirmation and email
-      _markAsNoShow(booking);
-    }
+  void _startNoShowTimer(String bookingId, String customerName, String pickupPlace) {
+    // Stop any existing timer
+    _stopNoShowTimer(bookingId);
+
+    // Set 3 minutes (180 seconds)
+    setState(() {
+      _noShowTimeRemaining[bookingId] = 180;
+    });
+
+    // Start countdown timer
+    _noShowTimers[bookingId] = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+
+      setState(() {
+        final remaining = (_noShowTimeRemaining[bookingId] ?? 0) - 1;
+        if (remaining <= 0) {
+          // Timer finished
+          timer.cancel();
+          _noShowTimers.remove(bookingId);
+          _noShowTimeRemaining.remove(bookingId);
+
+          // Show notification that driver can leave
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('⏰ Time\'s up! You can leave $pickupPlace'),
+              backgroundColor: AppColors.error,
+              duration: const Duration(seconds: 10),
+              action: SnackBarAction(
+                label: 'OK',
+                textColor: Colors.white,
+                onPressed: () {},
+              ),
+            ),
+          );
+        } else {
+          _noShowTimeRemaining[bookingId] = remaining;
+        }
+      });
+    });
   }
 
-  void _markAsNoShow(PickupBooking booking) {
+  void _stopNoShowTimer(String bookingId) {
+    _noShowTimers[bookingId]?.cancel();
+    _noShowTimers.remove(bookingId);
+    setState(() {
+      _noShowTimeRemaining.remove(bookingId);
+    });
+  }
+
+  void _showNoShowDialog(PickupBooking booking) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Mark as No Show'),
+        title: const Text('Mark as No-Show?'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Are you sure you want to mark this customer as a no-show?'),
+            Text('Customer: ${booking.customerFullName}'),
+            Text('Location: ${booking.pickupPlaceName}'),
             const SizedBox(height: 12),
             if (booking.email.isNotEmpty)
               const Text(
@@ -646,24 +579,24 @@ class _PickupScreenState extends State<PickupScreen> {
             onPressed: () async {
               Navigator.of(context).pop();
               final controller = context.read<PickupController>();
-              
+
               // Mark as no-show
               final success = await controller.markBookingAsNoShow(booking.id);
-              
+
               if (success && mounted) {
                 // Start 3-minute timer
                 _startNoShowTimer(booking.id, booking.customerFullName, booking.pickupPlaceName);
-                
+
                 // Send email if email is available
                 if (booking.email.isNotEmpty) {
-                  await _sendNoShowEmail(booking.email, booking.customerFullName, booking.pickupPlaceName);
+                  await _sendNoShowEmail(booking);
                 }
-                
+
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                    content: Text(booking.email.isNotEmpty 
-                      ? 'Customer marked as no-show. Email sent. 3-minute timer started.'
-                      : 'Customer marked as no-show. 3-minute timer started.'),
+                    content: Text(booking.email.isNotEmpty
+                        ? 'Customer marked as no-show. Email sent. 3-minute timer started.'
+                        : 'Customer marked as no-show. 3-minute timer started.'),
                     backgroundColor: Colors.red,
                     duration: const Duration(seconds: 4),
                   ),
@@ -684,10 +617,10 @@ class _PickupScreenState extends State<PickupScreen> {
   void _unmarkNoShow(String bookingId) {
     // Stop the timer if running
     _stopNoShowTimer(bookingId);
-    
+
     final controller = context.read<PickupController>();
     controller.markBookingAsNoShow(bookingId, isNoShow: false);
-    
+
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -698,38 +631,41 @@ class _PickupScreenState extends State<PickupScreen> {
     }
   }
 
-  Future<void> _sendNoShowEmail(String email, String customerName, String pickupPlace) async {
+  Future<void> _sendNoShowEmail(PickupBooking booking) async {
     try {
       final authController = context.read<AuthController>();
       final guideName = authController.currentUser?.fullName ?? 'Your Guide';
-      
-      final emailBody = 'Hi $customerName,\n\n'
-          'We have attempted to contact you by phone regarding your pickup at $pickupPlace.\n\n'
-          'Your driver will wait for 3 minutes before leaving. Please make your way to the pickup location as soon as possible.\n\n'
-          'If you have any questions or concerns, please contact us immediately.\n\n'
-          'Best regards,\n'
-          '$guideName\n'
-          'Aurora Viking Staff';
+      final pickupPlace = booking.pickupPlaceName;
+      final phoneNumber = booking.phoneNumber.isNotEmpty ? booking.phoneNumber : 'your phone number';
+      final customerName = booking.customerFullName;
 
-      // Manually construct the query string with proper encoding
-      // Use Uri.encodeComponent to properly encode spaces and special characters
-      final encodedSubject = Uri.encodeComponent('Urgent: Pickup Location - $pickupPlace');
-      final encodedBody = Uri.encodeComponent(emailBody);
-      
-      final emailUri = Uri.parse('mailto:$email?subject=$encodedSubject&body=$encodedBody');
-      
-      print('📧 Sending no-show email to: $email');
-      print('📧 Subject: Urgent: Pickup Location - $pickupPlace');
-      
+      // Encode subject and body properly
+      final subject = Uri.encodeComponent('Pickup Notice - $customerName');
+      final body = Uri.encodeComponent(
+        'Hi $customerName,\n\n'
+        'This is an automated message from your tour guide ($guideName).\n\n'
+        'I have arrived at the pickup location: $pickupPlace\n\n'
+        'I have tried calling $phoneNumber but was unable to reach you.\n\n'
+        'Please note that I will wait for 3 minutes before departing.\n\n'
+        'If you are nearby, please hurry to the pickup point.\n\n'
+        'Thank you.'
+      );
+
+      final Uri emailUri = Uri(
+        scheme: 'mailto',
+        path: booking.email,
+        query: 'subject=$subject&body=$body',
+      );
+
       final launched = await launchUrl(
         emailUri,
         mode: LaunchMode.externalApplication,
       );
-      
+
       if (!launched && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Could not launch email app. Please send email manually.'),
+            content: Text('Could not open email app. Please send email manually.'),
             backgroundColor: Colors.orange,
           ),
         );
@@ -752,13 +688,12 @@ class _PickupScreenState extends State<PickupScreen> {
   void _makePhoneCall(String phoneNumber) async {
     try {
       print('📞 Attempting to call: $phoneNumber');
-      
-      // Clean the phone number - remove spaces, dashes, parentheses, and other non-digit characters
-      // Keep + sign if present (for international numbers)
+
+      // Clean the phone number
       String cleanedNumber = phoneNumber.trim().replaceAll(RegExp(r'[^\d+]'), '');
-      
+
       print('📞 Cleaned phone number: $cleanedNumber');
-      
+
       if (cleanedNumber.isEmpty) {
         print('❌ Phone number is empty after cleaning');
         if (mounted) {
@@ -771,23 +706,18 @@ class _PickupScreenState extends State<PickupScreen> {
         }
         return;
       }
-      
+
       final Uri phoneUri = Uri(scheme: 'tel', path: cleanedNumber);
-      print('📞 Phone URI: $phoneUri');
-      
-      // Try to launch the phone app directly
-      // Use externalApplication mode to ensure it opens the phone dialer
+
       final launched = await launchUrl(
         phoneUri,
         mode: LaunchMode.externalApplication,
       );
-      
-      print('📞 Launch result: $launched');
-      
+
       if (!launched && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Could not launch phone app. Please check if a phone app is installed.'),
+            content: Text('Could not launch phone app.'),
             backgroundColor: Colors.red,
           ),
         );
@@ -805,27 +735,47 @@ class _PickupScreenState extends State<PickupScreen> {
     }
   }
 
-  void _sendArrivalEmail(String email, String customerName) async {
-    final Uri emailUri = Uri(
-      scheme: 'mailto',
-      path: email,
-      query: 'subject=Pickup Arrival - ${customerName}&body=Hi ${customerName},\n\nI have arrived at the pickup location but cannot find you. Please contact me as soon as possible.\n\nBest regards,\nYour Guide',
-    );
-    
+  void _sendArrivalEmail(PickupBooking booking) async {
     try {
-      if (await canLaunchUrl(emailUri)) {
-        await launchUrl(emailUri);
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Could not launch email app'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
+      final authController = context.read<AuthController>();
+      final guideName = authController.currentUser?.fullName ?? 'Your Guide';
+      final pickupPlace = booking.pickupPlaceName;
+      final phoneNumber = booking.phoneNumber.isNotEmpty ? booking.phoneNumber : 'your phone number';
+      final customerName = booking.customerFullName;
+
+      // Encode subject and body properly
+      final subject = Uri.encodeComponent('Pickup Arrival - $customerName');
+      final body = Uri.encodeComponent(
+        'Hi $customerName,\n\n'
+        'This is an automated message from your tour guide ($guideName).\n\n'
+        'I have arrived at the pickup location: $pickupPlace\n\n'
+        'I have tried calling $phoneNumber but was unable to reach you.\n\n'
+        'Please note that I will wait for 3 minutes before departing.\n\n'
+        'If you are nearby, please hurry to the pickup point.\n\n'
+        'Thank you.'
+      );
+      
+      final Uri emailUri = Uri(
+        scheme: 'mailto',
+        path: booking.email,
+        query: 'subject=$subject&body=$body',
+      );
+
+      final launched = await launchUrl(
+        emailUri,
+        mode: LaunchMode.externalApplication,
+      );
+
+      if (!launched && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not launch email app'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     } catch (e) {
+      print('❌ Error sending email: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -840,12 +790,16 @@ class _PickupScreenState extends State<PickupScreen> {
   Future<void> _refreshData() async {
     final controller = context.read<PickupController>();
     final authController = context.read<AuthController>();
-    
-    // Set the current user in the pickup controller
-    if (authController.currentUser != null) {
-      controller.setCurrentUser(authController.currentUser!);
+
+    // FIX: Guard against null user
+    if (authController.currentUser == null) {
+      print('⚠️ Cannot refresh: user not authenticated');
+      return;
     }
-    
+
+    // Set the current user in the pickup controller
+    controller.setCurrentUser(authController.currentUser!);
+
     await controller.loadBookingsForDate(controller.selectedDate);
   }
 
@@ -858,14 +812,18 @@ class _PickupScreenState extends State<PickupScreen> {
       firstDate: DateTime.now().subtract(const Duration(days: 30)),
       lastDate: DateTime.now().add(const Duration(days: 365)),
     );
-    
+
     if (selectedDate != null) {
-      // Set the current user in the pickup controller
-      if (authController.currentUser != null) {
-        controller.setCurrentUser(authController.currentUser!);
+      // FIX: Guard against null user
+      if (authController.currentUser == null) {
+        print('⚠️ Cannot select date: user not authenticated');
+        return;
       }
-      
+
+      // Set the current user in the pickup controller
+      controller.setCurrentUser(authController.currentUser!);
+
       await controller.loadBookingsForDate(selectedDate);
     }
   }
-} 
+}

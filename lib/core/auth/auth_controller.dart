@@ -120,12 +120,24 @@ class AuthController extends ChangeNotifier {
     try {
       _setLoading(true);
       print('📥 Loading user data for: $uid');
-      final userData = await FirebaseService.getUserData(uid);
+      
+      // FIX: Retry logic for new users where document might not exist yet
+      User? userData;
+      int retries = 0;
+      while (userData == null && retries < 3) {
+        userData = await FirebaseService.getUserData(uid);
+        if (userData == null && retries < 2) {
+          print('⚠️ User data not found, retrying in 500ms (attempt ${retries + 1})');
+          await Future.delayed(const Duration(milliseconds: 500));
+        }
+        retries++;
+      }
+      
       if (userData != null) {
         print('✅ User data loaded: ${userData.fullName} (${userData.role})');
         _currentUser = userData;
       } else {
-        print('❌ Failed to load or create user data for: $uid');
+        print('❌ Failed to load or create user data for: $uid after $retries attempts');
         _error = 'Failed to load user data';
       }
       _error = null;
@@ -242,6 +254,8 @@ class AuthController extends ChangeNotifier {
         );
         
         await FirebaseService.saveUserData(user);
+        // FIX: Add small delay to ensure Firestore write propagates
+        await Future.delayed(const Duration(milliseconds: 300));
         _currentUser = user;
         _safeNotifyListeners();
         

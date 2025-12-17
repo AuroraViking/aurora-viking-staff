@@ -391,27 +391,33 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
   Widget _buildUnassignedTab(PickupController controller) {
     final unassignedBookings = controller.unassignedBookings;
     
-    if (unassignedBookings.isEmpty) {
-      return const Center(
-        child: Text(
-          'All bookings have been assigned!',
-          style: TextStyle(color: Colors.white),
-        ),
-      );
-    }
-
     return RefreshIndicator(
       onRefresh: () async {
         await _refreshData(controller);
+        // Reload reordered bookings from Firebase after refresh
+        await _updateReorderedBookings(controller);
       },
-      child: ListView.builder(
-        padding: const EdgeInsets.all(16),
-        itemCount: unassignedBookings.length,
-        itemBuilder: (context, index) {
-          final booking = unassignedBookings[index];
-          return _buildUnassignedBookingCard(booking, controller);
-        },
-      ),
+      child: unassignedBookings.isEmpty
+          ? ListView(
+              padding: const EdgeInsets.all(16),
+              children: const [
+                SizedBox(height: 100),
+                Center(
+                  child: Text(
+                    'All bookings have been assigned!',
+                    style: TextStyle(color: Colors.white, fontSize: 16),
+                  ),
+                ),
+              ],
+            )
+          : ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: unassignedBookings.length,
+              itemBuilder: (context, index) {
+                final booking = unassignedBookings[index];
+                return _buildUnassignedBookingCard(booking, controller);
+              },
+            ),
     );
   }
 
@@ -1140,9 +1146,9 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
     );
   }
 
-  void _savePickupPlaceEdit(PickupBooking booking, String newPickupPlace, PickupController controller) {
+  Future<void> _savePickupPlaceEdit(PickupBooking booking, String newPickupPlace, PickupController controller) async {
     try {
-      controller.updatePickupPlace(booking.id, newPickupPlace);
+      await controller.updatePickupPlace(booking.id, newPickupPlace);
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
