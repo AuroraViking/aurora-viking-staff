@@ -568,4 +568,140 @@ class FirebaseService {
       return {};
     }
   }
+
+  // Save bus-guide assignment for a specific date
+  static Future<void> saveBusGuideAssignment({
+    required String guideId,
+    required String guideName,
+    required String busId,
+    required String busName,
+    required String date,
+  }) async {
+    if (!_initialized || _firestore == null) {
+      print('⚠️ Firebase not initialized - skipping bus-guide assignment save');
+      return;
+    }
+    
+    // Check if user is authenticated
+    final currentUser = _auth?.currentUser;
+    if (currentUser == null) {
+      print('❌ User not authenticated - cannot save bus-guide assignment');
+      throw Exception('User not authenticated. Please log in again.');
+    }
+    
+    print('👤 Current user: ${currentUser.uid} (${currentUser.email})');
+    
+    try {
+      final docPath = '${date}_$guideId';
+      print('💾 Attempting to save to: bus_guide_assignments/$docPath');
+      
+      await _firestore!
+          .collection('bus_guide_assignments')
+          .doc(docPath)
+          .set({
+        'guideId': guideId,
+        'guideName': guideName,
+        'busId': busId,
+        'busName': busName,
+        'date': date,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      
+      print('✅ Bus-guide assignment saved: $busName -> $guideName for date $date');
+    } catch (e) {
+      print('❌ Failed to save bus-guide assignment: $e');
+      print('📋 Error details: ${e.toString()}');
+      // Re-throw so caller can handle permission errors
+      if (e.toString().contains('permission') || e.toString().contains('PERMISSION_DENIED')) {
+        throw Exception('Permission denied: Please check Firestore security rules for bus_guide_assignments collection. User: ${currentUser.uid}');
+      }
+      rethrow;
+    }
+  }
+
+  // Get bus assignment for a guide on a specific date
+  static Future<Map<String, String>?> getBusAssignmentForGuide({
+    required String guideId,
+    required String date,
+  }) async {
+    if (!_initialized || _firestore == null) {
+      print('⚠️ Firebase not initialized - skipping bus assignment load');
+      return null;
+    }
+    
+    try {
+      final doc = await _firestore!
+          .collection('bus_guide_assignments')
+          .doc('${date}_$guideId')
+          .get();
+      
+      if (doc.exists) {
+        final data = doc.data()!;
+        return {
+          'busId': data['busId'] as String? ?? '',
+          'busName': data['busName'] as String? ?? '',
+        };
+      }
+      
+      return null;
+    } catch (e) {
+      print('❌ Failed to get bus assignment for guide: $e');
+      return null;
+    }
+  }
+
+  // Get guide assignment for a bus on a specific date
+  static Future<Map<String, String>?> getGuideAssignmentForBus({
+    required String busId,
+    required String date,
+  }) async {
+    if (!_initialized || _firestore == null) {
+      print('⚠️ Firebase not initialized - skipping guide assignment load');
+      return null;
+    }
+    
+    try {
+      final query = await _firestore!
+          .collection('bus_guide_assignments')
+          .where('busId', isEqualTo: busId)
+          .where('date', isEqualTo: date)
+          .limit(1)
+          .get();
+      
+      if (query.docs.isNotEmpty) {
+        final data = query.docs.first.data();
+        return {
+          'guideId': data['guideId'] as String? ?? '',
+          'guideName': data['guideName'] as String? ?? '',
+        };
+      }
+      
+      return null;
+    } catch (e) {
+      print('❌ Failed to get guide assignment for bus: $e');
+      return null;
+    }
+  }
+
+  // Remove bus-guide assignment
+  static Future<void> removeBusGuideAssignment({
+    required String guideId,
+    required String date,
+  }) async {
+    if (!_initialized || _firestore == null) {
+      print('⚠️ Firebase not initialized - skipping bus-guide assignment removal');
+      return;
+    }
+    
+    try {
+      await _firestore!
+          .collection('bus_guide_assignments')
+          .doc('${date}_$guideId')
+          .delete();
+      
+      print('✅ Bus-guide assignment removed for guide $guideId on date $date');
+    } catch (e) {
+      print('❌ Failed to remove bus-guide assignment: $e');
+    }
+  }
 } 

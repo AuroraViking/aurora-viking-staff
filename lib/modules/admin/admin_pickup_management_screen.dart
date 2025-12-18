@@ -9,6 +9,7 @@ import '../pickup/pickup_controller.dart';
 import 'admin_service.dart';
 import '../../core/models/admin_models.dart';
 import '../../core/services/firebase_service.dart'; // Added import for FirebaseService
+import '../../core/services/bus_management_service.dart';
 
 class AdminPickupManagementScreen extends StatefulWidget {
   const AdminPickupManagementScreen({Key? key}) : super(key: key);
@@ -24,6 +25,11 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
   
   // State to track reordered booking lists for each guide
   Map<String, List<PickupBooking>> _reorderedBookings = {};
+  
+  // State to track bus assignments for each guide
+  Map<String, Map<String, String>> _busAssignments = {}; // guideId -> {busId, busName}
+  List<Map<String, dynamic>> _availableBuses = [];
+  final BusManagementService _busService = BusManagementService();
 
   @override
   void initState() {
@@ -33,6 +39,8 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
       final controller = context.read<PickupController>();
       await controller.loadBookingsForDate(controller.selectedDate);
       await _loadGuides();
+      await _loadBuses();
+      await _loadBusAssignments(controller);
       
       // Load reordered bookings from Firebase after data is loaded
       await _updateReorderedBookings(controller);
@@ -50,6 +58,8 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
     super.dispose();
   }
 
+  bool _isLoadingAssignments = false;
+  
   void _onControllerDataChanged() {
     // Update reordered bookings when assignments change, but preserve custom order
     if (mounted) {
@@ -59,6 +69,11 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
       if (controller.bookings.isNotEmpty || _reorderedBookings.isNotEmpty) {
         // Update existing reordered lists with new assignment data
         _updateReorderedBookings(controller); // Now async, but we don't await it
+        
+        // Also reload bus assignments when data changes, but only if not already loading
+        if (!_isLoadingAssignments) {
+          _loadBusAssignments(controller); // Now async, but we don't await it
+        }
       }
     }
   }
@@ -187,6 +202,146 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
             content: Text('Failed to load guides: $e'),
             backgroundColor: Colors.red,
           ),
+        );
+      }
+    }
+  }
+
+  // Load available buses
+  Future<void> _loadBuses() async {
+    try {
+      final busesStream = _busService.getActiveBuses();
+      busesStream.listen((buses) {
+        if (mounted) {
+          setState(() {
+            _availableBuses = buses;
+          });
+        }
+      });
+    } catch (e) {
+      print('❌ Error loading buses: $e');
+    }
+  }
+
+  // Load bus assignments for all guides on the selected date
+  Future<void> _loadBusAssignments(PickupController controller) async {
+    // Prevent multiple simultaneous loads
+    if (_isLoadingAssignments) {
+      print('⚠️ Already loading assignments, skipping...');
+      return;
+    }
+    
+    _isLoadingAssignments = true;
+    
+    try {
+      final dateStr = '${controller.selectedDate.year}-${controller.selectedDate.month.toString().padLeft(2, '0')}-${controller.selectedDate.day.toString().padLeft(2, '0')}';
+      final assignments = <String, Map<String, String>>{};
+      
+      print('🔍 Loading bus assignments for date $dateStr');
+      print('📋 Guide lists count: ${controller.guideLists.length}');
+      
+      // Wait a bit to ensure guide lists are populated
+      if (controller.guideLists.isEmpty) {
+        print('⚠️ No guide lists yet, waiting...');
+        await Future.delayed(const Duration(milliseconds: 500));
+      }
+      
+      for (final guideList in controller.guideLists) {
+        print('🔍 Checking assignment for guide ${guideList.guideName} (${guideList.guideId})');
+        try {
+          final assignment = await FirebaseService.getBusAssignmentForGuide(
+            guideId: guideList.guideId,
+            date: dateStr,
+          );
+          print('📋 Assignment result for ${guideList.guideName}: $assignment');
+          if (assignment != null && assignment['busId']!.isNotEmpty) {
+            assignments[guideList.guideId] = assignment;
+            print('✅ Loaded assignment: ${guideList.guideName} -> ${assignment['busName']}');
+          } else {
+            print('⚠️ No assignment found for ${guideList.guideName}');
+          }
+        } catch (e) {
+          // Handle permission errors gracefully
+          if (e.toString().contains('permission') || e.toString().contains('PERMISSION_DENIED')) {
+            print('⚠️ Permission denied for guide ${guideList.guideName}, skipping...');
+            // Don't fail completely, just skip this guide
+            continue;
+          } else {
+            print('❌ Error loading assignment for ${guideList.guideName}: $e');
+          }
+        }
+      }
+      
+      print('✅ Loaded ${assignments.length} bus assignments total');
+      
+      if (mounted) {
+        setState(() {
+          _busAssignments = assignments;
+        });
+      }
+    } catch (e) {
+      print('❌ Error loading bus assignments: $e');
+    } finally {
+      _isLoadingAssignments = false;
+    }
+  }
+
+  // Assign bus to guide
+  Future<void> _assignBusToGuide(String guideId, String guideName, String? busId, String? busName, PickupController controller) async {
+    try {
+      final dateStr = '${controller.selectedDate.year}-${controller.selectedDate.month.toString().padLeft(2, '0')}-${controller.selectedDate.day.toString().padLeft(2, '0')}';
+      
+      print('💾 Saving bus assignment: guide=$guideName ($guideId), bus=$busName ($busId), date=$dateStr');
+      
+      if (busId == null || busId.isEmpty) {
+        // Remove assignment
+        print('🗑️ Removing bus assignment for guide $guideName');
+        await FirebaseService.removeBusGuideAssignment(
+          guideId: guideId,
+          date: dateStr,
+        );
+        if (mounted) {
+          setState(() {
+            _busAssignments.remove(guideId);
+          });
+        }
+        print('✅ Bus assignment removed');
+      } else {
+        // Save assignment
+        print('💾 Saving bus assignment to Firebase...');
+        await FirebaseService.saveBusGuideAssignment(
+          guideId: guideId,
+          guideName: guideName,
+          busId: busId,
+          busName: busName ?? 'Unknown Bus',
+          date: dateStr,
+        );
+        print('✅ Bus assignment saved to Firebase');
+        
+        if (mounted) {
+          setState(() {
+            _busAssignments[guideId] = {
+              'busId': busId,
+              'busName': busName ?? 'Unknown Bus',
+            };
+          });
+          print('✅ Local state updated: ${_busAssignments[guideId]}');
+        }
+        
+        // Verify the save by reloading
+        print('🔍 Verifying save by reloading assignment...');
+        await Future.delayed(const Duration(milliseconds: 500));
+        final verification = await FirebaseService.getBusAssignmentForGuide(
+          guideId: guideId,
+          date: dateStr,
+        );
+        print('📋 Verification result: $verification');
+      }
+    } catch (e) {
+      print('❌ Error assigning bus to guide: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to assign bus: $e')),
         );
       }
     }
@@ -663,9 +818,16 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
             ),
           ],
         ),
-        subtitle: Text(
-          '${guideList.bookings.length} pickups',
-          style: const TextStyle(color: Colors.white),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '${guideList.bookings.length} pickups',
+              style: const TextStyle(color: Colors.white),
+            ),
+            const SizedBox(height: 4),
+            _buildBusAssignmentWidget(guideList, controller),
+          ],
         ),
         children: [
           Container(
@@ -684,6 +846,174 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
         ],
       ),
     );
+  }
+
+  // Build bus assignment widget
+  Widget _buildBusAssignmentWidget(GuidePickupList guideList, PickupController controller) {
+    final assignment = _busAssignments[guideList.guideId];
+    final assignedBusName = assignment?['busName'] ?? 'No bus assigned';
+    
+    return InkWell(
+      onTap: () => _showBusSelectionDialog(guideList, controller),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: assignment != null ? AppColors.primary.withOpacity(0.2) : Colors.grey.withOpacity(0.2),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: assignment != null ? AppColors.primary : Colors.grey,
+            width: 1,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.directions_bus,
+              size: 16,
+              color: assignment != null ? AppColors.primary : Colors.grey,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              assignedBusName,
+              style: TextStyle(
+                color: assignment != null ? AppColors.primary : Colors.grey,
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            const SizedBox(width: 4),
+            Icon(
+              Icons.edit,
+              size: 14,
+              color: assignment != null ? AppColors.primary : Colors.grey,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Show bus selection dialog
+  Future<void> _showBusSelectionDialog(GuidePickupList guideList, PickupController controller) async {
+    final assignment = _busAssignments[guideList.guideId];
+    final initialSelectedBusId = assignment?['busId'];
+    
+    // Declare variable outside builder so it persists across rebuilds
+    String? selectedBusId = initialSelectedBusId;
+    
+    final result = await showDialog<String?>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              backgroundColor: const Color(0xFF1A1A2E),
+              title: Text(
+                'Assign Bus to ${guideList.guideName}',
+                style: const TextStyle(color: Colors.white),
+              ),
+              content: SizedBox(
+                width: double.maxFinite,
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: _availableBuses.length + 1, // +1 for "None" option
+                  itemBuilder: (context, index) {
+                    if (index == 0) {
+                      // "None" option to remove assignment
+                      final isSelected = selectedBusId == null;
+                      return ListTile(
+                        title: const Text(
+                          'No bus assigned',
+                          style: TextStyle(color: Colors.white),
+                        ),
+                        leading: Radio<String?>(
+                          value: null,
+                          groupValue: selectedBusId,
+                          onChanged: (value) {
+                            setDialogState(() {
+                              selectedBusId = value;
+                            });
+                          },
+                        ),
+                        selected: isSelected,
+                        onTap: () {
+                          setDialogState(() {
+                            selectedBusId = null;
+                          });
+                        },
+                      );
+                    }
+                    
+                    final bus = _availableBuses[index - 1];
+                    final busId = bus['id'] as String;
+                    final busName = bus['name'] as String;
+                    final licensePlate = bus['licensePlate'] as String? ?? '';
+                    final isSelected = selectedBusId == busId;
+                    
+                    return ListTile(
+                      title: Text(
+                        busName,
+                        style: const TextStyle(color: Colors.white),
+                      ),
+                      subtitle: Text(
+                        licensePlate.isNotEmpty ? 'License: $licensePlate' : '',
+                        style: const TextStyle(color: Colors.white70),
+                      ),
+                      leading: Radio<String?>(
+                        value: busId,
+                        groupValue: selectedBusId,
+                        onChanged: (value) {
+                          setDialogState(() {
+                            selectedBusId = value;
+                          });
+                        },
+                      ),
+                      selected: isSelected,
+                      onTap: () {
+                        setDialogState(() {
+                          selectedBusId = busId;
+                        });
+                      },
+                    );
+                  },
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, null),
+                  child: const Text('Cancel'),
+                ),
+                TextButton(
+                  onPressed: () {
+                    Navigator.pop(context, selectedBusId);
+                  },
+                  child: const Text('Assign'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+    
+    // Handle the result
+    if (result != null || (result == null && initialSelectedBusId != null)) {
+      // User clicked Assign (result can be null to remove assignment)
+      final finalBusId = result;
+      if (finalBusId == null) {
+        await _assignBusToGuide(guideList.guideId, guideList.guideName, null, null, controller);
+      } else {
+        final selectedBus = _availableBuses.firstWhere((b) => b['id'] == finalBusId);
+        await _assignBusToGuide(
+          guideList.guideId,
+          guideList.guideName,
+          finalBusId,
+          selectedBus['name'] as String,
+          controller,
+        );
+      }
+    }
   }
 
   // Initialize reordered list for a guide
@@ -917,6 +1247,8 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
         _resetReorderedBookings();
       });
       controller.changeDate(selectedDate);
+      // Reload bus assignments for the new date
+      await _loadBusAssignments(controller);
     }
   }
 
@@ -1102,6 +1434,9 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
   Future<void> _refreshData(PickupController controller) async {
     await controller.loadBookingsForDate(controller.selectedDate);
     await _loadGuides();
+    // Wait a bit for guide lists to be populated after bookings are loaded
+    await Future.delayed(const Duration(milliseconds: 300));
+    await _loadBusAssignments(controller);
   }
 
   void _editPickupPlace(PickupBooking booking, PickupController controller) {

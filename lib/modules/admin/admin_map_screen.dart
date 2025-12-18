@@ -2,11 +2,14 @@
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:provider/provider.dart';
 import '../../core/theme/colors.dart';
 import '../../core/services/bus_management_service.dart';
+import '../../core/services/firebase_service.dart';
+import '../../core/models/pickup_models.dart';
 import '../tracking/location_service.dart';
+import '../pickup/pickup_controller.dart';
 
 class AdminMapScreen extends StatefulWidget {
   const AdminMapScreen({super.key});
@@ -35,6 +38,10 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
   bool _hasApiKey = false;
   bool _showTrails = true;
   Map<String, List<LatLng>> _busTrails = {};
+  
+  // Bus-guide assignments and pickup data
+  Map<String, Map<String, String>> _busGuideAssignments = {}; // busId -> {guideId, guideName}
+  Map<String, GuidePickupList?> _guidePickupLists = {}; // guideId -> GuidePickupList
 
   @override
   void initState() {
@@ -89,6 +96,9 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
       
       // Reload trails for new buses
       _loadAllBusTrails();
+      
+      // Load bus-guide assignments after buses are loaded
+      _loadBusGuideAssignments();
     });
   }
 
@@ -212,16 +222,41 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
         final speed = data['speed'] as double? ?? 0.0;
         final heading = data['heading'] as double? ?? 0.0;
 
-        // Create marker
+        // Get guide assignment and pickup info for this bus
+        final assignment = _busGuideAssignments[busId];
+        final guideId = assignment?['guideId'];
+        final guideName = assignment?['guideName'];
+        final guidePickupList = guideId != null ? _guidePickupLists[guideId] : null;
+        
+        // Calculate pickup count
+        int pickedUpCount = 0;
+        int totalPassengers = 0;
+        if (guidePickupList != null) {
+          pickedUpCount = guidePickupList.bookings
+              .where((b) => b.isArrived)
+              .fold<int>(0, (sum, b) => sum + b.numberOfGuests);
+          totalPassengers = guidePickupList.totalPassengers;
+        }
+
+        // Create marker with updated info
         markers.add(Marker(
           markerId: MarkerId(busId),
           position: LatLng(latitude, longitude),
           icon: busInfo['icon'] as BitmapDescriptor,
           infoWindow: InfoWindow(
             title: busInfo['name'] as String,
-            snippet: _getLocationSnippet(speed, heading, timestamp),
+            snippet: _getLocationSnippet(
+              speed, 
+              heading, 
+              timestamp,
+              busName: busInfo['name'] as String,
+              guideName: guideName,
+              pickedUpCount: pickedUpCount,
+              totalPassengers: totalPassengers,
+            ),
           ),
           rotation: heading,
+          onTap: () => _onBusMarkerTapped(busId),
         ));
 
         buses.add({
@@ -243,12 +278,33 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
         _markers = markers;
         _activeBuses = buses;
       });
+      
+      // Refresh bus-guide assignments when bus locations update
+      // This ensures we have the latest assignments
+      _loadBusGuideAssignments();
     }
   }
 
-  String _getLocationSnippet(double speed, double heading, Timestamp? timestamp) {
+  String _getLocationSnippet(
+    double speed, 
+    double heading, 
+    Timestamp? timestamp, {
+    String? busName,
+    String? guideName,
+    int pickedUpCount = 0,
+    int totalPassengers = 0,
+  }) {
     final speedKmh = (speed * 3.6).toStringAsFixed(1);
     final timeAgo = _getTimeAgo(timestamp);
+    
+    // Build the snippet with guide/bus info if available
+    if (guideName != null && busName != null && totalPassengers > 0) {
+      return '$guideName - $busName - $pickedUpCount/$totalPassengers';
+    } else if (guideName != null && busName != null) {
+      return '$guideName - $busName';
+    }
+    
+    // Fallback to speed/time if no guide info
     return 'Speed: ${speedKmh} km/h • $timeAgo';
   }
 
@@ -368,6 +424,10 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
                         buildingsEnabled: true,
                         indoorViewEnabled: false,
                         mapType: MapType.normal,
+                        onTap: (LatLng position) {
+                          // Close any open bottom sheets when tapping map
+                          Navigator.of(context).popUntil((route) => route.isFirst || !route.isActive);
+                        },
                       )
                     : Container(
                         color: Colors.grey[200],
@@ -550,6 +610,488 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
         content: Text('History for ${_busData[busId]?['name'] ?? 'Unknown bus'}'),
         duration: const Duration(seconds: 2),
       ),
+    );
+  }
+
+  // Load bus-guide assignments for today
+  Future<void> _loadBusGuideAssignments() async {
+    try {
+      if (_busData.isEmpty) {
+        print('⚠️ No buses available yet, skipping assignment load');
+        return;
+      }
+      
+      final today = DateTime.now();
+      final dateStr = '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+      
+      print('🔍 Loading bus-guide assignments for date $dateStr (${_busData.length} buses)');
+      
+      // Get all buses from _busData (which contains all active buses)
+      for (final busId in _busData.keys) {
+        final assignment = await FirebaseService.getGuideAssignmentForBus(
+          busId: busId,
+          date: dateStr,
+        );
+        
+        if (assignment != null && assignment['guideId']!.isNotEmpty) {
+          print('✅ Found assignment for bus $busId: ${assignment['guideName']}');
+          if (mounted) {
+            setState(() {
+              _busGuideAssignments[busId] = assignment;
+            });
+          }
+          
+          // Load pickup list for this guide
+          await _loadGuidePickupList(assignment['guideId']!, today);
+        }
+      }
+      
+      print('✅ Loaded ${_busGuideAssignments.length} bus-guide assignments');
+      
+      // Refresh markers to show guide info in info windows
+      _refreshMarkers();
+    } catch (e) {
+      print('❌ Error loading bus-guide assignments: $e');
+    }
+  }
+
+  // Load pickup list for a guide
+  Future<void> _loadGuidePickupList(String guideId, DateTime date) async {
+    try {
+      if (!mounted) return;
+      
+      final controller = context.read<PickupController>();
+      await controller.loadBookingsForDate(date);
+      
+      final guideList = controller.getGuideList(guideId);
+      if (guideList != null && mounted) {
+        setState(() {
+          _guidePickupLists[guideId] = guideList;
+        });
+        
+        // Refresh markers to update pickup count in info windows
+        _refreshMarkers();
+      }
+    } catch (e) {
+      print('❌ Error loading guide pickup list: $e');
+    }
+  }
+
+  // Refresh markers with updated guide/pickup info
+  void _refreshMarkers() {
+    if (_markers.isEmpty || _activeBuses.isEmpty) return;
+    
+    final updatedMarkers = <Marker>{};
+    
+    for (final marker in _markers) {
+      final busId = marker.markerId.value;
+      final busInfo = _busData[busId];
+      if (busInfo == null) continue;
+      
+      // Get current bus location data
+      final busData = _activeBuses.firstWhere(
+        (b) => b['busId'] == busId,
+        orElse: () => {},
+      );
+      
+      if (busData.isEmpty) continue;
+      
+      // Get guide assignment and pickup info
+      final assignment = _busGuideAssignments[busId];
+      final guideId = assignment?['guideId'];
+      final guideName = assignment?['guideName'];
+      final guidePickupList = guideId != null ? _guidePickupLists[guideId] : null;
+      
+      // Calculate pickup count
+      int pickedUpCount = 0;
+      int totalPassengers = 0;
+      if (guidePickupList != null) {
+        pickedUpCount = guidePickupList.bookings
+            .where((b) => b.isArrived)
+            .fold<int>(0, (sum, b) => sum + b.numberOfGuests);
+        totalPassengers = guidePickupList.totalPassengers;
+      }
+      
+      // Create updated marker
+      updatedMarkers.add(Marker(
+        markerId: marker.markerId,
+        position: marker.position,
+        icon: marker.icon,
+        infoWindow: InfoWindow(
+          title: busInfo['name'] as String,
+          snippet: _getLocationSnippet(
+            busData['speed'] as double? ?? 0.0,
+            busData['heading'] as double? ?? 0.0,
+            busData['timestamp'] as Timestamp?,
+            busName: busInfo['name'] as String,
+            guideName: guideName,
+            pickedUpCount: pickedUpCount,
+            totalPassengers: totalPassengers,
+          ),
+        ),
+        rotation: marker.rotation,
+        onTap: marker.onTap,
+      ));
+    }
+    
+    if (mounted) {
+      setState(() {
+        _markers = updatedMarkers;
+      });
+    }
+  }
+
+  // Handle bus marker tap
+  void _onBusMarkerTapped(String busId) async {
+    final busInfo = _busData[busId];
+    if (busInfo == null) return;
+    
+    // Load assignment if not already loaded
+    if (!_busGuideAssignments.containsKey(busId)) {
+      await _loadBusAssignmentForBus(busId);
+    }
+    
+    final assignment = _busGuideAssignments[busId];
+    final guideId = assignment?['guideId'];
+    final guideName = assignment?['guideName'];
+    
+    // Load pickup list if we have a guide but don't have the list yet
+    GuidePickupList? guidePickupList;
+    if (guideId != null && !_guidePickupLists.containsKey(guideId)) {
+      await _loadGuidePickupList(guideId, DateTime.now());
+      guidePickupList = _guidePickupLists[guideId];
+    } else if (guideId != null) {
+      guidePickupList = _guidePickupLists[guideId];
+    }
+    
+    // Show bottom sheet with bus info, guide info, and pickup list
+    if (mounted) {
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: const Color(0xFF1A1A2E),
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (context) => DraggableScrollableSheet(
+          initialChildSize: 0.6,
+          minChildSize: 0.3,
+          maxChildSize: 0.95,
+          expand: false,
+          builder: (context, scrollController) => _buildBusInfoSheet(
+            busId: busId,
+            busName: busInfo['name'] as String,
+            licensePlate: busInfo['licensePlate'] as String,
+            guideName: guideName,
+            guidePickupList: guidePickupList,
+            scrollController: scrollController,
+          ),
+        ),
+      );
+    }
+  }
+
+  // Load bus assignment for a specific bus
+  Future<void> _loadBusAssignmentForBus(String busId) async {
+    try {
+      final today = DateTime.now();
+      final dateStr = '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+      
+      print('🔍 Loading bus assignment for bus $busId on date $dateStr');
+      
+      final assignment = await FirebaseService.getGuideAssignmentForBus(
+        busId: busId,
+        date: dateStr,
+      );
+      
+      print('📋 Assignment result for bus $busId: $assignment');
+      
+      if (assignment != null && assignment['guideId']!.isNotEmpty && mounted) {
+        print('✅ Found assignment: ${assignment['guideName']} (${assignment['guideId']})');
+        setState(() {
+          _busGuideAssignments[busId] = assignment;
+        });
+        
+        // Load pickup list for this guide
+        await _loadGuidePickupList(assignment['guideId']!, today);
+      } else {
+        print('⚠️ No assignment found for bus $busId');
+      }
+    } catch (e) {
+      print('❌ Error loading bus assignment for bus $busId: $e');
+    }
+  }
+
+  // Build bus info bottom sheet
+  Widget _buildBusInfoSheet({
+    required String busId,
+    required String busName,
+    required String licensePlate,
+    String? guideName,
+    GuidePickupList? guidePickupList,
+    required ScrollController scrollController,
+  }) {
+    return Column(
+      children: [
+        // Handle bar
+        Container(
+          margin: const EdgeInsets.only(top: 12),
+          width: 40,
+          height: 4,
+          decoration: BoxDecoration(
+            color: Colors.grey[600],
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        
+        // Header
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(
+                  Icons.directions_bus,
+                  color: AppColors.primary,
+                  size: 32,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      busName,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Text(
+                      'License: $licensePlate',
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        
+        // Guide info
+        if (guideName != null)
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 16),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppColors.success.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.success.withOpacity(0.3)),
+            ),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.person,
+                  color: AppColors.success,
+                  size: 24,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Assigned Guide',
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 12,
+                        ),
+                      ),
+                      Text(
+                        guideName,
+                        style: const TextStyle(
+                          color: AppColors.success,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        
+        if (guideName == null)
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.grey.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Row(
+              children: [
+                Icon(
+                  Icons.info_outline,
+                  color: Colors.grey,
+                  size: 20,
+                ),
+                SizedBox(width: 12),
+                Text(
+                  'No guide assigned to this bus',
+                  style: TextStyle(
+                    color: Colors.grey,
+                    fontSize: 14,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        
+        const SizedBox(height: 16),
+        
+        // Pickup list
+        if (guidePickupList != null && guidePickupList.bookings.isNotEmpty)
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Text(
+                    'Pickup List (${guidePickupList.totalPassengers} passengers)',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: ListView.builder(
+                    controller: scrollController,
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    itemCount: guidePickupList.bookings.length,
+                    itemBuilder: (context, index) {
+                      final booking = guidePickupList.bookings[index];
+                      return Card(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        color: const Color(0xFF2A2A3E),
+                        child: ListTile(
+                          leading: CircleAvatar(
+                            backgroundColor: booking.isArrived 
+                                ? AppColors.success 
+                                : Colors.grey,
+                            child: Icon(
+                              booking.isArrived ? Icons.check : Icons.pending,
+                              color: Colors.white,
+                              size: 20,
+                            ),
+                          ),
+                          title: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  booking.customerFullName,
+                                  style: TextStyle(
+                                    color: booking.isArrived ? AppColors.success : Colors.white,
+                                    fontWeight: FontWeight.w500,
+                                    decoration: booking.isArrived ? TextDecoration.lineThrough : null,
+                                  ),
+                                ),
+                              ),
+                              if (booking.isArrived)
+                                Container(
+                                  margin: const EdgeInsets.only(left: 8),
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.success.withOpacity(0.2),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: const Text(
+                                    'Picked Up',
+                                    style: TextStyle(
+                                      color: AppColors.success,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                booking.pickupPlaceName,
+                                style: const TextStyle(color: Colors.white70),
+                              ),
+                              Text(
+                                '${booking.numberOfGuests} guests • ${booking.pickupTime}',
+                                style: const TextStyle(color: Colors.white60),
+                              ),
+                            ],
+                          ),
+                          trailing: booking.isNoShow
+                              ? Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.error.withOpacity(0.2),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: const Text(
+                                    'No Show',
+                                    style: TextStyle(
+                                      color: AppColors.error,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                )
+                              : null,
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          )
+        else if (guideName != null)
+          Expanded(
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(
+                    Icons.list_alt,
+                    color: Colors.grey,
+                    size: 48,
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'No pickups assigned',
+                    style: TextStyle(
+                      color: Colors.grey,
+                      fontSize: 16,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ],
     );
   }
 } 
