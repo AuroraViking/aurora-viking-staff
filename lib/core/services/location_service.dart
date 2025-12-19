@@ -589,6 +589,15 @@ class LocationService {
         .snapshots();
   }
 
+  /// Get all bus locations including those not currently tracking
+  /// This shows the last known position for all buses
+  Stream<QuerySnapshot> getAllBusLocationsWithLastKnown() {
+    return _firestore
+        .collection('bus_locations')
+        .orderBy('lastUpdated', descending: true)
+        .snapshots();
+  }
+
   Future<List<Map<String, dynamic>>> getBusLocationHistory(
     String busId, {
     DateTime? startDate,

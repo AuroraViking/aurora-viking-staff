@@ -13,7 +13,7 @@ import '../../core/theme/colors.dart';
 import '../../core/services/bus_management_service.dart';
 import '../../core/services/firebase_service.dart';
 import '../../core/models/pickup_models.dart';
-import '../tracking/location_service.dart';
+import '../../core/services/location_service.dart';
 import '../pickup/pickup_controller.dart';
 
 class AdminMapScreen extends StatefulWidget {
@@ -148,6 +148,12 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
     }
   }
 
+  /// Get marker icon for inactive/non-tracking buses (grayed out)
+  BitmapDescriptor _getInactiveMarkerIcon(int pickedUp, int total) {
+    // Use gray hue for inactive buses
+    return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueViolet);
+  }
+
   /// Get progress color for UI elements
   Color _getProgressColor(int pickedUp, int total) {
     if (total == 0) return Colors.grey;
@@ -248,7 +254,9 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
     });
 
     try {
-      _locationService.getAllBusLocations().listen((snapshot) {
+      // Use getAllBusLocationsWithLastKnown to show all buses, even when not tracking
+      // This keeps buses on the map with their last known position
+      _locationService.getAllBusLocationsWithLastKnown().listen((snapshot) {
         _updateBusLocations(snapshot);
       });
 
@@ -342,6 +350,8 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
         final timestamp = data['timestamp'] as Timestamp?;
         final speed = data['speed'] as double? ?? 0.0;
         final heading = data['heading'] as double? ?? 0.0;
+        final isTracking = data['isTracking'] as bool? ?? false;
+        final lastUpdated = data['lastUpdated'] as Timestamp?;
 
         // Get guide assignment and pickup info
         final assignment = _busGuideAssignments[busId];
@@ -359,24 +369,30 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
           totalPassengers = guidePickupList.totalPassengers;
         }
 
-        // Create marker with PROGRESS-BASED COLOR
+        // Use different icon style for non-tracking buses (grayed out)
+        final icon = isTracking 
+            ? _getProgressMarkerIcon(pickedUpCount, totalPassengers)
+            : _getInactiveMarkerIcon(pickedUpCount, totalPassengers);
+
+        // Create marker - show last known position even if not tracking
         markers.add(Marker(
           markerId: MarkerId(busId),
           position: LatLng(latitude, longitude),
-          icon: _getProgressMarkerIcon(pickedUpCount, totalPassengers),
+          icon: icon,
           infoWindow: InfoWindow(
-            title: '${busInfo['name']} ${totalPassengers > 0 ? '($pickedUpCount/$totalPassengers)' : ''}',
+            title: '${busInfo['name']} ${!isTracking ? '(Last Known)' : ''} ${totalPassengers > 0 ? '($pickedUpCount/$totalPassengers)' : ''}',
             snippet: _getLocationSnippet(
               speed,
               heading,
-              timestamp,
+              timestamp ?? lastUpdated,
               busName: busInfo['name'] as String,
               guideName: guideName,
               pickedUpCount: pickedUpCount,
               totalPassengers: totalPassengers,
+              isTracking: isTracking,
             ),
           ),
-          rotation: heading,
+          rotation: isTracking ? heading : 0.0, // Don't rotate if not tracking
           onTap: () => _onBusMarkerTapped(busId),
         ));
 
@@ -412,10 +428,15 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
         String? guideName,
         int pickedUpCount = 0,
         int totalPassengers = 0,
+        bool isTracking = true,
       }) {
     final timeAgo = _getTimeAgo(timestamp);
 
     final parts = <String>[];
+
+    if (!isTracking) {
+      parts.add('Last known position');
+    }
 
     if (guideName != null) {
       parts.add(guideName);
