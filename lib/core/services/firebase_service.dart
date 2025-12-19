@@ -1,6 +1,7 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../firebase_options.dart';
 import '../models/user_model.dart';
 import '../models/pickup_models.dart';
 
@@ -36,7 +37,10 @@ class FirebaseService {
     _initializing = true;
     
     try {
-      await Firebase.initializeApp();
+      // Use platform-specific options (required for web!)
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
       _auth = firebase_auth.FirebaseAuth.instance;
       _firestore = FirebaseFirestore.instance;
       _initialized = true;

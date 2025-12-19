@@ -4,7 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
-import 'dart:io';
+import 'dart:io' if (dart.library.html) '../../core/utils/file_stub.dart' as io;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:async'; // Added for Timer
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -1121,16 +1122,51 @@ class _AdminShiftManagementScreenState extends State<AdminShiftManagementScreen>
   }
 
   Future<void> _saveAndShareReport(String content, DateTime month) async {
+    if (kIsWeb) {
+      // Web: Share text directly
+      await Share.share(
+        content,
+        subject: 'Aurora Viking Staff - Monthly Shift Report for ${DateFormat('MMMM yyyy').format(month)}',
+      );
+      return;
+    }
+    
+    // Mobile: Save to file and share (dart:io only)
+    // This will only execute on non-web platforms where dart:io is available
     final directory = await getApplicationDocumentsDirectory();
     final fileName = 'shifts_report_${DateFormat('yyyy_MM').format(month)}.csv';
-    final file = File('${directory.path}/$fileName');
+    final filePath = '${directory.path}/$fileName';
     
-    await file.writeAsString(content);
+    // Use a helper to create the file - this avoids web compilation issues
+    await _writeFileContent(filePath, content);
     
     await Share.shareXFiles(
-      [XFile(file.path)],
+      [XFile(filePath)],
       text: 'Aurora Viking Staff - Monthly Shift Report for ${DateFormat('MMMM yyyy').format(month)}',
     );
+  }
+  
+  Future<void> _writeFileContent(String filePath, String content) async {
+    if (kIsWeb) return; // Should never be called on web
+    
+    // On non-web, io is dart:io.File which has a single-argument constructor
+    // We need to use a workaround because dart:html.File has a different constructor
+    // ignore: avoid_dynamic_calls
+    // ignore: undefined_class
+    // ignore: invalid_use_of_visible_for_testing_member
+    // The File constructor is only valid on non-web platforms
+    final file = _createFile(filePath);
+    await file.writeAsString(content);
+  }
+  
+  // Helper to create File object - only works on non-web platforms
+  dynamic _createFile(String path) {
+    if (kIsWeb) {
+      throw UnsupportedError('File operations not supported on web');
+    }
+    // On non-web, io is dart:io which has File class
+    // On web, io is file_stub.dart which also has File class (but throws on use)
+    return io.File(path);
   }
 
   void _deleteShift(String shiftId) async {

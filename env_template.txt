@@ -2,7 +2,13 @@
 # Copy this file to .env and fill in your actual values
 
 # Google Maps API Key
+# Get from: Google Cloud Console > APIs & Services > Credentials
 GOOGLE_MAPS_API_KEY=YOUR_GOOGLE_MAPS_API_KEY_HERE
+
+# Firebase Web API Key (REQUIRED for web version!)
+# Get from: Firebase Console > Project Settings > Your apps > Web app > apiKey
+# This is the apiKey value from your Firebase web app configuration
+FIREBASE_WEB_API_KEY=YOUR_FIREBASE_WEB_API_KEY_HERE
 
 # OpenWeatherMap API Key (for weather data in aurora forecast)
 OPENWEATHER_API_KEY=YOUR_OPENWEATHER_API_KEY_HERE
@@ -11,10 +17,6 @@ OPENWEATHER_API_KEY=YOUR_OPENWEATHER_API_KEY_HERE
 # No service account keys needed - uses secure OAuth tokens
 # For development: Run 'gcloud auth application-default login'
 # For production: Configure Workload Identity Federation
-
-# Firebase Configuration (if needed)
-# FIREBASE_PROJECT_ID=your-project-id
-# FIREBASE_API_KEY=your-firebase-api-key
 
 # Other API Keys (if needed)
 # BOKUN_API_KEY=your-bokun-api-key

@@ -1,38 +1,81 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <!--
-    If you are serving your web app in a path other than the root, change the
-    href value below to reflect the base path you are serving from.
-
-    The path provided below has to start and end with a slash "/" in order for
-    it to work correctly.
-
-    For more details:
-    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
-
-    This is a placeholder for base href that will be replaced by the value of
-    the `--base-href` argument provided to `flutter build`.
-  -->
   <base href="$FLUTTER_BASE_HREF">
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="A staff app for people to log their shifts and other functional deeds.">
+  <meta name="description" content="Aurora Viking Staff - Manage shifts, pickups, and more">
 
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="aurora_viking_staff">
+  <meta name="apple-mobile-web-app-title" content="Aurora Viking Staff">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png"/>
 
-  <title>aurora_viking_staff</title>
+  <title>Aurora Viking Staff</title>
   <link rel="manifest" href="manifest.json">
+
+  <!-- ============================================ -->
+  <!-- FIREBASE: Flutter Firebase plugins handle JS SDK loading automatically -->
+  <!-- No need to manually load Firebase scripts - Flutter does it via firebase_options.dart -->
+  <!-- ============================================ -->
+
+  <!-- ============================================ -->
+  <!-- GOOGLE MAPS JS API - REQUIRED FOR MAPS      -->
+  <!-- ============================================ -->
+  <!-- MAPS_API_KEY_PLACEHOLDER will be replaced by run_web.sh -->
+  <script src="https://maps.googleapis.com/maps/api/js?key=MAPS_API_KEY_PLACEHOLDER"></script>
+
+  <style>
+    .loading {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      background-color: #0A0D12;
+      flex-direction: column;
+    }
+    
+    .spinner {
+      width: 50px;
+      height: 50px;
+      border: 3px solid rgba(0, 229, 255, 0.3);
+      border-radius: 50%;
+      border-top-color: #00E5FF;
+      animation: spin 1s ease-in-out infinite;
+    }
+    
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    
+    .loading-text {
+      color: #00E5FF;
+      margin-top: 20px;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      font-size: 14px;
+    }
+  </style>
 </head>
 <body>
+  <div class="loading" id="loading">
+    <div class="spinner"></div>
+    <div class="loading-text">Loading Aurora Viking Staff...</div>
+  </div>
+
+  <script>
+    window.addEventListener('flutter-first-frame', function() {
+      const loading = document.getElementById('loading');
+      if (loading) {
+        loading.style.display = 'none';
+      }
+    });
+  </script>
+
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

@@ -1,4 +1,5 @@
 // Home screen as the central hub with bottom navigation or side drawer for module access 
+// Now with web compatibility - Photos and Tracking tabs hidden on web!
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -12,6 +13,7 @@ import '../modules/forecast/forecast_screen.dart';
 import '../modules/admin/admin_dashboard.dart';
 import '../modules/admin/admin_controller.dart';
 import '../core/auth/auth_controller.dart';
+import '../core/utils/platform_utils.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -23,14 +25,66 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
 
-  // Screens for each module
-  final List<Widget> _screens = [
-    const ForecastScreen(),
-    const ShiftsScreen(),
-    const PhotoUploadScreen(),
-    const TrackingScreen(),
-    const PickupScreen(),
-  ];
+  // Build screens list based on platform capabilities
+  List<Widget> get _screens {
+    final screens = <Widget>[
+      const ForecastScreen(),
+      const ShiftsScreen(),
+    ];
+    
+    // Only add Photos tab on mobile (requires native file system)
+    if (PlatformFeatures.uploadTab) {
+      screens.add(const PhotoUploadScreen());
+    }
+    
+    // Only add Tracking tab on mobile (requires native GPS)
+    if (PlatformFeatures.trackingTab) {
+      screens.add(const TrackingScreen());
+    }
+    
+    // Pickup list works on all platforms
+    screens.add(const PickupScreen());
+    
+    return screens;
+  }
+
+  // Build navigation items based on platform capabilities
+  List<BottomNavigationBarItem> get _navItems {
+    final items = <BottomNavigationBarItem>[
+      const BottomNavigationBarItem(
+        icon: Icon(Icons.auto_awesome),
+        label: 'Forecast',
+      ),
+      const BottomNavigationBarItem(
+        icon: Icon(Icons.work),
+        label: 'Shifts',
+      ),
+    ];
+    
+    // Only add Photos tab on mobile
+    if (PlatformFeatures.uploadTab) {
+      items.add(const BottomNavigationBarItem(
+        icon: Icon(Icons.camera_alt),
+        label: 'Photos',
+      ));
+    }
+    
+    // Only add Tracking tab on mobile
+    if (PlatformFeatures.trackingTab) {
+      items.add(const BottomNavigationBarItem(
+        icon: Icon(Icons.location_on),
+        label: 'Tracking',
+      ));
+    }
+    
+    // Pickup list works on all platforms
+    items.add(const BottomNavigationBarItem(
+      icon: Icon(Icons.assignment),
+      label: 'Pickup',
+    ));
+    
+    return items;
+  }
 
   void _onItemTapped(int index) {
     setState(() {
@@ -107,6 +161,21 @@ class _HomeScreenState extends State<HomeScreen> {
                 }
               },
             ),
+            // Show platform info on web
+            if (isWeb) ...[
+              const Divider(color: Colors.white24),
+              Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Text(
+                  'Web version - Some features require the mobile app',
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.6),
+                    fontSize: 12,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ],
             const SizedBox(height: 20),
           ],
         ),
@@ -118,7 +187,26 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Aurora Viking Staff'),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Aurora Viking Staff'),
+            if (isWeb) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: const Text(
+                  'WEB',
+                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ],
+        ),
         centerTitle: true,
         leading: Consumer<AdminController>(
           builder: (context, adminController, child) {
@@ -141,7 +229,6 @@ class _HomeScreenState extends State<HomeScreen> {
           IconButton(
             icon: const Icon(Icons.notifications),
             onPressed: () {
-              // TODO: Implement notifications
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('Notifications - Coming Soon')),
               );
@@ -186,55 +273,7 @@ class _HomeScreenState extends State<HomeScreen> {
         onTap: _onItemTapped,
         selectedItemColor: Theme.of(context).colorScheme.primary,
         unselectedItemColor: Colors.grey,
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.auto_awesome),
-            label: 'Forecast',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.work),
-            label: 'Shifts',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.camera_alt),
-            label: 'Photos',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.location_on),
-            label: 'Tracking',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.assignment),
-            label: 'Pickup',
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// Placeholder Profile Screen
-class _ProfileScreen extends StatelessWidget {
-  const _ProfileScreen();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.person, size: 64, color: Colors.grey),
-          SizedBox(height: 16),
-          Text(
-            'Profile Module',
-            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-          ),
-          SizedBox(height: 8),
-          Text(
-            'View profile and contact dispatch',
-            style: TextStyle(color: Colors.grey),
-          ),
-        ],
+        items: _navItems,
       ),
     );
   }

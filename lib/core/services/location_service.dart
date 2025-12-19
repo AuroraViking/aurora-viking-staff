@@ -1,8 +1,9 @@
 // Location service for handling GPS tracking and location data
 // With proper background tracking support via native Android foreground service
+// Now with proper web compatibility - tracking disabled on web!
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:geolocator/geolocator.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -13,19 +14,18 @@ class LocationService {
   LocationService._internal();
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-
+  
   // Method channel for communicating with native Android service
-  // These must match the channel names in MainActivity.kt
   static const MethodChannel _channel = MethodChannel('com.auroraviking.aurora_viking_staff/location');
   static const EventChannel _locationEventChannel = EventChannel('com.auroraviking.aurora_viking_staff/location_updates');
-
+  
   StreamSubscription<Position>? _positionStreamSubscription;
   StreamSubscription<dynamic>? _nativeLocationSubscription;
   Timer? _locationUpdateTimer;
   Timer? _cleanupTimer;
   Timer? _keepAliveTimer;
   Timer? _heartbeatTimer;
-
+  
   String? _currentBusId;
   String? _currentUserId;
   bool _isTracking = false;
@@ -33,27 +33,36 @@ class LocationService {
   DateTime? _lastLocationUpdate;
   int _consecutiveErrors = 0;
 
-  static const int _updateIntervalSeconds = 10; // More frequent updates
+  static const int _updateIntervalSeconds = 10;
   static const int _distanceFilterMeters = 5;
   static const int _historyRetentionHours = 48;
   static const int _maxConsecutiveErrors = 5;
   static const int _keepAliveIntervalSeconds = 30;
   static const int _locationTimeoutSeconds = 45;
-  static const int _heartbeatIntervalSeconds = 60; // Heartbeat to keep service alive
+  static const int _heartbeatIntervalSeconds = 60;
 
   bool get isTracking => _isTracking;
   String? get currentBusId => _currentBusId;
+  
+  /// Check if this platform supports location tracking
+  /// Web does NOT support background location tracking
+  static bool get isTrackingSupported => !kIsWeb;
 
   Future<bool> initialize() async {
+    // On web, we can still initialize but with limited functionality
+    if (kIsWeb) {
+      print('ℹ️ LocationService running in web mode - tracking disabled');
+      _startCleanupTimer();
+      return true;
+    }
+    
     try {
-      // Check location permissions with enhanced permission handling
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
         print('❌ Location services are disabled');
         return false;
       }
 
-      // Request precise location permission
       LocationPermission permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
@@ -68,18 +77,11 @@ class LocationService {
         return false;
       }
 
-      // Request background location permission (critical for background tracking)
       await _requestBackgroundLocationPermission();
-
-      // Request additional permissions for better tracking
       await _requestAdditionalPermissions();
-
-      // Set up method channel handlers for native service communication
       _setupMethodChannelHandlers();
-
-      // Start cleanup timer to remove old location history
       _startCleanupTimer();
-
+      
       print('✅ LocationService initialized successfully');
       return true;
     } catch (e) {
@@ -89,16 +91,14 @@ class LocationService {
   }
 
   Future<void> _requestBackgroundLocationPermission() async {
-    if (!Platform.isAndroid) return;
-
+    if (kIsWeb) return;
+    
     try {
-      // Check current permission status
       LocationPermission permission = await Geolocator.checkPermission();
-
+      
       if (permission == LocationPermission.whileInUse) {
         print('🔒 Current permission is "while in use", requesting background permission...');
-
-        // On Android 10+, we need to request background location separately
+        
         final backgroundStatus = await Permission.locationAlways.status;
         if (!backgroundStatus.isGranted) {
           print('🔒 Requesting ACCESS_BACKGROUND_LOCATION permission...');
@@ -116,10 +116,9 @@ class LocationService {
   }
 
   Future<void> _requestAdditionalPermissions() async {
-    if (!Platform.isAndroid) return;
-
+    if (kIsWeb) return;
+    
     try {
-      // Request ignore battery optimization permission (critical for background)
       final batteryStatus = await Permission.ignoreBatteryOptimizations.status;
       if (!batteryStatus.isGranted) {
         print('🔋 Requesting battery optimization bypass...');
@@ -131,7 +130,6 @@ class LocationService {
         }
       }
 
-      // Request notification permission for foreground service (Android 13+)
       final notificationStatus = await Permission.notification.status;
       if (!notificationStatus.isGranted) {
         print('🔔 Requesting notification permission...');
@@ -143,7 +141,8 @@ class LocationService {
   }
 
   void _setupMethodChannelHandlers() {
-    // Handle method calls from native side
+    if (kIsWeb) return; // Method channels don't work on web
+    
     _channel.setMethodCallHandler((call) async {
       switch (call.method) {
         case 'onLocationUpdate':
@@ -153,7 +152,6 @@ class LocationService {
         case 'onServiceStopped':
           print('⚠️ Native location service stopped unexpectedly');
           _isNativeServiceRunning = false;
-          // Try to restart if we're supposed to be tracking
           if (_isTracking && _currentBusId != null && _currentUserId != null) {
             print('🔄 Attempting to restart native service...');
             await _startNativeService(_currentBusId!, _currentUserId!);
@@ -168,19 +166,18 @@ class LocationService {
       }
     });
 
-    // Listen to location event stream from native side
     _nativeLocationSubscription = _locationEventChannel
         .receiveBroadcastStream()
         .listen(
           (dynamic event) {
-        if (event is Map) {
-          _handleNativeLocationUpdate(event);
-        }
-      },
-      onError: (error) {
-        print('❌ Native location stream error: $error');
-      },
-    );
+            if (event is Map) {
+              _handleNativeLocationUpdate(event);
+            }
+          },
+          onError: (error) {
+            print('❌ Native location stream error: $error');
+          },
+        );
   }
 
   Future<void> _handleNativeLocationUpdate(Map<dynamic, dynamic> locationData) async {
@@ -213,6 +210,12 @@ class LocationService {
   }
 
   Future<bool> startTracking(String busId, String userId) async {
+    // Tracking is not supported on web
+    if (kIsWeb) {
+      print('❌ Location tracking is not supported on web');
+      return false;
+    }
+    
     try {
       if (_isTracking) {
         await stopTracking();
@@ -223,23 +226,15 @@ class LocationService {
       _isTracking = true;
       _consecutiveErrors = 0;
 
-      // Start native Android foreground service for reliable background tracking
-      if (Platform.isAndroid) {
-        final nativeStarted = await _startNativeService(busId, userId);
-        if (nativeStarted) {
-          print('✅ Native foreground service started successfully');
-        } else {
-          print('⚠️ Failed to start native service, falling back to Flutter-only tracking');
-        }
+      final nativeStarted = await _startNativeService(busId, userId);
+      if (nativeStarted) {
+        print('✅ Native foreground service started successfully');
+      } else {
+        print('⚠️ Failed to start native service, falling back to Flutter-only tracking');
       }
 
-      // Also start Flutter-based tracking as backup/supplement
       await _startFlutterTracking(busId, userId);
-
-      // Start heartbeat to keep everything alive
       _startHeartbeat(busId, userId);
-
-      // Start keep-alive mechanism
       _startKeepAliveMechanism(busId, userId);
 
       print('✅ Started tracking for bus: $busId');
@@ -252,8 +247,8 @@ class LocationService {
   }
 
   Future<bool> _startNativeService(String busId, String userId) async {
-    if (!Platform.isAndroid) return false;
-
+    if (kIsWeb) return false;
+    
     try {
       final result = await _channel.invokeMethod('startLocationService', {
         'busId': busId,
@@ -261,7 +256,7 @@ class LocationService {
         'updateIntervalMs': _updateIntervalSeconds * 1000,
         'distanceFilterMeters': _distanceFilterMeters,
       });
-
+      
       _isNativeServiceRunning = result == true;
       return _isNativeServiceRunning;
     } catch (e) {
@@ -271,8 +266,8 @@ class LocationService {
   }
 
   Future<void> _stopNativeService() async {
-    if (!Platform.isAndroid) return;
-
+    if (kIsWeb) return;
+    
     try {
       await _channel.invokeMethod('stopLocationService');
       _isNativeServiceRunning = false;
@@ -282,14 +277,14 @@ class LocationService {
   }
 
   Future<void> _startFlutterTracking(String busId, String userId) async {
-    // Start location stream with high accuracy
+    if (kIsWeb) return;
+    
     _positionStreamSubscription?.cancel();
     _positionStreamSubscription = Geolocator.getPositionStream(
       locationSettings: AndroidSettings(
         accuracy: LocationAccuracy.bestForNavigation,
         distanceFilter: _distanceFilterMeters,
         intervalDuration: Duration(seconds: _updateIntervalSeconds),
-        // Critical: Enable foreground notification for background tracking
         foregroundNotificationConfig: const ForegroundNotificationConfig(
           notificationTitle: "Aurora Viking Staff",
           notificationText: "Tracking bus location in background",
@@ -298,7 +293,7 @@ class LocationService {
         ),
       ),
     ).listen(
-          (Position position) {
+      (Position position) {
         _consecutiveErrors = 0;
         _lastLocationUpdate = DateTime.now();
         _saveLocationToFirebase(
@@ -319,18 +314,16 @@ class LocationService {
       cancelOnError: false,
     );
 
-    // Set up periodic location updates as additional backup
     _locationUpdateTimer?.cancel();
     _locationUpdateTimer = Timer.periodic(
       Duration(seconds: _updateIntervalSeconds),
-          (timer) async {
+      (timer) async {
         if (!_isTracking) {
           timer.cancel();
           return;
         }
-
-        // Only fetch if we haven't had a recent update
-        if (_lastLocationUpdate == null ||
+        
+        if (_lastLocationUpdate == null || 
             DateTime.now().difference(_lastLocationUpdate!).inSeconds > _updateIntervalSeconds * 2) {
           await _fetchAndSaveLocation(busId, userId);
         }
@@ -339,15 +332,17 @@ class LocationService {
   }
 
   Future<void> _fetchAndSaveLocation(String busId, String userId) async {
+    if (kIsWeb) return;
+    
     try {
       final position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
         timeLimit: const Duration(seconds: 15),
       );
-
+      
       _consecutiveErrors = 0;
       _lastLocationUpdate = DateTime.now();
-
+      
       await _saveLocationToFirebase(
         latitude: position.latitude,
         longitude: position.longitude,
@@ -365,17 +360,18 @@ class LocationService {
   }
 
   void _startHeartbeat(String busId, String userId) {
+    if (kIsWeb) return;
+    
     _heartbeatTimer?.cancel();
     _heartbeatTimer = Timer.periodic(
       Duration(seconds: _heartbeatIntervalSeconds),
-          (timer) async {
+      (timer) async {
         if (!_isTracking) {
           timer.cancel();
           return;
         }
 
-        // Send heartbeat to native service
-        if (Platform.isAndroid && _isNativeServiceRunning) {
+        if (_isNativeServiceRunning) {
           try {
             await _channel.invokeMethod('heartbeat');
           } catch (e) {
@@ -384,7 +380,6 @@ class LocationService {
           }
         }
 
-        // Update tracking status in Firebase
         try {
           await _firestore.collection('bus_locations').doc(busId).update({
             'isTracking': true,
@@ -398,48 +393,43 @@ class LocationService {
   }
 
   void _startKeepAliveMechanism(String busId, String userId) {
+    if (kIsWeb) return;
+    
     _keepAliveTimer?.cancel();
     _keepAliveTimer = Timer.periodic(
       Duration(seconds: _keepAliveIntervalSeconds),
-          (timer) async {
+      (timer) async {
         if (!_isTracking) {
           timer.cancel();
           return;
         }
 
-        // Check if we haven't received location updates in a while
         if (_lastLocationUpdate != null) {
           final timeSinceLastUpdate = DateTime.now().difference(_lastLocationUpdate!);
-
+          
           if (timeSinceLastUpdate.inSeconds > _locationTimeoutSeconds) {
             print('⚠️ No location updates for ${timeSinceLastUpdate.inSeconds}s');
-
-            // Try to restart native service if it's supposed to be running
-            if (Platform.isAndroid && !_isNativeServiceRunning) {
+            
+            if (!_isNativeServiceRunning) {
               print('🔄 Restarting native service...');
               await _startNativeService(busId, userId);
             }
-
-            // Force a location fetch
+            
             await _fetchAndSaveLocation(busId, userId);
           }
         } else {
-          // No location update ever received, force one
           print('⚠️ No location updates yet, forcing fetch...');
           await _fetchAndSaveLocation(busId, userId);
         }
 
-        // Check if native service is still running
-        if (Platform.isAndroid) {
-          try {
-            final isRunning = await _channel.invokeMethod('isServiceRunning');
-            if (isRunning != true && _isTracking) {
-              print('⚠️ Native service not running, restarting...');
-              await _startNativeService(busId, userId);
-            }
-          } catch (e) {
-            print('⚠️ Could not check native service status: $e');
+        try {
+          final isRunning = await _channel.invokeMethod('isServiceRunning');
+          if (isRunning != true && _isTracking) {
+            print('⚠️ Native service not running, restarting...');
+            await _startNativeService(busId, userId);
           }
+        } catch (e) {
+          print('⚠️ Could not check native service status: $e');
         }
       },
     );
@@ -448,24 +438,23 @@ class LocationService {
   Future<void> stopTracking() async {
     try {
       _isTracking = false;
-
-      // Stop native service
-      await _stopNativeService();
-
-      // Cancel all subscriptions and timers
+      
+      if (!kIsWeb) {
+        await _stopNativeService();
+      }
+      
       _positionStreamSubscription?.cancel();
       _positionStreamSubscription = null;
-
+      
       _locationUpdateTimer?.cancel();
       _locationUpdateTimer = null;
-
+      
       _keepAliveTimer?.cancel();
       _keepAliveTimer = null;
-
+      
       _heartbeatTimer?.cancel();
       _heartbeatTimer = null;
 
-      // Update Firebase to show tracking stopped
       if (_currentBusId != null) {
         try {
           await _firestore.collection('bus_locations').doc(_currentBusId).update({
@@ -481,7 +470,7 @@ class LocationService {
       _currentUserId = null;
       _lastLocationUpdate = null;
       _consecutiveErrors = 0;
-
+      
       print('🛑 Stopped tracking');
     } catch (e) {
       print('❌ Error stopping tracking: $e');
@@ -500,8 +489,7 @@ class LocationService {
   }) async {
     try {
       final timestamp = Timestamp.now();
-
-      // Save current location
+      
       await _firestore.collection('bus_locations').doc(busId).set({
         'busId': busId,
         'userId': userId,
@@ -516,7 +504,6 @@ class LocationService {
         'isTracking': true,
       });
 
-      // Save to location history
       await _firestore.collection('location_history').add({
         'busId': busId,
         'userId': userId,
@@ -537,7 +524,6 @@ class LocationService {
 
   void _startCleanupTimer() {
     _cleanupTimer?.cancel();
-    // Run cleanup every hour
     _cleanupTimer = Timer.periodic(const Duration(hours: 1), (timer) {
       _cleanupOldLocationHistory();
     });
@@ -548,15 +534,14 @@ class LocationService {
       final cutoffTime = DateTime.now().subtract(Duration(hours: _historyRetentionHours));
       final cutoffTimestamp = Timestamp.fromDate(cutoffTime);
 
-      // Delete old location history entries in batches
       QuerySnapshot oldEntries;
       int totalDeleted = 0;
-
+      
       do {
         oldEntries = await _firestore
             .collection('location_history')
             .where('timestamp', isLessThan: cutoffTimestamp)
-            .limit(500) // Process in batches
+            .limit(500)
             .get();
 
         if (oldEntries.docs.isNotEmpty) {
@@ -577,6 +562,8 @@ class LocationService {
     }
   }
 
+  // === READ-ONLY METHODS (work on web too!) ===
+  
   Future<Map<String, dynamic>?> getBusLocation(String busId) async {
     try {
       final doc = await _firestore.collection('bus_locations').doc(busId).get();
@@ -603,10 +590,10 @@ class LocationService {
   }
 
   Future<List<Map<String, dynamic>>> getBusLocationHistory(
-      String busId, {
-        DateTime? startDate,
-        DateTime? endDate,
-      }) async {
+    String busId, {
+    DateTime? startDate,
+    DateTime? endDate,
+  }) async {
     try {
       Query query = _firestore
           .collection('location_history')
@@ -629,9 +616,9 @@ class LocationService {
   }
 
   Future<List<Map<String, dynamic>>> getBusLocationTrail(
-      String busId, {
-        int hours = 48,
-      }) async {
+    String busId, {
+    int hours = 48,
+  }) async {
     try {
       final cutoffTime = DateTime.now().subtract(Duration(hours: hours));
       final cutoffTimestamp = Timestamp.fromDate(cutoffTime);
@@ -651,6 +638,8 @@ class LocationService {
   }
 
   Future<Position?> getCurrentLocation() async {
+    if (kIsWeb) return null;
+    
     try {
       return await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
@@ -666,22 +655,27 @@ class LocationService {
     return Geolocator.distanceBetween(lat1, lon1, lat2, lon2);
   }
 
-  /// Check if all required permissions are granted for background tracking
   Future<Map<String, bool>> checkPermissions() async {
     final permissions = <String, bool>{};
-
-    permissions['locationServices'] = await Geolocator.isLocationServiceEnabled();
-
-    final locationPermission = await Geolocator.checkPermission();
-    permissions['locationWhenInUse'] = locationPermission == LocationPermission.whileInUse ||
-        locationPermission == LocationPermission.always;
-    permissions['locationAlways'] = locationPermission == LocationPermission.always;
-
-    if (Platform.isAndroid) {
-      permissions['ignoreBatteryOptimizations'] = await Permission.ignoreBatteryOptimizations.isGranted;
-      permissions['notification'] = await Permission.notification.isGranted;
+    
+    if (kIsWeb) {
+      // On web, just return basic info
+      permissions['locationServices'] = false;
+      permissions['locationWhenInUse'] = false;
+      permissions['locationAlways'] = false;
+      permissions['isWeb'] = true;
+      return permissions;
     }
-
+    
+    permissions['locationServices'] = await Geolocator.isLocationServiceEnabled();
+    
+    final locationPermission = await Geolocator.checkPermission();
+    permissions['locationWhenInUse'] = locationPermission == LocationPermission.whileInUse || 
+                                        locationPermission == LocationPermission.always;
+    permissions['locationAlways'] = locationPermission == LocationPermission.always;
+    permissions['ignoreBatteryOptimizations'] = await Permission.ignoreBatteryOptimizations.isGranted;
+    permissions['notification'] = await Permission.notification.isGranted;
+    
     return permissions;
   }
 
@@ -692,7 +686,9 @@ class LocationService {
     _cleanupTimer?.cancel();
     _keepAliveTimer?.cancel();
     _heartbeatTimer?.cancel();
-    _stopNativeService();
+    if (!kIsWeb) {
+      _stopNativeService();
+    }
     _isTracking = false;
   }
 }
