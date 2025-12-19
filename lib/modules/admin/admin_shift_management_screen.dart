@@ -13,6 +13,7 @@ import '../../core/auth/auth_controller.dart';
 import '../shifts/shifts_service.dart';
 import '../../core/services/bus_management_service.dart';
 import '../../theme/colors.dart';
+import '../pickup/pickup_service.dart';
 
 class AdminShiftManagementScreen extends StatefulWidget {
   const AdminShiftManagementScreen({super.key});
@@ -24,6 +25,7 @@ class AdminShiftManagementScreen extends StatefulWidget {
 class _AdminShiftManagementScreenState extends State<AdminShiftManagementScreen> {
   final ShiftsService _shiftsService = ShiftsService();
   final BusManagementService _busService = BusManagementService();
+  final PickupService _pickupService = PickupService();
   List<Shift> _allShifts = [];
   List<Map<String, dynamic>> _availableBuses = [];
   bool _isLoading = false;
@@ -35,6 +37,9 @@ class _AdminShiftManagementScreenState extends State<AdminShiftManagementScreen>
   late CalendarFormat _calendarFormat;
   Map<DateTime, List<Shift>> _shiftsByDate = {};
   Timer? _autoCompleteTimer;
+  
+  // Booking data by date (for displaying passenger/guide counts)
+  Map<String, Map<String, dynamic>> _bookingsByDate = {}; // dateKey -> {passengers, guides}
 
   @override
   void initState() {
@@ -50,6 +55,7 @@ class _AdminShiftManagementScreenState extends State<AdminShiftManagementScreen>
       _loadShifts();
       _loadStatistics();
       _loadAvailableBuses();
+      _loadBookingsForMonth(_focusedDay);
       
       // Set up periodic auto-completion check (every hour)
       _autoCompleteTimer = Timer.periodic(const Duration(hours: 1), (timer) {
@@ -117,7 +123,48 @@ class _AdminShiftManagementScreenState extends State<AdminShiftManagementScreen>
     });
   }
 
-
+  /// Load booking data for the focused month
+  Future<void> _loadBookingsForMonth(DateTime month) async {
+    try {
+      final endOfMonth = DateTime(month.year, month.month + 1, 0);
+      
+      print('📅 Loading bookings for month: ${month.year}-${month.month}');
+      
+      // Load bookings for each day in the month
+      for (int day = 1; day <= endOfMonth.day; day++) {
+        final date = DateTime(month.year, month.month, day);
+        final dateKey = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+        
+        try {
+          final bookings = await _pickupService.fetchBookingsForDate(date);
+          
+          if (bookings.isNotEmpty) {
+            final totalPassengers = bookings.fold<int>(0, (sum, booking) => sum + booking.numberOfGuests);
+            final guidesNeeded = (totalPassengers / 19).ceil(); // Assuming 19 passengers per bus
+            
+            _bookingsByDate[dateKey] = {
+              'passengers': totalPassengers,
+              'guides': guidesNeeded,
+            };
+          } else {
+            // Clear if no bookings
+            _bookingsByDate.remove(dateKey);
+          }
+        } catch (e) {
+          print('⚠️ Error loading bookings for $dateKey: $e');
+          // Don't fail the whole month if one day fails
+        }
+      }
+      
+      if (mounted) {
+        setState(() {});
+      }
+      
+      print('✅ Loaded booking data for ${_bookingsByDate.length} dates in month');
+    } catch (e) {
+      print('❌ Error loading bookings for month: $e');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -140,26 +187,29 @@ class _AdminShiftManagementScreenState extends State<AdminShiftManagementScreen>
           ),
         ],
       ),
-      body: Column(
-        children: [
-          // Statistics Cards
-          _buildStatisticsCards(),
-          
-          // Calendar
-          _buildCalendar(),
-          
-          // Selected Day Shifts
-          Expanded(
-            child: _buildSelectedDayShifts(),
-          ),
-        ],
+      body: SingleChildScrollView(
+        child: Column(
+          children: [
+            // Statistics Cards
+            _buildStatisticsCards(),
+            
+            // Calendar
+            _buildCalendar(),
+            
+            // Spacing to prevent overflow
+            const SizedBox(height: 20),
+            
+            // Selected Day Shifts
+            _buildSelectedDayShifts(),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildCalendar() {
     return Container(
-      height: 400,
+      height: 360,
       decoration: BoxDecoration(
         color: AVColors.slate,
         boxShadow: [
@@ -171,7 +221,11 @@ class _AdminShiftManagementScreenState extends State<AdminShiftManagementScreen>
           ),
         ],
       ),
-      child: TableCalendar<Shift>(
+      child: SizedBox(
+        height: 360,
+        child: ClipRect(
+          clipBehavior: Clip.hardEdge,
+          child: TableCalendar<Shift>(
         firstDay: DateTime.now().subtract(const Duration(days: 365)), // Allow viewing past year
         lastDay: DateTime.now().add(const Duration(days: 365)),
         focusedDay: _focusedDay,
@@ -192,24 +246,30 @@ class _AdminShiftManagementScreenState extends State<AdminShiftManagementScreen>
           });
         },
         onPageChanged: (focusedDay) {
-          _focusedDay = focusedDay;
+          setState(() {
+            _focusedDay = focusedDay;
+          });
+          // Load bookings for the new month
+          _loadBookingsForMonth(focusedDay);
         },
-        calendarStyle: const CalendarStyle(
+        calendarStyle: CalendarStyle(
           outsideDaysVisible: false,
-          defaultTextStyle: TextStyle(color: AVColors.textHigh),
-          weekendTextStyle: TextStyle(color: AVColors.textHigh),
-          holidayTextStyle: TextStyle(color: AVColors.textHigh),
-          outsideTextStyle: TextStyle(color: AVColors.textLow),
-          todayDecoration: BoxDecoration(
+          defaultTextStyle: const TextStyle(color: AVColors.textHigh, fontSize: 12),
+          weekendTextStyle: const TextStyle(color: AVColors.textHigh, fontSize: 12),
+          holidayTextStyle: const TextStyle(color: AVColors.textHigh, fontSize: 12),
+          outsideTextStyle: const TextStyle(color: AVColors.textLow, fontSize: 12),
+          cellPadding: EdgeInsets.zero,
+          cellMargin: const EdgeInsets.all(1),
+          todayDecoration: const BoxDecoration(
             color: Colors.transparent,
             border: Border.fromBorderSide(BorderSide(color: AVColors.primaryTeal, width: 1.2)),
             shape: BoxShape.circle,
           ),
-          selectedDecoration: BoxDecoration(
+          selectedDecoration: const BoxDecoration(
             color: AVColors.tealGlowMid,
             shape: BoxShape.circle,
           ),
-          markerDecoration: BoxDecoration(
+          markerDecoration: const BoxDecoration(
             color: Colors.transparent,
           ),
         ),
@@ -230,6 +290,48 @@ class _AdminShiftManagementScreenState extends State<AdminShiftManagementScreen>
           rightChevronIcon: Icon(Icons.chevron_right, color: AVColors.textHigh),
         ),
         calendarBuilders: CalendarBuilders(
+          defaultBuilder: (context, date, _) {
+            final dateKey = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+            final bookingData = _bookingsByDate[dateKey];
+            
+            if (bookingData != null) {
+              final passengers = bookingData['passengers'];
+              final guides = bookingData['guides'];
+              
+              return Container(
+                margin: const EdgeInsets.all(1),
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      '${date.day}',
+                      style: const TextStyle(
+                        color: AVColors.textHigh,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                      ),
+                    ),
+                    Text(
+                      '${passengers}p • ${guides}g',
+                      style: TextStyle(
+                        color: AVColors.primaryTeal,
+                        fontSize: 8,
+                        fontWeight: FontWeight.w600,
+                        height: 1.0,
+                      ),
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              );
+            }
+            
+            return null;
+          },
           markerBuilder: (context, date, events) {
             if (events.isNotEmpty) {
               final shifts = events as List<Shift>;
@@ -250,6 +352,8 @@ class _AdminShiftManagementScreenState extends State<AdminShiftManagementScreen>
             }
             return null;
           },
+        ),
+          ),
         ),
       ),
     );
@@ -326,7 +430,8 @@ class _AdminShiftManagementScreenState extends State<AdminShiftManagementScreen>
           
           // Shifts for selected day
           if (selectedDayShifts.isEmpty)
-            const Expanded(
+            const SizedBox(
+              height: 200,
               child: Center(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -362,7 +467,8 @@ class _AdminShiftManagementScreenState extends State<AdminShiftManagementScreen>
               ],
             ),
             const SizedBox(height: 8),
-            Expanded(
+            SizedBox(
+              height: 400,
               child: ListView.builder(
                 itemCount: selectedDayShifts.length,
                 itemBuilder: (context, index) {
@@ -379,7 +485,7 @@ class _AdminShiftManagementScreenState extends State<AdminShiftManagementScreen>
 
   Widget _buildStatisticsCards() {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Row(
         children: [
           Expanded(
