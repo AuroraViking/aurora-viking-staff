@@ -822,4 +822,173 @@ class FirebaseService {
       print('❌ Failed to clear old cached bookings: $e');
     }
   }
+
+  /// Save daily distance for a bus (for service/maintenance tracking)
+  static Future<void> saveBusDailyDistance({
+    required String busId,
+    required String date,
+    required double distanceKm,
+    required int trailPoints,
+  }) async {
+    if (!_initialized || _firestore == null) {
+      print('⚠️ Firebase not initialized - skipping distance save');
+      return;
+    }
+    
+    try {
+      await _firestore!
+          .collection('bus_distance_logs')
+          .doc('${date}_$busId')
+          .set({
+        'busId': busId,
+        'date': date,
+        'distanceKm': distanceKm,
+        'trailPoints': trailPoints,
+        'recordedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      
+      print('💾 Saved distance log: Bus $busId drove ${distanceKm.toStringAsFixed(1)} km on $date');
+    } catch (e) {
+      print('❌ Failed to save bus distance: $e');
+    }
+  }
+
+  /// Get total distance for a bus over a date range
+  static Future<double> getBusTotalDistance({
+    required String busId,
+    required String startDate,
+    required String endDate,
+  }) async {
+    if (!_initialized || _firestore == null) return 0.0;
+    
+    try {
+      final querySnapshot = await _firestore!
+          .collection('bus_distance_logs')
+          .where('busId', isEqualTo: busId)
+          .where('date', isGreaterThanOrEqualTo: startDate)
+          .where('date', isLessThanOrEqualTo: endDate)
+          .get();
+      
+      double totalDistance = 0.0;
+      for (final doc in querySnapshot.docs) {
+        totalDistance += (doc.data()['distanceKm'] as num?)?.toDouble() ?? 0.0;
+      }
+      
+      print('📊 Bus $busId total distance ($startDate to $endDate): ${totalDistance.toStringAsFixed(1)} km');
+      return totalDistance;
+    } catch (e) {
+      print('❌ Failed to get bus total distance: $e');
+      return 0.0;
+    }
+  }
+
+  /// Get distance logs for all buses (for service dashboard)
+  static Future<List<Map<String, dynamic>>> getAllBusDistanceLogs({
+    required String startDate,
+    required String endDate,
+  }) async {
+    if (!_initialized || _firestore == null) return [];
+    
+    try {
+      final querySnapshot = await _firestore!
+          .collection('bus_distance_logs')
+          .where('date', isGreaterThanOrEqualTo: startDate)
+          .where('date', isLessThanOrEqualTo: endDate)
+          .orderBy('date', descending: true)
+          .get();
+      
+      final logs = querySnapshot.docs.map((doc) => {
+        ...doc.data(),
+        'id': doc.id,
+      }).toList();
+      
+      print('📊 Retrieved ${logs.length} distance logs ($startDate to $endDate)');
+      return logs;
+    } catch (e) {
+      print('❌ Failed to get bus distance logs: $e');
+      return [];
+    }
+  }
+
+  /// Get summary of distances by bus for a date range
+  static Future<Map<String, double>> getBusDistanceSummary({
+    required String startDate,
+    required String endDate,
+  }) async {
+    if (!_initialized || _firestore == null) return {};
+    
+    try {
+      final querySnapshot = await _firestore!
+          .collection('bus_distance_logs')
+          .where('date', isGreaterThanOrEqualTo: startDate)
+          .where('date', isLessThanOrEqualTo: endDate)
+          .get();
+      
+      final summary = <String, double>{};
+      for (final doc in querySnapshot.docs) {
+        final data = doc.data();
+        final busId = data['busId'] as String;
+        final distance = (data['distanceKm'] as num?)?.toDouble() ?? 0.0;
+        
+        summary[busId] = (summary[busId] ?? 0.0) + distance;
+      }
+      
+      print('📊 Distance summary for ${summary.length} buses');
+      return summary;
+    } catch (e) {
+      print('❌ Failed to get bus distance summary: $e');
+      return {};
+    }
+  }
+
+  /// Update bus odometer/service info
+  static Future<void> updateBusServiceInfo({
+    required String busId,
+    double? totalOdometer,
+    DateTime? lastServiceDate,
+    double? kmSinceLastService,
+    String? notes,
+  }) async {
+    if (!_initialized || _firestore == null) return;
+    
+    try {
+      final updateData = <String, dynamic>{
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+      
+      if (totalOdometer != null) updateData['totalOdometer'] = totalOdometer;
+      if (lastServiceDate != null) updateData['lastServiceDate'] = lastServiceDate.toIso8601String();
+      if (kmSinceLastService != null) updateData['kmSinceLastService'] = kmSinceLastService;
+      if (notes != null) updateData['serviceNotes'] = notes;
+      
+      await _firestore!
+          .collection('bus_service_info')
+          .doc(busId)
+          .set(updateData, SetOptions(merge: true));
+      
+      print('✅ Updated service info for bus $busId');
+    } catch (e) {
+      print('❌ Failed to update bus service info: $e');
+    }
+  }
+
+  /// Get bus service info
+  static Future<Map<String, dynamic>?> getBusServiceInfo(String busId) async {
+    if (!_initialized || _firestore == null) return null;
+    
+    try {
+      final doc = await _firestore!
+          .collection('bus_service_info')
+          .doc(busId)
+          .get();
+      
+      if (doc.exists) {
+        return doc.data();
+      }
+      return null;
+    } catch (e) {
+      print('❌ Failed to get bus service info: $e');
+      return null;
+    }
+  }
 } 
