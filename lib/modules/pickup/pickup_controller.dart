@@ -20,6 +20,11 @@ class PickupController extends ChangeNotifier {
   List<PickupBooking> _bookings = [];
   List<GuidePickupList> _guideLists = [];
   PickupListStats? _stats;
+  
+  // Cache bookings by date to preserve data when switching dates
+  Map<String, List<PickupBooking>> _bookingsCache = {};
+  Map<String, List<GuidePickupList>> _guideListsCache = {};
+  Map<String, PickupListStats?> _statsCache = {};
 
   // Getters
   DateTime get selectedDate => _selectedDate;
@@ -42,11 +47,36 @@ class PickupController extends ChangeNotifier {
   List<PickupBooking> get unassignedBookings =>
       _bookings.where((booking) => booking.assignedGuideId == null).toList();
 
+  /// Get normalized date key for caching (YYYY-MM-DD format)
+  /// This ensures cache hits regardless of time component
+  String _getDateKey(DateTime date) {
+    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+  }
+
+  /// Get API-safe date for Bokun requests
+  /// For "today": uses current time to avoid "too far in the past" error
+  /// For other days: uses the provided date (midnight is fine for future/past days)
+  DateTime _getApiSafeDate(DateTime date) {
+    final now = DateTime.now();
+    final isToday = date.year == now.year && 
+                    date.month == now.month && 
+                    date.day == now.day;
+    
+    if (isToday) {
+      // For today, use current time to avoid Bokun rejecting midnight as "in the past"
+      print('📅 Using current time for today\'s API request (avoiding midnight rejection)');
+      return now;
+    } else {
+      // For other days, the original date is fine
+      return date;
+    }
+  }
+
   // Load bookings for a specific date with Firebase statuses
   // FIX: Added comprehensive error handling and guaranteed loading state reset
-  Future<void> loadBookingsForDate(DateTime date) async {
-    // FIX: Guard against calling when user is null
-    if (_currentUser == null) {
+  Future<void> loadBookingsForDate(DateTime date, {bool forceRefresh = false}) async {
+    // FIX: Guard against calling when user is null (unless forceRefresh for admin)
+    if (_currentUser == null && !forceRefresh) {
       print('⚠️ Cannot load bookings: current user is null');
       _currentUserBookings = [];
       _error = null; // Don't show error for this expected case
@@ -57,20 +87,152 @@ class PickupController extends ChangeNotifier {
     _setLoading(true);
     _error = null;
 
+    // FIX: Use normalized date key for caching (avoids time component mismatches)
+    // Declare outside try block so it's accessible in catch block
+    final dateKey = _getDateKey(date);
+    // FIX: Use API-safe date (current time for today to avoid Bokun "too far in the past" error)
+    final apiDate = _getApiSafeDate(date);
+
     try {
-      print('📥 Loading bookings for date: $date, user: ${_currentUser!.fullName} (${_currentUser!.id})');
+      print('📥 Loading bookings for date: $date (key: $dateKey)${forceRefresh ? ' (FORCE REFRESH)' : ''}');
+      if (_currentUser != null) {
+        print('   User: ${_currentUser!.fullName} (${_currentUser!.id})');
+      }
+      print('   API date: $apiDate');
 
-      final bookings = await _pickupService.fetchBookingsForDate(date);
-
-      // Don't clear existing bookings if API returns empty - might be a temporary issue
-      if (bookings.isEmpty && _bookings.isNotEmpty) {
-        print('⚠️ API returned empty bookings but we have existing bookings. Keeping existing data.');
+      // Always fetch fresh data from API
+      List<PickupBooking> bookings;
+      try {
+        // FIX: Use API-safe date for the Bokun request
+        bookings = await _pickupService.fetchBookingsForDate(apiDate);
+        print('📋 API returned ${bookings.length} bookings for date $dateKey');
+      } catch (e) {
+        // Handle API errors - check cache first, then existing data
+        print('❌ API Error: $e');
+        _error = 'Failed to load bookings: ${e.toString().replaceAll('Exception: ', '')}';
+        
+        // Always update selected date to show we're viewing this date
+        _selectedDate = date;
+        
+        // FIX: Check cache using normalized date key
+        if (_bookingsCache.containsKey(dateKey)) {
+          print('💾 Restoring bookings from cache for date $dateKey');
+          _bookings = _bookingsCache[dateKey]!;
+          _guideLists = _guideListsCache[dateKey] ?? [];
+          _stats = _statsCache[dateKey];
+          
+          // Update current user bookings
+          if (_currentUser != null) {
+            _currentUserBookings = _bookings
+                .where((booking) => booking.assignedGuideId == _currentUser!.id)
+                .toList();
+          } else {
+            _currentUserBookings = _bookings;
+          }
+          
+          _setLoading(false);
+          notifyListeners();
+          return;
+        }
+        
+        // If no cache, check if existing bookings match the requested date
+        final requestedDateOnly = DateTime(date.year, date.month, date.day);
+        final hasMatchingBookings = _bookings.any((booking) {
+          final bookingDateOnly = DateTime(booking.pickupTime.year, booking.pickupTime.month, booking.pickupTime.day);
+          return bookingDateOnly == requestedDateOnly;
+        });
+        
+        if (hasMatchingBookings) {
+          print('⚠️ API error but we have existing bookings for this date ($date). Keeping existing data.');
+          _setLoading(false);
+          notifyListeners();
+          return;
+        }
+        
+        // If no cache and no matching bookings, show empty state
+        print('⚠️ API error for date $date with no cache or matching bookings. Showing empty state.');
+        _bookings = [];
+        _currentUserBookings = [];
+        _guideLists = [];
+        _stats = null;
+        
         _setLoading(false);
+        notifyListeners();
         return;
       }
 
-      // Load statuses from Firebase
-      final dateStr = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+      // If force refresh, always update (even if API returns empty) - this allows viewing past dates
+      // If not force refresh and API returns empty but we have existing data, keep existing data
+      if (bookings.isEmpty && _bookings.isNotEmpty && !forceRefresh) {
+        print('⚠️ API returned empty bookings but we have existing bookings. Keeping existing data (not a refresh).');
+        _setLoading(false);
+        return;
+      }
+      
+      // If force refresh and API returns empty, check cache first before clearing
+      if (bookings.isEmpty && forceRefresh) {
+        // FIX: Use normalized date key for cache lookup
+        // If we have cached data, use it instead of clearing
+        if (_bookingsCache.containsKey(dateKey) && _bookingsCache[dateKey]!.isNotEmpty) {
+          print('💾 API returned empty but found cached bookings for date $dateKey. Restoring from cache.');
+          _bookings = _bookingsCache[dateKey]!;
+          _guideLists = _guideListsCache[dateKey] ?? [];
+          _stats = _statsCache[dateKey];
+          
+          // Update current user bookings
+          if (_currentUser != null) {
+            _currentUserBookings = _bookings
+                .where((booking) => booking.assignedGuideId == _currentUser!.id)
+                .toList();
+          } else {
+            _currentUserBookings = _bookings;
+          }
+          
+          _selectedDate = date;
+          _error = null;
+          _setLoading(false);
+          notifyListeners();
+          return;
+        }
+        
+        print('🔄 Force refresh: API returned empty for date $date, clearing existing bookings');
+        // Clear all bookings for this date
+        _bookings = [];
+        _currentUserBookings = [];
+        _guideLists = [];
+        _stats = null;
+        _selectedDate = date; // Update selected date even if no bookings
+        _error = null; // Clear any previous errors
+        
+        // Also clear cache for this date
+        _bookingsCache.remove(dateKey);
+        _guideListsCache.remove(dateKey);
+        _statsCache.remove(dateKey);
+        
+        _setLoading(false);
+        notifyListeners();
+        print('✅ Cleared all bookings for date $date - showing empty state');
+        return;
+      }
+      
+      // If not force refresh and API returns empty, but we're loading a different date, clear old data
+      if (bookings.isEmpty && !forceRefresh && _selectedDate != date) {
+        print('🔄 Loading different date ($date vs ${_selectedDate}): API returned empty, clearing old data');
+        _bookings = [];
+        _currentUserBookings = [];
+        _guideLists = [];
+        _stats = null;
+        _selectedDate = date;
+        _setLoading(false);
+        notifyListeners();
+        return;
+      }
+      
+      // Clear any previous errors if we got successful data
+      _error = null;
+
+      // FIX: Use normalized date key for Firebase (same format as dateStr)
+      final dateStr = dateKey;
 
       // FIX: Wrap Firebase calls in individual try-catch blocks
       Map<String, Map<String, dynamic>> statuses = {};
@@ -166,9 +328,11 @@ class PickupController extends ChangeNotifier {
       _bookings = updatedBookings; // Also update admin bookings
       _selectedDate = date;
 
-      // FIX: Wrap stats loading in try-catch
+      print('📊 Setting _bookings to ${updatedBookings.length} bookings for date $date');
+
+      // FIX: Wrap stats loading in try-catch, use API-safe date
       try {
-        _stats = await _pickupService.getPickupListStats(date);
+        _stats = await _pickupService.getPickupListStats(apiDate);
       } catch (e) {
         print('⚠️ Failed to load stats: $e');
       }
@@ -176,8 +340,15 @@ class PickupController extends ChangeNotifier {
       // Update guide lists from the bookings with assignments
       _updateGuideLists();
 
+      // FIX: Cache using normalized date key (already calculated at method start)
+      _bookingsCache[dateKey] = List.from(updatedBookings);
+      _guideListsCache[dateKey] = List.from(_guideLists);
+      _statsCache[dateKey] = _stats;
+      print('💾 Cached bookings for date $dateKey: ${updatedBookings.length} bookings');
+
       print('📊 Loaded ${updatedBookings.length} bookings with ${assignments.length} assignments');
       print('👥 Updated guide lists: ${_guideLists.length} guides with assignments');
+      print('✅ Final _bookings count: ${_bookings.length}');
     } catch (e) {
       print('❌ Error loading bookings: $e');
       _error = e.toString();
@@ -240,8 +411,16 @@ class PickupController extends ChangeNotifier {
 
   // Change selected date
   void changeDate(DateTime date) {
-    _selectedDate = date;
-    loadBookingsForDate(date);
+    final oldKey = _getDateKey(_selectedDate);
+    final newKey = _getDateKey(date);
+    print('📅 Changing date from $oldKey to $newKey');
+    // Always force refresh when changing dates to get fresh data
+    loadBookingsForDate(date, forceRefresh: true);
+  }
+  
+  // Force refresh current date's bookings
+  Future<void> refreshBookings() async {
+    await loadBookingsForDate(_selectedDate, forceRefresh: true);
   }
 
   // Admin methods
@@ -259,6 +438,28 @@ class PickupController extends ChangeNotifier {
 
           // Update guide lists
           _updateGuideLists();
+          
+          // Update current user bookings if this assignment affects the current user
+          if (_currentUser != null) {
+            if (guideId == _currentUser!.id) {
+              // Booking was assigned to current user - add it if not already there
+              if (!_currentUserBookings.any((b) => b.id == bookingId)) {
+                _currentUserBookings.add(_bookings[bookingIndex]);
+                // Reload reordered list to include new booking
+                try {
+                  final reorderedList = await _loadReorderedBookings(_currentUserBookings)
+                      .timeout(const Duration(seconds: 2), onTimeout: () => _currentUserBookings);
+                  _currentUserBookings = reorderedList;
+                } catch (e) {
+                  print('⚠️ Failed to reload reordered list after assignment: $e');
+                }
+              }
+            } else {
+              // Booking was assigned to different guide - remove from current user if present
+              _currentUserBookings.removeWhere((b) => b.id == bookingId);
+            }
+          }
+          
           notifyListeners();
         }
       }
@@ -409,6 +610,28 @@ class PickupController extends ChangeNotifier {
           assignedGuideId: toGuideId,
           assignedGuideName: toGuideName,
         );
+      }
+
+      // Update current user bookings if this affects the current user
+      if (_currentUser != null) {
+        if (toGuideId == _currentUser!.id) {
+          // Booking was moved to current user - add it if not already there
+          if (!_currentUserBookings.any((b) => b.id == bookingId)) {
+            final updatedBooking = _bookings.firstWhere((b) => b.id == bookingId);
+            _currentUserBookings.add(updatedBooking);
+            // Reload reordered list
+            try {
+              final reorderedList = await _loadReorderedBookings(_currentUserBookings)
+                  .timeout(const Duration(seconds: 2), onTimeout: () => _currentUserBookings);
+              _currentUserBookings = reorderedList;
+            } catch (e) {
+              print('⚠️ Failed to reload reordered list after move: $e');
+            }
+          }
+        } else {
+          // Booking was moved away from current user - remove it
+          _currentUserBookings.removeWhere((b) => b.id == bookingId);
+        }
       }
 
       notifyListeners();

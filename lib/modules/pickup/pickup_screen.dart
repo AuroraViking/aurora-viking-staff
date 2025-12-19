@@ -101,7 +101,8 @@ class _PickupScreenState extends State<PickupScreen> {
 
     // Set the current user in the pickup controller
     controller.setCurrentUser(authController.currentUser!);
-    controller.loadBookingsForDate(DateTime.now());
+    // Force refresh to get latest data
+    controller.loadBookingsForDate(DateTime.now(), forceRefresh: true);
   }
 
   @override
@@ -119,7 +120,7 @@ class _PickupScreenState extends State<PickupScreen> {
           ),
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: _loadTodayBookings,
+            onPressed: _refreshData,
             tooltip: 'Refresh',
           ),
         ],
@@ -158,9 +159,89 @@ class _PickupScreenState extends State<PickupScreen> {
 
           return Column(
             children: [
+              // Date header with navigation
+              Container(
+                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.primary.withOpacity(0.3)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    // Previous day button
+                    IconButton(
+                      icon: const Icon(Icons.chevron_left),
+                      onPressed: () {
+                        final prevDate = selectedDate.subtract(const Duration(days: 1));
+                        if (prevDate.isAfter(DateTime.now().subtract(const Duration(days: 31)))) {
+                          controller.changeDate(prevDate);
+                        }
+                      },
+                      tooltip: 'Previous day',
+                    ),
+                    // Date display
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: _selectDate,
+                        child: Column(
+                          children: [
+                            Text(
+                              _formatDate(selectedDate),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            if (_isToday(selectedDate))
+                              const Text(
+                                'Today',
+                                style: TextStyle(
+                                  color: AppColors.primary,
+                                  fontSize: 12,
+                                ),
+                              )
+                            else if (_isYesterday(selectedDate))
+                              const Text(
+                                'Yesterday',
+                                style: TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 12,
+                                ),
+                              )
+                            else
+                              Text(
+                                _getDayName(selectedDate),
+                                style: const TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 12,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    // Next day button
+                    IconButton(
+                      icon: const Icon(Icons.chevron_right),
+                      onPressed: () {
+                        final nextDate = selectedDate.add(const Duration(days: 1));
+                        if (nextDate.isBefore(DateTime.now().add(const Duration(days: 366)))) {
+                          controller.changeDate(nextDate);
+                        }
+                      },
+                      tooltip: 'Next day',
+                    ),
+                  ],
+                ),
+              ),
+              
               // Summary card
               Container(
-                margin: const EdgeInsets.all(16),
+                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   color: AppColors.primary.withOpacity(0.1),
@@ -169,7 +250,6 @@ class _PickupScreenState extends State<PickupScreen> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceAround,
                   children: [
-                    _buildStat('Date', '${selectedDate.day}/${selectedDate.month}'),
                     _buildStat('Pickups', '${bookings.length}'),
                     _buildStat('Picked Up', '$pickedUpGuests / $totalGuests'),
                   ],
@@ -800,7 +880,8 @@ class _PickupScreenState extends State<PickupScreen> {
     // Set the current user in the pickup controller
     controller.setCurrentUser(authController.currentUser!);
 
-    await controller.loadBookingsForDate(controller.selectedDate);
+    // Force refresh to always get fresh data from API and Firebase
+    await controller.loadBookingsForDate(controller.selectedDate, forceRefresh: true);
   }
 
   Future<void> _selectDate() async {
@@ -823,7 +904,28 @@ class _PickupScreenState extends State<PickupScreen> {
       // Set the current user in the pickup controller
       controller.setCurrentUser(authController.currentUser!);
 
-      await controller.loadBookingsForDate(selectedDate);
+      // Force refresh when date changes to get latest data
+      await controller.loadBookingsForDate(selectedDate, forceRefresh: true);
     }
+  }
+
+  String _formatDate(DateTime date) {
+    final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return '${date.day} ${months[date.month - 1]} ${date.year}';
+  }
+
+  bool _isToday(DateTime date) {
+    final now = DateTime.now();
+    return date.year == now.year && date.month == now.month && date.day == now.day;
+  }
+
+  bool _isYesterday(DateTime date) {
+    final yesterday = DateTime.now().subtract(const Duration(days: 1));
+    return date.year == yesterday.year && date.month == yesterday.month && date.day == yesterday.day;
+  }
+
+  String _getDayName(DateTime date) {
+    final days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    return days[date.weekday - 1];
   }
 }

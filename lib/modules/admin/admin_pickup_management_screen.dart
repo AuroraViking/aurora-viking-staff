@@ -37,7 +37,8 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
     _tabController = TabController(length: 2, vsync: this);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final controller = context.read<PickupController>();
-      await controller.loadBookingsForDate(controller.selectedDate);
+      // Force refresh on initial load to ensure fresh data
+      await controller.loadBookingsForDate(controller.selectedDate, forceRefresh: true);
       await _loadGuides();
       await _loadBuses();
       await _loadBusAssignments(controller);
@@ -383,7 +384,7 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
           if (controller.error != null) {
             return CustomErrorWidget(
               message: controller.error!,
-              onRetry: () => controller.loadBookingsForDate(controller.selectedDate),
+              onRetry: () => controller.loadBookingsForDate(controller.selectedDate, forceRefresh: true),
             );
           }
 
@@ -1245,10 +1246,17 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
       // Reset reordered bookings when date changes
       setState(() {
         _resetReorderedBookings();
+        // Clear bus assignments for old date
+        _busAssignments.clear();
       });
+      // Change date and force refresh to get fresh data
       controller.changeDate(selectedDate);
+      // Wait for bookings to load
+      await Future.delayed(const Duration(milliseconds: 500));
       // Reload bus assignments for the new date
       await _loadBusAssignments(controller);
+      // Reload reordered bookings for the new date
+      await _updateReorderedBookings(controller);
     }
   }
 
@@ -1432,7 +1440,8 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
   }
 
   Future<void> _refreshData(PickupController controller) async {
-    await controller.loadBookingsForDate(controller.selectedDate);
+    // Force refresh to always get fresh data from API and Firebase
+    await controller.loadBookingsForDate(controller.selectedDate, forceRefresh: true);
     await _loadGuides();
     // Wait a bit for guide lists to be populated after bookings are loaded
     await Future.delayed(const Duration(milliseconds: 300));

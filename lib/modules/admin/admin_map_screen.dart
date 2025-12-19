@@ -661,7 +661,8 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
       if (!mounted) return;
       
       final controller = context.read<PickupController>();
-      await controller.loadBookingsForDate(date);
+      // Force refresh to get latest pickup data
+      await controller.loadBookingsForDate(date, forceRefresh: true);
       
       final guideList = controller.getGuideList(guideId);
       if (guideList != null && mounted) {

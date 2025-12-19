@@ -565,11 +565,32 @@ class PickupService {
       } else {
         print('❌ Pickup API Error: ${response.statusCode}');
         print('📄 Pickup Error Response: ${response.body}');
-        return [];
+        
+        // Parse error response to get more details
+        try {
+          final errorData = json.decode(response.body);
+          final errorMessage = errorData['message'] ?? 'Unknown API error';
+          print('❌ API Error Message: $errorMessage');
+          
+          // Throw exception with error details so controller can handle it
+          throw Exception('Bokun API Error (${response.statusCode}): $errorMessage');
+        } catch (e) {
+          // If error parsing fails, throw generic exception
+          if (e is Exception && e.toString().contains('Bokun API Error')) {
+            rethrow;
+          }
+          throw Exception('Bokun API Error (${response.statusCode}): ${response.body}');
+        }
       }
     } catch (e) {
-      print('❌ Pickup Service: Error fetching bookings for date $date: $e');
-      return [];
+      // Re-throw API errors so controller can handle them (check cache, etc.)
+      if (e is Exception && e.toString().contains('Bokun API Error')) {
+        print('❌ Pickup Service: Re-throwing API error: $e');
+        rethrow;
+      }
+      // For other unexpected errors, still throw but with context
+      print('❌ Pickup Service: Unexpected error fetching bookings for date $date: $e');
+      throw Exception('Failed to fetch bookings: $e');
     }
   }
 
