@@ -403,6 +403,186 @@ class PickupService {
     return 'Pickup pending';
   }
 
+  /// Helper to get normalized date key (YYYY-MM-DD format)
+  String _getDateKey(DateTime date) {
+    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+  }
+
+  /// Fetch bookings for a PAST date using alternative strategies
+  /// Strategy 1: Wide date range that includes today (most likely to work!)
+  /// Strategy 2: Query by creationDateRange instead of startDateRange
+  /// Strategy 3: Fall back to Firebase cached data
+  Future<List<PickupBooking>> _fetchPastBookings(DateTime date) async {
+    final dateKey = _getDateKey(date);
+    print('📅 Attempting to fetch PAST bookings for: $dateKey');
+    
+    // Strategy 1: Try with a wide date range that ENDS today
+    // Bokun likely only checks if the START is too far in the past
+    try {
+      print('🔄 Strategy 1: Trying wide date range ending today...');
+      
+      final now = DateTime.now();
+      final startDate = DateTime(date.year, date.month, date.day);
+      // End at today 23:59:59 (not in the past!)
+      final endDate = DateTime(now.year, now.month, now.day, 23, 59, 59, 999);
+      
+      final requestBody = {
+        'startDateRange': {
+          'from': startDate.toUtc().toIso8601String(),
+          'to': endDate.toUtc().toIso8601String(),
+        }
+      };
+      
+      final bodyJson = json.encode(requestBody);
+      print('📤 Request Body (wide range): $bodyJson');
+      print('📅 Date range: ${_getDateKey(startDate)} to ${_getDateKey(endDate)}');
+      
+      // Use current time for the signature (not the past date!)
+      final response = await http.post(
+        Uri.parse('$_baseUrl/booking.json/booking-search'),
+        headers: _getHeaders(bodyJson, requestDate: now),
+        body: bodyJson,
+      );
+      
+      print('📡 Wide range response status: ${response.statusCode}');
+      
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final items = data['items'] as List<dynamic>? ?? [];
+        print('✅ Wide range query succeeded! Got ${items.length} total bookings');
+        
+        // Filter to only the specific date we want
+        final bookings = <PickupBooking>[];
+        for (final booking in items) {
+          try {
+            // Check booking status first
+            final productBookings = booking['productBookings'] as List<dynamic>? ?? [];
+            if (productBookings.isEmpty) continue;
+            
+            final productBooking = productBookings.first;
+            final status = productBooking['status']?.toString() ?? '';
+            if (status != 'CONFIRMED') continue;
+            
+            final parsed = _parseBokunBooking(booking);
+            if (parsed != null) {
+              final bookingDate = parsed.pickupTime;
+              // Check if this booking is for our target date
+              if (bookingDate.year == date.year &&
+                  bookingDate.month == date.month &&
+                  bookingDate.day == date.day) {
+                bookings.add(parsed);
+                print('✅ Found booking for $dateKey: ${parsed.customerFullName}');
+              }
+            }
+          } catch (e) {
+            print('⚠️ Error parsing booking in wide range: $e');
+          }
+        }
+        
+        print('📋 Filtered to ${bookings.length} bookings for $dateKey');
+        
+        if (bookings.isNotEmpty) {
+          // Cache these for next time!
+          await FirebaseService.cacheBookings(date: dateKey, bookings: bookings);
+          return bookings;
+        }
+      } else {
+        print('❌ Wide range query failed: ${response.statusCode}');
+        print('📄 Error response: ${response.body}');
+      }
+    } catch (e) {
+      print('❌ Strategy 1 failed: $e');
+    }
+    
+    // Strategy 2: Try creationDateRange (when booking was made, not tour date)
+    try {
+      print('🔄 Strategy 2: Trying creationDateRange...');
+      
+      final now = DateTime.now();
+      // Query bookings created in the last 60 days
+      final sixtyDaysAgo = now.subtract(const Duration(days: 60));
+      
+      final requestBody = {
+        'creationDateRange': {
+          'from': sixtyDaysAgo.toUtc().toIso8601String(),
+          'to': now.toUtc().toIso8601String(),
+        }
+      };
+      
+      final bodyJson = json.encode(requestBody);
+      print('📤 Request Body (creationDateRange): $bodyJson');
+      
+      final response = await http.post(
+        Uri.parse('$_baseUrl/booking.json/booking-search'),
+        headers: _getHeaders(bodyJson, requestDate: now),
+        body: bodyJson,
+      );
+      
+      print('📡 creationDateRange response status: ${response.statusCode}');
+      
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final items = data['items'] as List<dynamic>? ?? [];
+        print('✅ creationDateRange query succeeded! Got ${items.length} total bookings');
+        
+        // Filter to only bookings with tour date matching our target
+        final bookings = <PickupBooking>[];
+        for (final booking in items) {
+          try {
+            final productBookings = booking['productBookings'] as List<dynamic>? ?? [];
+            if (productBookings.isEmpty) continue;
+            
+            final productBooking = productBookings.first;
+            final status = productBooking['status']?.toString() ?? '';
+            if (status != 'CONFIRMED') continue;
+            
+            final parsed = _parseBokunBooking(booking);
+            if (parsed != null) {
+              final bookingDate = parsed.pickupTime;
+              if (bookingDate.year == date.year &&
+                  bookingDate.month == date.month &&
+                  bookingDate.day == date.day) {
+                bookings.add(parsed);
+                print('✅ Found booking for $dateKey: ${parsed.customerFullName}');
+              }
+            }
+          } catch (e) {
+            print('⚠️ Error parsing booking in creationDateRange: $e');
+          }
+        }
+        
+        print('📋 Filtered to ${bookings.length} bookings with tour date $dateKey');
+        
+        if (bookings.isNotEmpty) {
+          await FirebaseService.cacheBookings(date: dateKey, bookings: bookings);
+          return bookings;
+        }
+      } else {
+        print('❌ creationDateRange query failed: ${response.statusCode}');
+        print('📄 Error response: ${response.body}');
+      }
+    } catch (e) {
+      print('❌ Strategy 2 failed: $e');
+    }
+    
+    // Strategy 3: Fall back to Firebase cached data
+    print('🔄 Strategy 3: Checking Firebase cache for past bookings...');
+    try {
+      final cachedBookings = await FirebaseService.getCachedBookings(dateKey);
+      if (cachedBookings.isNotEmpty) {
+        print('✅ Found ${cachedBookings.length} cached bookings in Firebase for $dateKey');
+        return cachedBookings;
+      } else {
+        print('⚠️ No cached bookings found for $dateKey');
+      }
+    } catch (e) {
+      print('❌ Firebase cache lookup failed: $e');
+    }
+    
+    print('⚠️ All strategies exhausted for past date $dateKey - returning empty list');
+    return [];
+  }
+
   // Fetch bookings from Bokun API for a specific date
   Future<List<PickupBooking>> fetchBookingsForDate(DateTime date) async {
     print('🔍 DEBUG: fetchBookingsForDate called with date: $date');
@@ -417,12 +597,30 @@ class PickupService {
         return [];
       }
 
-      // Check if date is in the past (more than 30 days ago)
+      // Determine if this is a past date
       final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final requestedDate = DateTime(date.year, date.month, date.day);
+      final isPastDate = requestedDate.isBefore(today);
+      
+      // Also check if more than 30 days ago (Bokun's hard limit)
       final thirtyDaysAgo = now.subtract(const Duration(days: 30));
-      if (date.isBefore(thirtyDaysAgo)) {
-        print('ℹ️ Date ${date.toString()} is too far in the past, skipping API call');
+      final isTooOld = requestedDate.isBefore(thirtyDaysAgo);
+      
+      if (isTooOld) {
+        print('📅 Date is more than 30 days ago - checking Firebase cache only');
+        final cachedBookings = await FirebaseService.getCachedBookings(_getDateKey(date));
+        if (cachedBookings.isNotEmpty) {
+          print('✅ Found ${cachedBookings.length} cached bookings for old date');
+          return cachedBookings;
+        }
+        print('⚠️ No cached data available for date more than 30 days ago');
         return [];
+      }
+      
+      if (isPastDate) {
+        print('📅 Requested date is in the PAST (but within 30 days) - using alternative fetch strategy');
+        return await _fetchPastBookings(date);
       }
 
       print('✅ Pickup Service: Bokun API credentials found. Making API request...');

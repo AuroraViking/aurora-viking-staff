@@ -340,15 +340,39 @@ class PickupController extends ChangeNotifier {
       // Update guide lists from the bookings with assignments
       _updateGuideLists();
 
-      // FIX: Cache using normalized date key (already calculated at method start)
+      print('📊 Loaded ${updatedBookings.length} bookings with ${assignments.length} assignments');
+      print('👥 Updated guide lists: ${_guideLists.length} guides with assignments');
+      print('✅ Final _bookings count: ${_bookings.length}');
+      
+      // ========================================
+      // AUTO-CACHE: Save today's bookings to Firebase
+      // So they're available tomorrow when "today" becomes "past"
+      // ========================================
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final selectedDateNormalized = DateTime(date.year, date.month, date.day);
+      
+      // Cache if this is today's data OR if it's recent (within last 7 days)
+      // This ensures we always have a backup in Firebase
+      final sevenDaysAgo = today.subtract(const Duration(days: 7));
+      final shouldCache = selectedDateNormalized.isAtSameMomentAs(today) ||
+                          (selectedDateNormalized.isAfter(sevenDaysAgo) && 
+                           selectedDateNormalized.isBefore(today.add(const Duration(days: 1))));
+      
+      if (shouldCache && updatedBookings.isNotEmpty) {
+        // Cache to Firebase for future retrieval
+        await FirebaseService.cacheBookings(
+          date: dateKey,
+          bookings: updatedBookings,
+        );
+        print('💾 Auto-cached ${updatedBookings.length} bookings to Firebase for date $dateKey');
+      }
+      
+      // Also cache to local memory
       _bookingsCache[dateKey] = List.from(updatedBookings);
       _guideListsCache[dateKey] = List.from(_guideLists);
       _statsCache[dateKey] = _stats;
       print('💾 Cached bookings for date $dateKey: ${updatedBookings.length} bookings');
-
-      print('📊 Loaded ${updatedBookings.length} bookings with ${assignments.length} assignments');
-      print('👥 Updated guide lists: ${_guideLists.length} guides with assignments');
-      print('✅ Final _bookings count: ${_bookings.length}');
     } catch (e) {
       print('❌ Error loading bookings: $e');
       _error = e.toString();

@@ -704,4 +704,122 @@ class FirebaseService {
       print('❌ Failed to remove bus-guide assignment: $e');
     }
   }
+
+  /// Save bookings to Firebase cache for future retrieval
+  /// This allows us to access past bookings even when Bokun API blocks them
+  static Future<void> cacheBookings({
+    required String date, // YYYY-MM-DD format
+    required List<PickupBooking> bookings,
+  }) async {
+    if (!_initialized || _firestore == null) {
+      print('⚠️ Firebase not initialized - skipping booking cache');
+      return;
+    }
+    
+    try {
+      // Convert bookings to JSON-serializable format
+      final bookingsData = bookings.map((b) => b.toJson()).toList();
+      
+      await _firestore!
+          .collection('cached_bookings')
+          .doc(date)
+          .set({
+        'date': date,
+        'bookings': bookingsData,
+        'cachedAt': FieldValue.serverTimestamp(),
+        'count': bookings.length,
+      });
+      
+      print('💾 Cached ${bookings.length} bookings for date $date to Firebase');
+    } catch (e) {
+      print('❌ Failed to cache bookings to Firebase: $e');
+    }
+  }
+
+  /// Retrieve cached bookings from Firebase
+  /// Returns empty list if no cache exists or on error
+  static Future<List<PickupBooking>> getCachedBookings(String date) async {
+    if (!_initialized || _firestore == null) {
+      print('⚠️ Firebase not initialized - cannot retrieve cached bookings');
+      return [];
+    }
+    
+    try {
+      final doc = await _firestore!
+          .collection('cached_bookings')
+          .doc(date)
+          .get();
+      
+      if (doc.exists) {
+        final data = doc.data() as Map<String, dynamic>;
+        final bookingsData = data['bookings'] as List<dynamic>? ?? [];
+        final cachedAt = data['cachedAt'];
+        
+        print('📂 Found cached bookings for $date (cached at: $cachedAt)');
+        
+        final bookings = bookingsData
+            .map((b) => PickupBooking.fromJson(b as Map<String, dynamic>))
+            .toList();
+        
+        print('✅ Retrieved ${bookings.length} cached bookings for date $date');
+        return bookings;
+      } else {
+        print('ℹ️ No cached bookings found for date $date');
+      }
+      
+      return [];
+    } catch (e) {
+      print('❌ Failed to retrieve cached bookings from Firebase: $e');
+      return [];
+    }
+  }
+
+  /// Check if we have cached bookings for a date
+  static Future<bool> hasCachedBookings(String date) async {
+    if (!_initialized || _firestore == null) return false;
+    
+    try {
+      final doc = await _firestore!
+          .collection('cached_bookings')
+          .doc(date)
+          .get();
+      
+      return doc.exists;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// Clear old cached bookings (older than specified days)
+  /// Call this periodically to clean up storage
+  static Future<void> clearOldCachedBookings({int olderThanDays = 90}) async {
+    if (!_initialized || _firestore == null) return;
+    
+    try {
+      final cutoffDate = DateTime.now().subtract(Duration(days: olderThanDays));
+      final cutoffKey = '${cutoffDate.year}-${cutoffDate.month.toString().padLeft(2, '0')}-${cutoffDate.day.toString().padLeft(2, '0')}';
+      
+      // Get all cached bookings
+      final querySnapshot = await _firestore!
+          .collection('cached_bookings')
+          .where('date', isLessThan: cutoffKey)
+          .get();
+      
+      if (querySnapshot.docs.isEmpty) {
+        print('ℹ️ No old cached bookings to clean up');
+        return;
+      }
+      
+      // Delete in batches
+      final batch = _firestore!.batch();
+      for (final doc in querySnapshot.docs) {
+        batch.delete(doc.reference);
+      }
+      await batch.commit();
+      
+      print('🗑️ Cleaned up ${querySnapshot.docs.length} old cached booking records');
+    } catch (e) {
+      print('❌ Failed to clear old cached bookings: $e');
+    }
+  }
 } 
