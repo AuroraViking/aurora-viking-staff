@@ -94,6 +94,11 @@ firebase_options.dart
 .env
 .env.local
 .env.production
+functions/.env
+functions/.env.local
+
+# Node modules
+functions/node_modules/
 
 
 

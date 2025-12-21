@@ -4,12 +4,14 @@
 // ============================================
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:provider/provider.dart';
 import 'dart:math';
 import '../../core/theme/colors.dart';
+import '../../core/config/env_config.dart';
 import '../../core/services/bus_management_service.dart';
 import '../../core/services/firebase_service.dart';
 import '../../core/models/pickup_models.dart';
@@ -72,13 +74,26 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
   }
 
   void _checkApiKey() {
-    final apiKey = dotenv.env['GOOGLE_MAPS_API_KEY'];
-    setState(() {
-      _hasApiKey = apiKey != null && apiKey.isNotEmpty && apiKey != 'your_google_maps_api_key_here';
-    });
+    // On web, the Maps API key is loaded via script tag in index.html
+    // On mobile, check EnvConfig (build-time constant) or dotenv
+    if (kIsWeb) {
+      // On web, assume Maps is available if the JS API script loaded
+      // The script tag in index.html handles the API key
+      setState(() {
+        _hasApiKey = true; // Assume available on web if script tag is present
+      });
+    } else {
+      // On mobile, check EnvConfig first (build-time), then dotenv as fallback
+      final apiKey = EnvConfig.hasMapsKey 
+          ? EnvConfig.googleMapsApiKey 
+          : dotenv.env['GOOGLE_MAPS_API_KEY'];
+      setState(() {
+        _hasApiKey = apiKey != null && apiKey.isNotEmpty && apiKey != 'your_google_maps_api_key_here';
+      });
 
-    if (!_hasApiKey) {
-      print('⚠️ Google Maps API key not found or not configured properly');
+      if (!_hasApiKey) {
+        print('⚠️ Google Maps API key not found or not configured properly');
+      }
     }
   }
 

@@ -5,6 +5,7 @@ import '../../core/auth/auth_controller.dart';
 import '../shifts/shifts_screen.dart';
 import '../shifts/shifts_service.dart';
 import '../../core/models/shift_model.dart';
+import '../../widgets/common/logo_widget.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -227,7 +228,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Profile Header (no picture, no rating)
+            // Profile Header with logo
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
@@ -237,7 +238,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
               child: Row(
                 children: [
-                  // Name and role only
+                  // Logo
+                  const LogoMedium(),
+                  const SizedBox(width: 16),
+                  // Name and role
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,

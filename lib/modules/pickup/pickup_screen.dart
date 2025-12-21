@@ -7,6 +7,7 @@ import '../../core/auth/auth_controller.dart';
 import '../../core/models/pickup_models.dart';
 import '../../widgets/common/loading_widget.dart';
 import '../../widgets/common/error_widget.dart';
+import '../../widgets/common/logo_widget.dart';
 import 'pickup_controller.dart';
 
 class PickupScreen extends StatefulWidget {
@@ -109,7 +110,14 @@ class _PickupScreenState extends State<PickupScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('My Pickup List'),
+        title: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            LogoSmall(),
+            SizedBox(width: 12),
+            Text('My Pickup List'),
+          ],
+        ),
         backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
         actions: [

@@ -11,6 +11,7 @@ import 'admin_guide_management_screen.dart';
 import 'admin_reports_screen.dart';
 import 'admin_pickup_management_screen.dart';
 import 'admin_bus_management_screen.dart';
+import '../../widgets/common/logo_widget.dart';
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
@@ -155,7 +156,14 @@ class _AdminDashboardState extends State<AdminDashboard> {
       builder: (context, adminController, child) {
         return Scaffold(
           appBar: AppBar(
-            title: const Text('Admin Dashboard'),
+            title: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                LogoSmall(),
+                SizedBox(width: 12),
+                Text('Admin Dashboard'),
+              ],
+            ),
             backgroundColor: AppColors.primary,
             foregroundColor: Colors.white,
             actions: [

@@ -3,7 +3,7 @@ import 'package:provider/provider.dart';
 import '../core/theme/colors.dart';
 import '../core/auth/auth_controller.dart';
 import '../widgets/common/loading_widget.dart';
-import '../widgets/common/error_widget.dart';
+import '../widgets/common/logo_widget.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({Key? key}) : super(key: key);
@@ -248,20 +248,8 @@ class _LoginScreenState extends State<LoginScreen> {
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            // Logo/Icon
-                            Container(
-                              width: 80,
-                              height: 80,
-                              decoration: BoxDecoration(
-                                color: AppColors.primary.withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(40),
-                              ),
-                              child: const Icon(
-                                Icons.directions_bus,
-                                size: 40,
-                                color: AppColors.primary,
-                              ),
-                            ),
+                            // Logo
+                            const LogoLarge(),
                             
                             const SizedBox(height: 24),
                             

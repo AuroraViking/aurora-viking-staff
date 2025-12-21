@@ -1,8 +1,9 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:crypto/crypto.dart';
+import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import '../../core/models/pickup_models.dart';
 import '../../core/models/user_model.dart';
 import '../../core/services/firebase_service.dart';
@@ -426,30 +427,46 @@ class PickupService {
       // End at today 23:59:59 (not in the past!)
       final endDate = DateTime(now.year, now.month, now.day, 23, 59, 59, 999);
       
-      final requestBody = {
-        'startDateRange': {
-          'from': startDate.toUtc().toIso8601String(),
-          'to': endDate.toUtc().toIso8601String(),
+      Map<String, dynamic> data;
+      
+      // On web, use Cloud Function
+      if (kIsWeb) {
+        print('🌐 Using Cloud Function for past bookings (web)');
+        data = await _fetchBookingsViaCloudFunction(
+          startDate.toUtc().toIso8601String(),
+          endDate.toUtc().toIso8601String(),
+        );
+      } else {
+        // On mobile, use direct API call
+        final requestBody = {
+          'startDateRange': {
+            'from': startDate.toUtc().toIso8601String(),
+            'to': endDate.toUtc().toIso8601String(),
+          }
+        };
+        
+        final bodyJson = json.encode(requestBody);
+        print('📤 Request Body (wide range): $bodyJson');
+        print('📅 Date range: ${_getDateKey(startDate)} to ${_getDateKey(endDate)}');
+        
+        // Use current time for the signature (not the past date!)
+        final response = await http.post(
+          Uri.parse('$_baseUrl/booking.json/booking-search'),
+          headers: _getHeaders(bodyJson, requestDate: now),
+          body: bodyJson,
+        );
+        
+        print('📡 Wide range response status: ${response.statusCode}');
+        
+        if (response.statusCode == 200) {
+          data = json.decode(response.body);
+        } else {
+          throw Exception('Bokun API Error (${response.statusCode}): ${response.body}');
         }
-      };
+      }
       
-      final bodyJson = json.encode(requestBody);
-      print('📤 Request Body (wide range): $bodyJson');
-      print('📅 Date range: ${_getDateKey(startDate)} to ${_getDateKey(endDate)}');
-      
-      // Use current time for the signature (not the past date!)
-      final response = await http.post(
-        Uri.parse('$_baseUrl/booking.json/booking-search'),
-        headers: _getHeaders(bodyJson, requestDate: now),
-        body: bodyJson,
-      );
-      
-      print('📡 Wide range response status: ${response.statusCode}');
-      
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        final items = data['items'] as List<dynamic>? ?? [];
-        print('✅ Wide range query succeeded! Got ${items.length} total bookings');
+      final items = data['items'] as List<dynamic>? ?? [];
+      print('✅ Wide range query succeeded! Got ${items.length} total bookings');
         
         // Filter to only the specific date we want
         final bookings = <PickupBooking>[];
@@ -486,44 +503,43 @@ class PickupService {
           await FirebaseService.cacheBookings(date: dateKey, bookings: bookings);
           return bookings;
         }
-      } else {
-        print('❌ Wide range query failed: ${response.statusCode}');
-        print('📄 Error response: ${response.body}');
-      }
     } catch (e) {
       print('❌ Strategy 1 failed: $e');
     }
     
     // Strategy 2: Try creationDateRange (when booking was made, not tour date)
-    try {
-      print('🔄 Strategy 2: Trying creationDateRange...');
-      
-      final now = DateTime.now();
-      // Query bookings created in the last 60 days
-      final sixtyDaysAgo = now.subtract(const Duration(days: 60));
-      
-      final requestBody = {
-        'creationDateRange': {
-          'from': sixtyDaysAgo.toUtc().toIso8601String(),
-          'to': now.toUtc().toIso8601String(),
-        }
-      };
-      
-      final bodyJson = json.encode(requestBody);
-      print('📤 Request Body (creationDateRange): $bodyJson');
-      
-      final response = await http.post(
-        Uri.parse('$_baseUrl/booking.json/booking-search'),
-        headers: _getHeaders(bodyJson, requestDate: now),
-        body: bodyJson,
-      );
-      
-      print('📡 creationDateRange response status: ${response.statusCode}');
-      
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        final items = data['items'] as List<dynamic>? ?? [];
-        print('✅ creationDateRange query succeeded! Got ${items.length} total bookings');
+    // Note: This strategy might not work well with Cloud Function as it uses a different query type
+    // For now, skip this on web and only try on mobile where we have full API access
+    if (!kIsWeb) {
+      try {
+        print('🔄 Strategy 2: Trying creationDateRange...');
+        
+        final now = DateTime.now();
+        // Query bookings created in the last 60 days
+        final sixtyDaysAgo = now.subtract(const Duration(days: 60));
+        
+        final requestBody = {
+          'creationDateRange': {
+            'from': sixtyDaysAgo.toUtc().toIso8601String(),
+            'to': now.toUtc().toIso8601String(),
+          }
+        };
+        
+        final bodyJson = json.encode(requestBody);
+        print('📤 Request Body (creationDateRange): $bodyJson');
+        
+        final response = await http.post(
+          Uri.parse('$_baseUrl/booking.json/booking-search'),
+          headers: _getHeaders(bodyJson, requestDate: now),
+          body: bodyJson,
+        );
+        
+        print('📡 creationDateRange response status: ${response.statusCode}');
+        
+        if (response.statusCode == 200) {
+          final data = json.decode(response.body);
+          final items = data['items'] as List<dynamic>? ?? [];
+          print('✅ creationDateRange query succeeded! Got ${items.length} total bookings');
         
         // Filter to only bookings with tour date matching our target
         final bookings = <PickupBooking>[];
@@ -557,12 +573,15 @@ class PickupService {
           await FirebaseService.cacheBookings(date: dateKey, bookings: bookings);
           return bookings;
         }
-      } else {
-        print('❌ creationDateRange query failed: ${response.statusCode}');
-        print('📄 Error response: ${response.body}');
+        } else {
+          print('❌ creationDateRange query failed: ${response.statusCode}');
+          print('📄 Error response: ${response.body}');
+        }
+      } catch (e) {
+        print('❌ Strategy 2 failed: $e');
       }
-    } catch (e) {
-      print('❌ Strategy 2 failed: $e');
+    } else {
+      print('⚠️ Strategy 2 (creationDateRange) skipped on web - Cloud Function uses startDateRange only');
     }
     
     // Strategy 3: Fall back to Firebase cached data
@@ -583,14 +602,63 @@ class PickupService {
     return [];
   }
 
+  // Fetch bookings via Cloud Function using HTTP (for web - avoids Int64 issues with cloud_functions package)
+  Future<Map<String, dynamic>> _fetchBookingsViaCloudFunction(
+    String startDate,
+    String endDate,
+  ) async {
+    try {
+      print('☁️ Calling Cloud Function getBookings via HTTP');
+      print('📅 Date range: $startDate to $endDate');
+      
+      // Get Firebase auth token for authentication
+      final user = firebase_auth.FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        throw Exception('User not authenticated');
+      }
+      final token = await user.getIdToken();
+      
+      // Call Cloud Function via HTTP (2nd Gen callable function endpoint)
+      final response = await http.post(
+        Uri.parse('https://us-central1-aurora-viking-staff.cloudfunctions.net/getBookings'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: json.encode({
+          'data': {
+            'startDate': startDate,
+            'endDate': endDate,
+          }
+        }),
+      );
+      
+      print('📡 Cloud Function HTTP response status: ${response.statusCode}');
+      
+      if (response.statusCode == 200) {
+        final responseData = json.decode(response.body);
+        // 2nd Gen callable functions return result in 'result' key
+        final data = responseData['result'] as Map<String, dynamic>;
+        print('✅ Cloud Function returned ${data['items']?.length ?? 0} bookings');
+        return data;
+      } else {
+        print('❌ Cloud Function error response: ${response.body}');
+        throw Exception('Cloud Function error: ${response.statusCode} - ${response.body}');
+      }
+    } catch (e) {
+      print('❌ Cloud Function HTTP error: $e');
+      rethrow;
+    }
+  }
+
   // Fetch bookings from Bokun API for a specific date
   Future<List<PickupBooking>> fetchBookingsForDate(DateTime date) async {
     print('🔍 DEBUG: fetchBookingsForDate called with date: $date');
     print('🔍 DEBUG: Date components - Year: ${date.year}, Month: ${date.month}, Day: ${date.day}');
     print('🔍 DEBUG: Date timezone: ${date.timeZoneName}');
     try {
-      // Check if API credentials are available
-      if (!_hasApiCredentials) {
+      // Check if API credentials are available (only needed for mobile, not web)
+      if (!kIsWeb && !_hasApiCredentials) {
         print('❌ Pickup Service: Bokun API credentials not found in .env file.');
         print('Access Key: ${_accessKey.isEmpty ? "MISSING" : "FOUND"}');
         print('Secret Key: ${_secretKey.isEmpty ? "MISSING" : "FOUND"}');
@@ -623,163 +691,177 @@ class PickupService {
         return await _fetchPastBookings(date);
       }
 
-      print('✅ Pickup Service: Bokun API credentials found. Making API request...');
+      if (kIsWeb) {
+        print('✅ Pickup Service: Using Cloud Function (web - API keys secured server-side)');
+      } else {
+        print('✅ Pickup Service: Bokun API credentials found. Making direct API request (mobile)...');
+      }
       print('📅 Fetching bookings for date: ${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}');
 
       final startDate = DateTime(date.year, date.month, date.day);
       final endDate = DateTime(date.year, date.month, date.day, 23, 59, 59, 999);
 
-      final url = '$_baseUrl/booking.json/booking-search';
-      print('🌐 Pickup API URL: $url');
-
-      final requestBody = {
-        'startDateRange': {
-          'from': startDate.toUtc().toIso8601String(),
-          'to': endDate.toUtc().toIso8601String(),
-        }
-      };
-
-      // Debug: Print exact date range being sent
-      print('🔍 DEBUG: Requesting bookings for single day only');
-      print('🔍 DEBUG: startDate (local): $startDate');
-      print('🔍 DEBUG: endDate (local): $endDate');
-      print('🔍 DEBUG: startDate (UTC): ${startDate.toUtc()}');
-      print('🔍 DEBUG: endDate (UTC): ${endDate.toUtc()}');
-      print('🔍 DEBUG: Date range spans: ${endDate.difference(startDate).inHours} hours');
-      print('🔍 DEBUG: Request body date range: ${startDate.toUtc().toIso8601String()} to ${endDate.toUtc().toIso8601String()}');
-
-      final bodyJson = json.encode(requestBody);
-      print('📤 Pickup Request Body: $bodyJson');
-      print('📅 Date Range: ${startDate.toUtc().toIso8601String()} to ${endDate.toUtc().toIso8601String()}');
-      print('📅 Local Date Range: ${startDate.toLocal()} to ${endDate.toLocal()}');
-
-      final response = await http.post(
-        Uri.parse(url),
-        headers: _getHeaders(bodyJson, requestDate: date),
-        body: bodyJson,
-      );
-
-      print('📡 Pickup API Response Status: ${response.statusCode}');
-      print('📄 Pickup Response Headers: ${response.headers}');
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        print('✅ Pickup API call successful!');
-        print('📊 Pickup Raw API response: ${data.toString().substring(0, data.toString().length > 500 ? 500 : data.toString().length)}...');
-        
-        final bookings = <PickupBooking>[];
-        final filteredBookings = <PickupBooking>[];
-        
-        // Parse Bokun API response and convert to our model
-        final items = data['items'] as List<dynamic>? ?? [];
-        print('📊 Total hits from API: ${data['totalHits']}');
-        print('📊 Items array length: ${items.length}');
-        print('🔍 DEBUG: Processing ${items.length} bookings from API response');
-        
-        // Track dates for debugging
-        final dateCounts = <String, int>{};
-        
-        for (final booking in items) {
-          try {
-            // Debug: Print the actual date of each booking being processed
-            final productBookings = booking['productBookings'] as List<dynamic>? ?? [];
-            if (productBookings.isNotEmpty) {
-              final productBooking = productBookings.first;
-              final startDate = productBooking['startDate'];
-              final startDateTime = productBooking['startDateTime'];
-              
-              DateTime? bookingDate;
-              if (startDate != null) {
-                bookingDate = DateTime.fromMillisecondsSinceEpoch(startDate);
-              } else if (startDateTime != null) {
-                bookingDate = DateTime.parse(startDateTime);
-              }
-              
-              if (bookingDate != null) {
-                final dateKey = '${bookingDate.day}/${bookingDate.month}/${bookingDate.year}';
-                dateCounts[dateKey] = (dateCounts[dateKey] ?? 0) + 1;
-                print('🔍 DEBUG: Booking date: ${bookingDate.toLocal()} (${dateKey})');
-              }
-            }
-            
-            // Check booking status - only process CONFIRMED bookings
-            bool isConfirmed = false;
-            String bookingStatus = 'UNKNOWN';
-            
-            if (productBookings.isNotEmpty) {
-              final productBooking = productBookings.first;
-              bookingStatus = productBooking['status']?.toString() ?? 'NO_STATUS';
-              isConfirmed = bookingStatus == 'CONFIRMED';
-              
-              // Also check main booking status
-              final mainBookingStatus = booking['status']?.toString() ?? 'NO_MAIN_STATUS';
-              if (mainBookingStatus == 'CONFIRMED') {
-                isConfirmed = true;
-              }
-              
-              print('🔍 DEBUG: Booking status - Product: $bookingStatus, Main: $mainBookingStatus, IsConfirmed: $isConfirmed');
-            }
-            
-            // Only process confirmed bookings
-            if (!isConfirmed) {
-              final customer = booking['customer'] ?? booking['leadCustomer'] ?? {};
-              final customerFullName = '${customer['firstName'] ?? ''} ${customer['lastName'] ?? ''}'.trim();
-              print('❌ Skipping non-confirmed booking: $customerFullName (Status: $bookingStatus)');
-              continue;
-            }
-            
-            final pickupBooking = _parseBokunBooking(booking);
-            if (pickupBooking != null) {
-              bookings.add(pickupBooking);
-              
-              // Filter bookings to only include the requested date
-              final bookingDate = pickupBooking.pickupTime;
-              final requestedDate = DateTime(date.year, date.month, date.day);
-              
-              if (bookingDate.year == requestedDate.year &&
-                  bookingDate.month == requestedDate.month &&
-                  bookingDate.day == requestedDate.day) {
-                filteredBookings.add(pickupBooking);
-                print('✅ Added booking for requested date: ${pickupBooking.customerFullName}');
-              } else {
-                print('❌ Filtered out booking for different date: ${pickupBooking.customerFullName} - ${bookingDate.day}/${bookingDate.month}/${bookingDate.year}');
-              }
-            }
-          } catch (e) {
-            print('Error parsing booking: $e');
-          }
-        }
-        
-        // Print date distribution summary
-        print('📊 DEBUG: Date distribution from API:');
-        dateCounts.forEach((dateKey, count) {
-          print('  $dateKey: $count bookings');
-        });
-        
-        print('📊 DEBUG: Total bookings before filtering: ${bookings.length}');
-        print('📊 DEBUG: Total bookings after filtering: ${filteredBookings.length}');
-        
-        return filteredBookings;
+      // On web, use Cloud Function to keep API keys secure
+      // On mobile, use direct API call (keys are in .env which isn't deployed)
+      Map<String, dynamic> data;
+      
+      if (kIsWeb) {
+        print('🌐 Using Cloud Function (web)');
+        data = await _fetchBookingsViaCloudFunction(
+          startDate.toUtc().toIso8601String(),
+          endDate.toUtc().toIso8601String(),
+        );
       } else {
-        print('❌ Pickup API Error: ${response.statusCode}');
-        print('📄 Pickup Error Response: ${response.body}');
-        
-        // Parse error response to get more details
-        try {
-          final errorData = json.decode(response.body);
-          final errorMessage = errorData['message'] ?? 'Unknown API error';
-          print('❌ API Error Message: $errorMessage');
-          
-          // Throw exception with error details so controller can handle it
-          throw Exception('Bokun API Error (${response.statusCode}): $errorMessage');
-        } catch (e) {
-          // If error parsing fails, throw generic exception
-          if (e is Exception && e.toString().contains('Bokun API Error')) {
-            rethrow;
+        print('📱 Using direct API call (mobile)');
+        final url = '$_baseUrl/booking.json/booking-search';
+        print('🌐 Pickup API URL: $url');
+
+        final requestBody = {
+          'startDateRange': {
+            'from': startDate.toUtc().toIso8601String(),
+            'to': endDate.toUtc().toIso8601String(),
           }
-          throw Exception('Bokun API Error (${response.statusCode}): ${response.body}');
+        };
+
+        // Debug: Print exact date range being sent
+        print('🔍 DEBUG: Requesting bookings for single day only');
+        print('🔍 DEBUG: startDate (local): $startDate');
+        print('🔍 DEBUG: endDate (local): $endDate');
+        print('🔍 DEBUG: startDate (UTC): ${startDate.toUtc()}');
+        print('🔍 DEBUG: endDate (UTC): ${endDate.toUtc()}');
+        print('🔍 DEBUG: Date range spans: ${endDate.difference(startDate).inHours} hours');
+        print('🔍 DEBUG: Request body date range: ${startDate.toUtc().toIso8601String()} to ${endDate.toUtc().toIso8601String()}');
+
+        final bodyJson = json.encode(requestBody);
+        print('📤 Pickup Request Body: $bodyJson');
+        print('📅 Date Range: ${startDate.toUtc().toIso8601String()} to ${endDate.toUtc().toIso8601String()}');
+        print('📅 Local Date Range: ${startDate.toLocal()} to ${endDate.toLocal()}');
+
+        final response = await http.post(
+          Uri.parse(url),
+          headers: _getHeaders(bodyJson, requestDate: date),
+          body: bodyJson,
+        );
+
+        print('📡 Pickup API Response Status: ${response.statusCode}');
+        print('📄 Pickup Response Headers: ${response.headers}');
+
+        if (response.statusCode == 200) {
+          data = json.decode(response.body);
+        } else {
+          // Parse error response to get more details
+          try {
+            final errorData = json.decode(response.body);
+            final errorMessage = errorData['message'] ?? 'Unknown API error';
+            print('❌ API Error Message: $errorMessage');
+            throw Exception('Bokun API Error (${response.statusCode}): $errorMessage');
+          } catch (e) {
+            // If error parsing fails, throw generic exception
+            if (e is Exception && e.toString().contains('Bokun API Error')) {
+              rethrow;
+            }
+            throw Exception('Bokun API Error (${response.statusCode}): ${response.body}');
+          }
         }
       }
+
+      // Process the data (works for both web and mobile)
+      print('✅ Pickup API call successful!');
+      print('📊 Pickup Raw API response: ${data.toString().substring(0, data.toString().length > 500 ? 500 : data.toString().length)}...');
+      
+      final bookings = <PickupBooking>[];
+      final filteredBookings = <PickupBooking>[];
+      
+      // Parse Bokun API response and convert to our model
+      final items = data['items'] as List<dynamic>? ?? [];
+      print('📊 Total hits from API: ${data['totalHits']}');
+      print('📊 Items array length: ${items.length}');
+      print('🔍 DEBUG: Processing ${items.length} bookings from API response');
+      
+      // Track dates for debugging
+      final dateCounts = <String, int>{};
+      
+      for (final booking in items) {
+        try {
+          // Debug: Print the actual date of each booking being processed
+          final productBookings = booking['productBookings'] as List<dynamic>? ?? [];
+          if (productBookings.isNotEmpty) {
+            final productBooking = productBookings.first;
+            final startDate = productBooking['startDate'];
+            final startDateTime = productBooking['startDateTime'];
+            
+            DateTime? bookingDate;
+            if (startDate != null) {
+              bookingDate = DateTime.fromMillisecondsSinceEpoch(startDate);
+            } else if (startDateTime != null) {
+              bookingDate = DateTime.parse(startDateTime);
+            }
+            
+            if (bookingDate != null) {
+              final dateKey = '${bookingDate.day}/${bookingDate.month}/${bookingDate.year}';
+              dateCounts[dateKey] = (dateCounts[dateKey] ?? 0) + 1;
+              print('🔍 DEBUG: Booking date: ${bookingDate.toLocal()} (${dateKey})');
+            }
+          }
+          
+          // Check booking status - only process CONFIRMED bookings
+          bool isConfirmed = false;
+          String bookingStatus = 'UNKNOWN';
+          
+          if (productBookings.isNotEmpty) {
+            final productBooking = productBookings.first;
+            bookingStatus = productBooking['status']?.toString() ?? 'NO_STATUS';
+            isConfirmed = bookingStatus == 'CONFIRMED';
+            
+            // Also check main booking status
+            final mainBookingStatus = booking['status']?.toString() ?? 'NO_MAIN_STATUS';
+            if (mainBookingStatus == 'CONFIRMED') {
+              isConfirmed = true;
+            }
+            
+            print('🔍 DEBUG: Booking status - Product: $bookingStatus, Main: $mainBookingStatus, IsConfirmed: $isConfirmed');
+          }
+          
+          // Only process confirmed bookings
+          if (!isConfirmed) {
+            final customer = booking['customer'] ?? booking['leadCustomer'] ?? {};
+            final customerFullName = '${customer['firstName'] ?? ''} ${customer['lastName'] ?? ''}'.trim();
+            print('❌ Skipping non-confirmed booking: $customerFullName (Status: $bookingStatus)');
+            continue;
+          }
+          
+          final pickupBooking = _parseBokunBooking(booking);
+          if (pickupBooking != null) {
+            bookings.add(pickupBooking);
+            
+            // Filter bookings to only include the requested date
+            final bookingDate = pickupBooking.pickupTime;
+            final requestedDate = DateTime(date.year, date.month, date.day);
+            
+            if (bookingDate.year == requestedDate.year &&
+                bookingDate.month == requestedDate.month &&
+                bookingDate.day == requestedDate.day) {
+              filteredBookings.add(pickupBooking);
+              print('✅ Added booking for requested date: ${pickupBooking.customerFullName}');
+            } else {
+              print('❌ Filtered out booking for different date: ${pickupBooking.customerFullName} - ${bookingDate.day}/${bookingDate.month}/${bookingDate.year}');
+            }
+          }
+        } catch (e) {
+          print('Error parsing booking: $e');
+        }
+      }
+      
+      // Print date distribution summary
+      print('📊 DEBUG: Date distribution from API:');
+      dateCounts.forEach((dateKey, count) {
+        print('  $dateKey: $count bookings');
+      });
+      
+      print('📊 DEBUG: Total bookings before filtering: ${bookings.length}');
+      print('📊 DEBUG: Total bookings after filtering: ${filteredBookings.length}');
+      
+      return filteredBookings;
     } catch (e) {
       // Re-throw API errors so controller can handle them (check cache, etc.)
       if (e is Exception && e.toString().contains('Bokun API Error')) {

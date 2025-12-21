@@ -5,9 +5,10 @@ import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'location_service.dart';
+import '../../core/services/location_service.dart';
 import '../../core/services/bus_management_service.dart';
 import '../../core/services/platform_service.dart';
+import '../../widgets/common/logo_widget.dart';
 
 class TrackingScreen extends StatefulWidget {
   const TrackingScreen({super.key});
@@ -475,19 +476,24 @@ class _TrackingScreenState extends State<TrackingScreen> with AutomaticKeepAlive
         child: SafeArea(
           child: Column(
             children: [
-              // Header - Fixed height
+              // Header - Fixed height with logo
               Container(
                 height: 80,
                 padding: const EdgeInsets.all(20.0),
-                child: const Center(
-                  child: Text(
-                    'Location Tracking',
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const LogoSmall(),
+                    const SizedBox(width: 12),
+                    const Text(
+                      'Location Tracking',
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
                     ),
-                  ),
+                  ],
                 ),
               ),
               

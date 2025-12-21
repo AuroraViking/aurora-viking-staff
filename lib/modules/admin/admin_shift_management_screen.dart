@@ -15,6 +15,7 @@ import '../shifts/shifts_service.dart';
 import '../../core/services/bus_management_service.dart';
 import '../../theme/colors.dart';
 import '../pickup/pickup_service.dart';
+import '../../widgets/common/logo_widget.dart';
 
 class AdminShiftManagementScreen extends StatefulWidget {
   const AdminShiftManagementScreen({super.key});
@@ -171,7 +172,14 @@ class _AdminShiftManagementScreenState extends State<AdminShiftManagementScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Shift Management'),
+        title: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            LogoSmall(),
+            SizedBox(width: 12),
+            Text('Shift Management'),
+          ],
+        ),
         backgroundColor: Theme.of(context).colorScheme.primary,
         foregroundColor: Colors.white,
         actions: [

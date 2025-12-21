@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:geolocator/geolocator.dart';
 import 'dart:async';
 import 'services/substorm_alert_service.dart';
@@ -10,6 +11,7 @@ import 'services/sunrise_sunset_service.dart';
 import 'services/permission_util.dart';
 import 'widgets/forecast_chart_widget.dart';
 import 'widgets/cloud_cover_map.dart';
+import '../../widgets/common/logo_widget.dart';
 
 class ForecastScreen extends StatefulWidget {
   const ForecastScreen({super.key});
@@ -22,6 +24,10 @@ class _ForecastScreenState extends State<ForecastScreen> {
   final SubstormAlertService _substormService = SubstormAlertService();
   final WeatherService _weatherService = WeatherService();
   final SunriseSunsetService _sunService = SunriseSunsetService();
+  
+  // Default coordinates for Iceland (Reykjavik) - used as fallback
+  static const double _icelandLatitude = 64.1466;
+  static const double _icelandLongitude = -21.9426;
   
   Map<String, dynamic>? _substormStatus;
   Map<String, dynamic>? _weatherData;
@@ -77,13 +83,18 @@ class _ForecastScreenState extends State<ForecastScreen> {
   }
 
   Future<void> _requestLocationPermission() async {
+    // Skip permission request on web - we use Iceland coordinates directly
+    if (kIsWeb) {
+      return;
+    }
+    
     final granted = await PermissionUtil.requestLocationPermission();
     if (!granted) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Location permission is required for accurate aurora forecasts.'),
-            backgroundColor: Colors.red,
+            content: Text('Location permission is required for accurate aurora forecasts. Using default Iceland location.'),
+            backgroundColor: Colors.orange,
           ),
         );
       }
@@ -97,10 +108,45 @@ class _ForecastScreenState extends State<ForecastScreen> {
     });
 
     try {
-      // Get current position
-      _currentPosition = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      );
+      // On web, skip geolocation and use Iceland coordinates directly
+      // On mobile, try to get current position, fallback to Iceland if it fails
+      if (kIsWeb) {
+        // Use Iceland coordinates directly for web users
+        _currentPosition = Position(
+          latitude: _icelandLatitude,
+          longitude: _icelandLongitude,
+          timestamp: DateTime.now(),
+          accuracy: 0,
+          altitude: 0,
+          heading: 0,
+          speed: 0,
+          speedAccuracy: 0,
+          altitudeAccuracy: 0,
+          headingAccuracy: 0,
+        );
+      } else {
+        // On mobile, try to get actual location
+        try {
+          _currentPosition = await Geolocator.getCurrentPosition(
+            desiredAccuracy: LocationAccuracy.high,
+          );
+        } catch (e) {
+          // If geolocation fails, fallback to Iceland coordinates
+          print('⚠️ Geolocation failed, using Iceland fallback: $e');
+          _currentPosition = Position(
+            latitude: _icelandLatitude,
+            longitude: _icelandLongitude,
+            timestamp: DateTime.now(),
+            accuracy: 0,
+            altitude: 0,
+            heading: 0,
+            speed: 0,
+            speedAccuracy: 0,
+            altitudeAccuracy: 0,
+            headingAccuracy: 0,
+          );
+        }
+      }
 
       // Load all data in parallel
       await Future.wait([
@@ -114,6 +160,22 @@ class _ForecastScreenState extends State<ForecastScreen> {
         _isLoadingData = false;
       });
     } catch (e) {
+      // Even if data loading fails, set a fallback position
+      if (_currentPosition == null) {
+        _currentPosition = Position(
+          latitude: _icelandLatitude,
+          longitude: _icelandLongitude,
+          timestamp: DateTime.now(),
+          accuracy: 0,
+          altitude: 0,
+          heading: 0,
+          speed: 0,
+          speedAccuracy: 0,
+          altitudeAccuracy: 0,
+          headingAccuracy: 0,
+        );
+      }
+      
       setState(() {
         _error = e.toString();
         _isLoadingData = false;
@@ -215,9 +277,16 @@ class _ForecastScreenState extends State<ForecastScreen> {
       backgroundColor: Colors.black,
       appBar: AppBar(
         backgroundColor: Colors.black,
-        title: const Text(
-          'Aurora Nowcast',
-          style: TextStyle(color: Colors.white),
+        title: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            LogoSmall(),
+            SizedBox(width: 12),
+            Text(
+              'Aurora Nowcast',
+              style: TextStyle(color: Colors.white),
+            ),
+          ],
         ),
         actions: [
           IconButton(
@@ -625,8 +694,8 @@ class _ForecastScreenState extends State<ForecastScreen> {
             const SizedBox(height: 16),
             CloudCoverMap(
               position: _currentPosition ?? Position(
-                latitude: 64.9631, // Default to Reykjavik
-                longitude: -19.0208,
+                latitude: _icelandLatitude, // Default to Reykjavik
+                longitude: _icelandLongitude,
                 timestamp: DateTime.now(),
                 accuracy: 0,
                 altitude: 0,

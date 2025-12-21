@@ -10,6 +10,7 @@ import 'modules/photos/photo_controller.dart';
 import 'core/auth/auth_controller.dart';
 import 'core/services/firebase_service.dart';
 import 'theme/av_theme.dart';
+import 'widgets/common/logo_widget.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -66,9 +67,19 @@ class AuthWrapper extends StatelessWidget {
     return Consumer<AuthController>(
       builder: (context, authController, child) {
         if (authController.isLoading) {
-          return const Scaffold(
+          return Scaffold(
+            backgroundColor: const Color(0xFF0A0D12),
             body: Center(
-              child: CircularProgressIndicator(),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const LogoBreathing(baseSize: 120),
+                  const SizedBox(height: 24),
+                  const CircularProgressIndicator(
+                    valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF00E5FF)),
+                  ),
+                ],
+              ),
             ),
           );
         }

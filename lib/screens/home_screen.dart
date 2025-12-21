@@ -14,6 +14,7 @@ import '../modules/admin/admin_dashboard.dart';
 import '../modules/admin/admin_controller.dart';
 import '../core/auth/auth_controller.dart';
 import '../core/utils/platform_utils.dart';
+import '../widgets/common/logo_widget.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -190,7 +191,7 @@ class _HomeScreenState extends State<HomeScreen> {
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text('Aurora Viking Staff'),
+            const LogoSmall(),
             if (isWeb) ...[
               const SizedBox(width: 8),
               Container(
