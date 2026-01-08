@@ -13,6 +13,9 @@ class PickupBooking {
   final DateTime createdAt;
   final String? bookingId; // Added for questions API calls
   final String? confirmationCode; // Added for booking details API calls
+  final bool isUnpaid; // Whether booking is unpaid
+  final double? amountToPayOnArrival; // Amount to pay on arrival (if applicable)
+  final bool paidOnArrival; // Whether guest has paid on arrival (marked by guide)
 
   PickupBooking({
     required this.id,
@@ -29,6 +32,9 @@ class PickupBooking {
     required this.createdAt,
     this.bookingId,
     this.confirmationCode,
+    this.isUnpaid = false,
+    this.amountToPayOnArrival,
+    this.paidOnArrival = false,
   });
 
   factory PickupBooking.fromJson(Map<String, dynamic> json) {
@@ -47,6 +53,13 @@ class PickupBooking {
       createdAt: DateTime.parse(json['createdAt'] ?? DateTime.now().toIso8601String()),
       bookingId: json['bookingId'],
       confirmationCode: json['confirmationCode'],
+      isUnpaid: json['isUnpaid'] ?? false,
+      amountToPayOnArrival: json['amountToPayOnArrival'] != null 
+          ? (json['amountToPayOnArrival'] is num 
+              ? (json['amountToPayOnArrival'] as num).toDouble() 
+              : double.tryParse(json['amountToPayOnArrival'].toString()))
+          : null,
+      paidOnArrival: json['paidOnArrival'] ?? false,
     );
   }
 
@@ -66,6 +79,9 @@ class PickupBooking {
       'createdAt': createdAt.toIso8601String(),
       'bookingId': bookingId,
       'confirmationCode': confirmationCode,
+      'isUnpaid': isUnpaid,
+      'amountToPayOnArrival': amountToPayOnArrival,
+      'paidOnArrival': paidOnArrival,
     };
   }
 
@@ -84,6 +100,9 @@ class PickupBooking {
     DateTime? createdAt,
     String? bookingId,
     String? confirmationCode,
+    bool? isUnpaid,
+    double? amountToPayOnArrival,
+    bool? paidOnArrival,
   }) {
     return PickupBooking(
       id: id ?? this.id,
@@ -100,6 +119,9 @@ class PickupBooking {
       createdAt: createdAt ?? this.createdAt,
       bookingId: bookingId ?? this.bookingId,
       confirmationCode: confirmationCode ?? this.confirmationCode,
+      isUnpaid: isUnpaid ?? this.isUnpaid,
+      amountToPayOnArrival: amountToPayOnArrival ?? this.amountToPayOnArrival,
+      paidOnArrival: paidOnArrival ?? this.paidOnArrival,
     );
   }
 }

@@ -1013,6 +1013,298 @@ class PickupService {
                               booking['externalBookingReference']?.toString() ??
                               productBooking['productConfirmationCode']?.toString();
       
+      // Extract payment information
+      bool isUnpaid = false;
+      double? amountToPayOnArrival;
+      
+      // DEBUG: Print all booking keys to see what payment fields are available
+      print('🔍 === PAYMENT DEBUG FOR ${customerFullName} ===');
+      print('🔍 Booking keys: ${booking.keys.toList()}');
+      print('🔍 ProductBooking keys: ${productBooking.keys.toList()}');
+      
+      // Check payment status from booking - try multiple possible field names
+      String paymentStatus = '';
+      if (booking['paymentStatus'] != null) {
+        paymentStatus = booking['paymentStatus'].toString().toUpperCase();
+        print('🔍 Found paymentStatus: $paymentStatus');
+      } else if (booking['payment'] != null) {
+        final payment = booking['payment'];
+        if (payment is Map) {
+          paymentStatus = payment['status']?.toString().toUpperCase() ?? '';
+          print('🔍 Found payment.status: $paymentStatus');
+          print('🔍 Payment object keys: ${payment.keys.toList()}');
+        }
+      } else if (booking['paymentStatusId'] != null) {
+        paymentStatus = booking['paymentStatusId'].toString().toUpperCase();
+        print('🔍 Found paymentStatusId: $paymentStatus');
+      } else if (productBooking['paymentStatus'] != null) {
+        paymentStatus = productBooking['paymentStatus'].toString().toUpperCase();
+        print('🔍 Found productBooking.paymentStatus: $paymentStatus');
+      }
+      
+      // Also check if there's a payment method that indicates pay on arrival
+      final paymentMethod = booking['paymentMethod']?.toString().toUpperCase() ?? 
+                          booking['payment']?['method']?.toString().toUpperCase() ?? '';
+      if (paymentMethod.isNotEmpty) {
+        print('🔍 Found paymentMethod: $paymentMethod');
+      }
+      
+      // Check if unpaid (common statuses: UNPAID, NOT_PAID, PARTIALLY_PAID, PAY_ON_ARRIVAL, etc.)
+      // CRITICAL FIX: Check for unpaid statuses FIRST with exact matches or NOT_ prefix check
+      // This prevents "NOT_PAID" from being incorrectly matched as "PAID"
+      bool isExplicitlyUnpaid = false;
+      if (paymentStatus == 'NOT_PAID' || 
+          paymentStatus == 'UNPAID' ||
+          paymentStatus.startsWith('NOT_') ||
+          paymentStatus.startsWith('UNPAID')) {
+        isExplicitlyUnpaid = true;
+      }
+      
+      // Check for common paid statuses (only if NOT explicitly unpaid)
+      bool isExplicitlyPaid = false;
+      if (!isExplicitlyUnpaid) {
+        if (paymentStatus == 'PAID_IN_FULL' || 
+            paymentStatus == 'FULLY_PAID' || 
+            paymentStatus == 'COMPLETE' ||
+            paymentStatus == 'PAID') {
+          isExplicitlyPaid = true;
+        }
+      }
+      
+      if (isExplicitlyUnpaid) {
+        isUnpaid = true;
+        print('✅ Marked as UNPAID - explicit unpaid status: $paymentStatus');
+      } else if (isExplicitlyPaid) {
+        print('✅ Marked as PAID - explicit paid status: $paymentStatus');
+      } else if (!isExplicitlyPaid && (paymentStatus.contains('PARTIALLY') || 
+          paymentStatus.contains('PAY_ON_ARRIVAL') ||
+          paymentStatus.contains('DUE') ||
+          paymentMethod.contains('ARRIVAL') ||
+          paymentMethod.contains('ON_SITE') ||
+          paymentStatus.isEmpty)) {
+        isUnpaid = true;
+        print('✅ Marked as UNPAID based on status: $paymentStatus or method: $paymentMethod');
+      }
+      
+      // Extract amount to pay on arrival
+      // For unpaid bookings, we need the BALANCE DUE, not the total price
+      // Try balance/due fields first, then calculate from total - paid
+      
+      // First, try to find balance due directly
+      dynamic balanceDue;
+      if (booking['balanceDue'] != null) {
+        balanceDue = booking['balanceDue'];
+        print('🔍 Found booking.balanceDue: $balanceDue');
+      } else if (booking['amountDue'] != null) {
+        balanceDue = booking['amountDue'];
+        print('🔍 Found booking.amountDue: $balanceDue');
+      } else if (booking['unpaidAmount'] != null) {
+        balanceDue = booking['unpaidAmount'];
+        print('🔍 Found booking.unpaidAmount: $balanceDue');
+      } else if (booking['amountToPay'] != null) {
+        balanceDue = booking['amountToPay'];
+        print('🔍 Found booking.amountToPay: $balanceDue');
+      } else if (productBooking['balanceDue'] != null) {
+        balanceDue = productBooking['balanceDue'];
+        print('🔍 Found productBooking.balanceDue: $balanceDue');
+      } else if (productBooking['amountDue'] != null) {
+        balanceDue = productBooking['amountDue'];
+        print('🔍 Found productBooking.amountDue: $balanceDue');
+      }
+      
+      // If we found balance due directly, use it
+      if (balanceDue != null) {
+        try {
+          if (balanceDue is num) {
+            amountToPayOnArrival = balanceDue.toDouble();
+            print('✅ Using balance due (direct): $amountToPayOnArrival');
+          } else if (balanceDue is String) {
+            amountToPayOnArrival = double.tryParse(balanceDue);
+            print('✅ Using balance due (parsed from string): $amountToPayOnArrival');
+          }
+        } catch (e) {
+          print('⚠️ Error parsing balance due: $e');
+        }
+      }
+      
+      // If no balance due found, calculate it: totalPrice - paidAmount
+      if (isUnpaid && (amountToPayOnArrival == null || amountToPayOnArrival == 0)) {
+        print('🔍 Calculating balance due from total - paid...');
+        
+        // Get total price - try totalPriceAmount first (it's the actual amount, not just a flag)
+        dynamic totalPrice;
+        if (productBooking['totalPriceAmount'] != null) {
+          totalPrice = productBooking['totalPriceAmount'];
+          print('🔍 Found productBooking.totalPriceAmount: $totalPrice');
+        } else if (booking['totalPriceAmount'] != null) {
+          totalPrice = booking['totalPriceAmount'];
+          print('🔍 Found booking.totalPriceAmount: $totalPrice');
+        } else if (productBooking['totalPrice'] != null) {
+          totalPrice = productBooking['totalPrice'];
+          print('🔍 Found productBooking.totalPrice: $totalPrice');
+        } else if (booking['totalPrice'] != null) {
+          totalPrice = booking['totalPrice'];
+          print('🔍 Found booking.totalPrice: $totalPrice');
+        }
+        
+        // Also check invoice objects for total amount
+        // Invoice objects often have the actual price information
+        if ((totalPrice == null || (totalPrice is num && totalPrice == 0)) && productBooking['customerInvoice'] != null) {
+          final invoice = productBooking['customerInvoice'];
+          if (invoice is Map) {
+            print('🔍 Checking productBooking.customerInvoice for amount...');
+            print('🔍 customerInvoice keys: ${invoice.keys.toList()}');
+            print('🔍 customerInvoice full object: $invoice');
+            
+            // Try multiple possible fields in invoice
+            final invoiceTotal = invoice['total'] ?? 
+                               invoice['totalAmount'] ?? 
+                               invoice['amount'] ?? 
+                               invoice['price'] ??
+                               invoice['subtotal'] ??
+                               invoice['totalPrice'] ??
+                               invoice['grandTotal'];
+            
+            // Also check if it's nested in a money object
+            if (invoiceTotal == null) {
+              final totalMoney = invoice['totalMoney'] ?? invoice['totalAsMoney'];
+              if (totalMoney is Map && totalMoney['amount'] != null) {
+                totalPrice = totalMoney['amount'];
+                print('🔍 Found customerInvoice.totalMoney.amount: $totalPrice');
+              } else if (totalMoney is num) {
+                totalPrice = totalMoney;
+                print('🔍 Found customerInvoice.totalMoney (direct): $totalPrice');
+              }
+            } else {
+              totalPrice = invoiceTotal;
+              print('🔍 Found customerInvoice total: $totalPrice');
+            }
+          }
+        }
+        
+        // Check booking-level invoice
+        if ((totalPrice == null || (totalPrice is num && totalPrice == 0)) && booking['customerInvoice'] != null) {
+          final invoice = booking['customerInvoice'];
+          if (invoice is Map) {
+            print('🔍 Checking booking.customerInvoice for amount...');
+            print('🔍 booking.customerInvoice keys: ${invoice.keys.toList()}');
+            print('🔍 booking.customerInvoice full object: $invoice');
+            
+            final invoiceTotal = invoice['total'] ?? 
+                               invoice['totalAmount'] ?? 
+                               invoice['amount'] ?? 
+                               invoice['price'] ??
+                               invoice['subtotal'] ??
+                               invoice['totalPrice'] ??
+                               invoice['grandTotal'];
+            
+            // Also check if it's nested in a money object
+            if (invoiceTotal == null) {
+              final totalMoney = invoice['totalMoney'] ?? invoice['totalAsMoney'];
+              if (totalMoney is Map && totalMoney['amount'] != null) {
+                totalPrice = totalMoney['amount'];
+                print('🔍 Found booking.customerInvoice.totalMoney.amount: $totalPrice');
+              } else if (totalMoney is num) {
+                totalPrice = totalMoney;
+                print('🔍 Found booking.customerInvoice.totalMoney (direct): $totalPrice');
+              }
+            } else {
+              totalPrice = invoiceTotal;
+              print('🔍 Found booking.customerInvoice total: $totalPrice');
+            }
+          }
+        }
+        
+        // Get paid amount
+        dynamic paidAmount;
+        if (booking['paidAmount'] != null) {
+          paidAmount = booking['paidAmount'];
+          print('🔍 Found booking.paidAmount: $paidAmount');
+        } else if (booking['paidAmountAsMoney'] != null) {
+          // paidAmountAsMoney might be an object with amount field
+          final paidMoney = booking['paidAmountAsMoney'];
+          if (paidMoney is Map && paidMoney['amount'] != null) {
+            paidAmount = paidMoney['amount'];
+            print('🔍 Found booking.paidAmountAsMoney.amount: $paidAmount');
+          } else if (paidMoney is num) {
+            paidAmount = paidMoney;
+            print('🔍 Found booking.paidAmountAsMoney (direct): $paidAmount');
+          }
+        } else if (productBooking['paidAmount'] != null) {
+          paidAmount = productBooking['paidAmount'];
+          print('🔍 Found productBooking.paidAmount: $paidAmount');
+        }
+        
+        // Calculate balance: total - paid
+        if (totalPrice != null) {
+          double? totalPriceNum;
+          double? paidAmountNum;
+          
+          try {
+            if (totalPrice is num) {
+              totalPriceNum = totalPrice.toDouble();
+            } else if (totalPrice is String) {
+              totalPriceNum = double.tryParse(totalPrice);
+            }
+            
+            if (paidAmount != null) {
+              if (paidAmount is num) {
+                paidAmountNum = paidAmount.toDouble();
+              } else if (paidAmount is String) {
+                paidAmountNum = double.tryParse(paidAmount);
+              }
+            } else {
+              paidAmountNum = 0.0; // If no paid amount, assume 0
+            }
+            
+            if (totalPriceNum != null && totalPriceNum > 0 && paidAmountNum != null) {
+              amountToPayOnArrival = totalPriceNum - paidAmountNum;
+              print('✅ Calculated balance due: $totalPriceNum - $paidAmountNum = $amountToPayOnArrival');
+              
+              // Only use if the result is positive (there's actually something to pay)
+              if (amountToPayOnArrival <= 0) {
+                print('⚠️ Calculated balance is 0 or negative, setting to null');
+                amountToPayOnArrival = null;
+              }
+            } else {
+              print('⚠️ Cannot calculate balance - totalPrice: $totalPriceNum, paidAmount: $paidAmountNum');
+            }
+          } catch (e) {
+            print('⚠️ Error calculating balance due: $e');
+          }
+        }
+      }
+      
+      // If still no amount and unpaid, try payment object
+      if (isUnpaid && (amountToPayOnArrival == null || amountToPayOnArrival == 0)) {
+        final payment = booking['payment'];
+        if (payment != null && payment is Map) {
+          print('🔍 Checking payment object for amount...');
+          print('🔍 Payment object keys: ${payment.keys.toList()}');
+          final paymentAmount = payment['balance'] ?? 
+                               payment['amountDue'] ?? 
+                               payment['balanceDue'] ??
+                               payment['unpaidAmount'] ??
+                               payment['amount'];
+          if (paymentAmount != null) {
+            print('🔍 Found payment amount: $paymentAmount');
+            try {
+              if (paymentAmount is num) {
+                amountToPayOnArrival = paymentAmount.toDouble();
+              } else if (paymentAmount is String) {
+                amountToPayOnArrival = double.tryParse(paymentAmount);
+              }
+              print('✅ Parsed payment amount: $amountToPayOnArrival');
+            } catch (e) {
+              print('⚠️ Error parsing payment amount from payment object: $e');
+            }
+          }
+        }
+      }
+      
+      print('💰 FINAL Payment info - Unpaid: $isUnpaid, Amount: $amountToPayOnArrival, Status: $paymentStatus, Method: $paymentMethod');
+      print('🔍 === END PAYMENT DEBUG ===');
+      
       final pickupBooking = PickupBooking(
         id: booking['id']?.toString() ?? DateTime.now().millisecondsSinceEpoch.toString(),
         customerFullName: customerFullName.isNotEmpty ? customerFullName : 'Unknown Customer',
@@ -1024,6 +1316,8 @@ class PickupService {
         createdAt: DateTime.now(),
         bookingId: bookingId,
         confirmationCode: confirmationCode,
+        isUnpaid: isUnpaid,
+        amountToPayOnArrival: amountToPayOnArrival,
       );
       
       print('✅ Successfully parsed booking: ${pickupBooking.customerFullName} - ${pickupBooking.pickupPlaceName} - ${pickupBooking.numberOfGuests} guests - ${pickupBooking.pickupTime}');

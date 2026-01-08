@@ -658,13 +658,48 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
             ),
           ),
         ),
-        title: Text(
-          booking.customerFullName,
-          style: const TextStyle(
-            fontWeight: FontWeight.w600,
-            color: Colors.white,
-            fontSize: 14,
-          ),
+        title: Row(
+          children: [
+            Expanded(
+              child: Text(
+                booking.customerFullName,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+            if (booking.isUnpaid) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: booking.paidOnArrival ? AppColors.success : AppColors.error,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      booking.paidOnArrival ? Icons.check_circle : Icons.payment,
+                      size: 12,
+                      color: Colors.white,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      booking.paidOnArrival ? 'Paid on Arrival' : 'Not Paid',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
         ),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -713,6 +748,73 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
                     ),
                   ],
                 ],
+              ),
+            ],
+            if (booking.isUnpaid && booking.amountToPayOnArrival != null) ...[
+              const SizedBox(height: 4),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: booking.paidOnArrival 
+                      ? AppColors.success.withOpacity(0.2)
+                      : AppColors.warning.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(
+                    color: booking.paidOnArrival ? AppColors.success : AppColors.warning,
+                    width: 1,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      booking.paidOnArrival ? Icons.check_circle : Icons.payment,
+                      size: 12,
+                      color: booking.paidOnArrival ? AppColors.success : AppColors.warning,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      booking.paidOnArrival
+                          ? 'Paid on Arrival: ${booking.amountToPayOnArrival!.toStringAsFixed(0)} ISK'
+                          : 'Unpaid: ${booking.amountToPayOnArrival!.toStringAsFixed(0)} ISK',
+                      style: TextStyle(
+                        color: booking.paidOnArrival ? AppColors.success : AppColors.warning,
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ] else if (booking.isUnpaid) ...[
+              const SizedBox(height: 4),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: booking.paidOnArrival 
+                      ? AppColors.success.withOpacity(0.2)
+                      : AppColors.warning.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(
+                    color: booking.paidOnArrival ? AppColors.success : AppColors.warning,
+                    width: 1,
+                  ),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.payment, size: 12, color: AppColors.warning),
+                    SizedBox(width: 4),
+                    Text(
+                      'Unpaid',
+                      style: TextStyle(
+                        color: AppColors.warning,
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ],
           ],
@@ -1300,18 +1402,53 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
                 visualDensity: VisualDensity.compact,
               ),
               Expanded(
-                child: Text(
-                  booking.customerFullName,
-                  style: TextStyle(
-                    fontSize: 14,
-                    decoration: booking.isNoShow ? TextDecoration.lineThrough : null,
-                    color: booking.isNoShow 
-                        ? AppColors.error 
-                        : booking.isArrived 
-                            ? Colors.green 
-                            : Colors.white,
-                    fontWeight: booking.isArrived ? FontWeight.w600 : FontWeight.normal,
-                  ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        booking.customerFullName,
+                        style: TextStyle(
+                          fontSize: 14,
+                          decoration: booking.isNoShow ? TextDecoration.lineThrough : null,
+                          color: booking.isNoShow 
+                              ? AppColors.error 
+                              : booking.isArrived 
+                                  ? Colors.green 
+                                  : Colors.white,
+                          fontWeight: booking.isArrived ? FontWeight.w600 : FontWeight.normal,
+                        ),
+                      ),
+                    ),
+                    if (booking.isUnpaid) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: booking.paidOnArrival ? AppColors.success : AppColors.error,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              booking.paidOnArrival ? Icons.check_circle : Icons.payment,
+                              size: 12,
+                              color: Colors.white,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              booking.paidOnArrival ? 'Paid on Arrival' : 'Not Paid',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
             ],
@@ -1336,6 +1473,57 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
               color: Colors.white,
             ),
           ),
+          if (booking.isUnpaid && booking.amountToPayOnArrival != null) ...[
+            const SizedBox(height: 4),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: AppColors.warning.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(color: AppColors.warning, width: 1),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.payment, size: 12, color: AppColors.warning),
+                  const SizedBox(width: 4),
+                  Text(
+                    'Unpaid: ${booking.amountToPayOnArrival!.toStringAsFixed(0)} ISK',
+                    style: const TextStyle(
+                      color: AppColors.warning,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ] else if (booking.isUnpaid) ...[
+            const SizedBox(height: 4),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: AppColors.warning.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(color: AppColors.warning, width: 1),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.payment, size: 12, color: AppColors.warning),
+                  SizedBox(width: 4),
+                  Text(
+                    'Unpaid',
+                    style: TextStyle(
+                      color: AppColors.warning,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ],
       ),
       trailing: Row(

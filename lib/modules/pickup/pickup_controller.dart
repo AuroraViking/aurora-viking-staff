@@ -323,6 +323,7 @@ class PickupController extends ChangeNotifier {
           updatedBooking = updatedBooking.copyWith(
             isArrived: status['isArrived'] ?? false,
             isNoShow: status['isNoShow'] ?? false,
+            paidOnArrival: status['paidOnArrival'] ?? false,
           );
         }
 
@@ -627,6 +628,37 @@ class PickupController extends ChangeNotifier {
       );
     } catch (e) {
       _error = 'Failed to mark booking as arrived: $e';
+      notifyListeners();
+    }
+  }
+
+  // Mark booking as paid on arrival
+  void markBookingAsPaidOnArrival(String bookingId, bool paid) {
+    try {
+      // Update local state
+      final bookingIndex = _bookings.indexWhere((booking) => booking.id == bookingId);
+      if (bookingIndex != -1) {
+        _bookings[bookingIndex] = _bookings[bookingIndex].copyWith(paidOnArrival: paid);
+        _updateGuideLists();
+        notifyListeners();
+      }
+
+      // Also update current user bookings if this is for the current user
+      final currentUserBookingIndex = _currentUserBookings.indexWhere((booking) => booking.id == bookingId);
+      if (currentUserBookingIndex != -1) {
+        _currentUserBookings[currentUserBookingIndex] = _currentUserBookings[currentUserBookingIndex].copyWith(paidOnArrival: paid);
+        notifyListeners();
+      }
+
+      // Save to Firebase
+      final dateStr = '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}';
+      FirebaseService.updateBookingStatus(
+        bookingId: bookingId,
+        date: dateStr,
+        paidOnArrival: paid,
+      );
+    } catch (e) {
+      _error = 'Failed to mark booking as paid on arrival: $e';
       notifyListeners();
     }
   }

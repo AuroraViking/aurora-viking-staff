@@ -347,6 +347,99 @@ class _PickupScreenState extends State<PickupScreen> {
                                     '${booking.numberOfGuests}',
                                     style: const TextStyle(color: Colors.white70, fontSize: 11),
                                   ),
+                                  if (booking.isUnpaid && booking.amountToPayOnArrival != null) ...[
+                                    const SizedBox(width: 12),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: booking.paidOnArrival 
+                                            ? AppColors.success.withOpacity(0.2)
+                                            : AppColors.warning.withOpacity(0.2),
+                                        borderRadius: BorderRadius.circular(4),
+                                        border: Border.all(
+                                          color: booking.paidOnArrival ? AppColors.success : AppColors.warning,
+                                          width: 1,
+                                        ),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Checkbox(
+                                            value: booking.paidOnArrival,
+                                            onChanged: (value) => _markAsPaidOnArrival(booking.id, value ?? false),
+                                            activeColor: AppColors.success,
+                                            checkColor: Colors.white,
+                                            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                            visualDensity: VisualDensity.compact,
+                                            side: BorderSide(
+                                              color: Colors.white.withOpacity(0.6),
+                                              width: 1.5,
+                                            ),
+                                          ),
+                                          Icon(
+                                            booking.paidOnArrival ? Icons.check_circle : Icons.payment,
+                                            size: 12,
+                                            color: booking.paidOnArrival ? AppColors.success : AppColors.warning,
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            '${booking.amountToPayOnArrival!.toStringAsFixed(0)} ISK',
+                                            style: TextStyle(
+                                              color: booking.paidOnArrival ? AppColors.success : AppColors.warning,
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ] else if (booking.isUnpaid) ...[
+                                    const SizedBox(width: 12),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: booking.paidOnArrival 
+                                            ? AppColors.success.withOpacity(0.2)
+                                            : AppColors.warning.withOpacity(0.2),
+                                        borderRadius: BorderRadius.circular(4),
+                                        border: Border.all(
+                                          color: booking.paidOnArrival ? AppColors.success : AppColors.warning,
+                                          width: 1,
+                                        ),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Checkbox(
+                                            value: booking.paidOnArrival,
+                                            onChanged: (value) => _markAsPaidOnArrival(booking.id, value ?? false),
+                                            activeColor: AppColors.success,
+                                            checkColor: Colors.white,
+                                            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                            visualDensity: VisualDensity.compact,
+                                            side: BorderSide(
+                                              color: Colors.white.withOpacity(0.6),
+                                              width: 1.5,
+                                            ),
+                                          ),
+                                          Icon(
+                                            booking.paidOnArrival ? Icons.check_circle : Icons.payment,
+                                            size: 12,
+                                            color: booking.paidOnArrival ? AppColors.success : AppColors.warning,
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            booking.paidOnArrival ? 'Paid' : 'Unpaid',
+                                            style: TextStyle(
+                                              color: booking.paidOnArrival ? AppColors.success : AppColors.warning,
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
                                   const Spacer(),
                                   // Phone button
                                   if (booking.phoneNumber.isNotEmpty)
@@ -580,6 +673,19 @@ class _PickupScreenState extends State<PickupScreen> {
         ),
       );
     }
+  }
+
+  void _markAsPaidOnArrival(String bookingId, bool paid) {
+    final controller = context.read<PickupController>();
+    controller.markBookingAsPaidOnArrival(bookingId, paid);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(paid ? 'Payment received ✅' : 'Payment status removed'),
+        backgroundColor: paid ? AppColors.success : Colors.orange,
+        duration: const Duration(seconds: 2),
+      ),
+    );
   }
 
   void _startNoShowTimer(String bookingId, String customerName, String pickupPlace) {

@@ -185,6 +185,7 @@ class FirebaseService {
     required String date,
     bool? isArrived,
     bool? isNoShow,
+    bool? paidOnArrival,
   }) async {
     if (!_initialized || _firestore == null) {
       print('⚠️ Firebase not initialized - skipping booking status update');
@@ -195,6 +196,7 @@ class FirebaseService {
       final updates = <String, dynamic>{};
       if (isArrived != null) updates['isArrived'] = isArrived;
       if (isNoShow != null) updates['isNoShow'] = isNoShow;
+      if (paidOnArrival != null) updates['paidOnArrival'] = paidOnArrival;
       updates['updatedAt'] = FieldValue.serverTimestamp();
       updates['updatedBy'] = currentUser?.uid;
 
