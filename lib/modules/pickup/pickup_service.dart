@@ -11,6 +11,15 @@ import '../../core/services/firebase_service.dart';
 class PickupService {
   static const String _baseUrl = 'https://api.bokun.io';
   
+  // Valid booking statuses that should show up in pickup lists
+  // When customers reschedule, original productBooking gets CANCELLED
+  // and a new one is created. We need to find the valid one.
+  static const Set<String> _validBookingStatuses = {
+    'CONFIRMED',
+    'INVOICED',
+    'PAID_IN_FULL',
+  };
+  
   // Get Bokun API credentials from environment
   String get _accessKey => dotenv.env['BOKUN_ACCESS_KEY'] ?? '';
   String get _secretKey => dotenv.env['BOKUN_SECRET_KEY'] ?? '';
@@ -18,6 +27,11 @@ class PickupService {
 
   // Check if API credentials are available
   bool get _hasApiCredentials => _accessKey.isNotEmpty && _secretKey.isNotEmpty;
+
+  /// Check if a booking status is valid for showing in pickup lists
+  bool _isValidBookingStatus(String status) {
+    return _validBookingStatuses.contains(status.toUpperCase());
+  }
 
   // Generate HMAC signature for Bokun API (correct format)
   String _generateSignature(String date, String accessKey, String method, String path) {
@@ -472,14 +486,18 @@ class PickupService {
         final bookings = <PickupBooking>[];
         for (final booking in items) {
           try {
-            // Check booking status first
+            // Filter to only valid productBookings (handles rescheduled bookings)
             final productBookings = booking['productBookings'] as List<dynamic>? ?? [];
             if (productBookings.isEmpty) continue;
             
-            final productBooking = productBookings.first;
-            final status = productBooking['status']?.toString() ?? '';
-            if (status != 'CONFIRMED') continue;
+            final validProductBookings = productBookings.where((pb) {
+              final status = pb['status']?.toString().toUpperCase() ?? '';
+              return _isValidBookingStatus(status);
+            }).toList();
             
+            if (validProductBookings.isEmpty) continue;
+            
+            // _parseBokunBooking will use the first valid productBooking
             final parsed = _parseBokunBooking(booking);
             if (parsed != null) {
               final bookingDate = parsed.pickupTime;
@@ -545,13 +563,18 @@ class PickupService {
         final bookings = <PickupBooking>[];
         for (final booking in items) {
           try {
+            // Filter to only valid productBookings (handles rescheduled bookings)
             final productBookings = booking['productBookings'] as List<dynamic>? ?? [];
             if (productBookings.isEmpty) continue;
             
-            final productBooking = productBookings.first;
-            final status = productBooking['status']?.toString() ?? '';
-            if (status != 'CONFIRMED') continue;
+            final validProductBookings = productBookings.where((pb) {
+              final status = pb['status']?.toString().toUpperCase() ?? '';
+              return _isValidBookingStatus(status);
+            }).toList();
             
+            if (validProductBookings.isEmpty) continue;
+            
+            // _parseBokunBooking will use the first valid productBooking
             final parsed = _parseBokunBooking(booking);
             if (parsed != null) {
               final bookingDate = parsed.pickupTime;
@@ -783,51 +806,52 @@ class PickupService {
       
       for (final booking in items) {
         try {
-          // Debug: Print the actual date of each booking being processed
+          // CRITICAL FIX: Filter to only valid (non-cancelled) productBookings
+          // When customers reschedule via Bokun portal, the old booking gets CANCELLED
+          // and a new one is created under the same parent booking. We need to find
+          // the valid one, not just take .first which might be the cancelled one.
           final productBookings = booking['productBookings'] as List<dynamic>? ?? [];
-          if (productBookings.isNotEmpty) {
-            final productBooking = productBookings.first;
-            final startDate = productBooking['startDate'];
-            final startDateTime = productBooking['startDateTime'];
-            
-            DateTime? bookingDate;
-            if (startDate != null) {
-              bookingDate = DateTime.fromMillisecondsSinceEpoch(startDate);
-            } else if (startDateTime != null) {
-              bookingDate = DateTime.parse(startDateTime);
-            }
-            
-            if (bookingDate != null) {
-              final dateKey = '${bookingDate.day}/${bookingDate.month}/${bookingDate.year}';
-              dateCounts[dateKey] = (dateCounts[dateKey] ?? 0) + 1;
-              print('🔍 DEBUG: Booking date: ${bookingDate.toLocal()} (${dateKey})');
-            }
-          }
           
-          // Check booking status - only process CONFIRMED bookings
-          bool isConfirmed = false;
-          String bookingStatus = 'UNKNOWN';
-          
-          if (productBookings.isNotEmpty) {
-            final productBooking = productBookings.first;
-            bookingStatus = productBooking['status']?.toString() ?? 'NO_STATUS';
-            isConfirmed = bookingStatus == 'CONFIRMED';
-            
-            // Also check main booking status
-            final mainBookingStatus = booking['status']?.toString() ?? 'NO_MAIN_STATUS';
-            if (mainBookingStatus == 'CONFIRMED') {
-              isConfirmed = true;
-            }
-            
-            print('🔍 DEBUG: Booking status - Product: $bookingStatus, Main: $mainBookingStatus, IsConfirmed: $isConfirmed');
-          }
-          
-          // Only process confirmed bookings
-          if (!isConfirmed) {
-            final customer = booking['customer'] ?? booking['leadCustomer'] ?? {};
-            final customerFullName = '${customer['firstName'] ?? ''} ${customer['lastName'] ?? ''}'.trim();
-            print('❌ Skipping non-confirmed booking: $customerFullName (Status: $bookingStatus)');
+          if (productBookings.isEmpty) {
+            print('⚠️ No productBookings found, skipping');
             continue;
+          }
+          
+          // Filter to only valid productBookings
+          final validProductBookings = productBookings.where((pb) {
+            final status = pb['status']?.toString().toUpperCase() ?? '';
+            return _isValidBookingStatus(status);
+          }).toList();
+          
+          if (validProductBookings.isEmpty) {
+            final customer = booking['customer'] ?? booking['leadCustomer'] ?? {};
+            final customerName = '${customer['firstName'] ?? ''} ${customer['lastName'] ?? ''}'.trim();
+            print('❌ No valid productBookings for $customerName - all are cancelled/invalid');
+            continue;
+          }
+          
+          // Use the first VALID productBooking (not just the first one in array)
+          final productBooking = validProductBookings.first;
+          
+          // Debug: Show what we found
+          final bookingStatus = productBooking['status']?.toString() ?? 'NO_STATUS';
+          print('✅ Found valid productBooking with status: $bookingStatus');
+          
+          // Debug: Print the actual date of each booking being processed
+          final startDate = productBooking['startDate'];
+          final startDateTime = productBooking['startDateTime'];
+          
+          DateTime? bookingDate;
+          if (startDate != null) {
+            bookingDate = DateTime.fromMillisecondsSinceEpoch(startDate);
+          } else if (startDateTime != null) {
+            bookingDate = DateTime.parse(startDateTime);
+          }
+          
+          if (bookingDate != null) {
+            final dateKey = '${bookingDate.day}/${bookingDate.month}/${bookingDate.year}';
+            dateCounts[dateKey] = (dateCounts[dateKey] ?? 0) + 1;
+            print('🔍 DEBUG: Booking date: ${bookingDate.toLocal()} (${dateKey})');
           }
           
           final pickupBooking = _parseBokunBooking(booking);
@@ -896,8 +920,19 @@ class PickupService {
         return null;
       }
       
-      // Use the first product booking for pickup details
-      final productBooking = productBookings.first;
+      // Filter to only valid productBookings (handles rescheduled bookings)
+      final validProductBookings = productBookings.where((pb) {
+        final status = pb['status']?.toString().toUpperCase() ?? '';
+        return _isValidBookingStatus(status);
+      }).toList();
+      
+      if (validProductBookings.isEmpty) {
+        print('⚠️ No valid productBookings found for $customerFullName - all are cancelled/invalid');
+        return null;
+      }
+      
+      // Use the first valid product booking for pickup details
+      final productBooking = validProductBookings.first;
       print('🔍 ProductBooking keys: ${productBooking.keys.toList()}');
       
       // Extract tour time
