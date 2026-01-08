@@ -552,6 +552,16 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
   Widget _buildUnassignedTab(PickupController controller) {
     final unassignedBookings = controller.unassignedBookings;
     
+    // Group bookings by pickup place
+    final bookingsByPlace = <String, List<PickupBooking>>{};
+    for (final booking in unassignedBookings) {
+      final place = booking.pickupPlaceName;
+      bookingsByPlace.putIfAbsent(place, () => []).add(booking);
+    }
+    
+    // Sort pickup places alphabetically
+    final sortedPlaces = bookingsByPlace.keys.toList()..sort();
+    
     return RefreshIndicator(
       onRefresh: () async {
         await _refreshData(controller);
@@ -573,53 +583,151 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
             )
           : ListView.builder(
               padding: const EdgeInsets.all(16),
-              itemCount: unassignedBookings.length,
+              itemCount: sortedPlaces.length,
               itemBuilder: (context, index) {
-                final booking = unassignedBookings[index];
-                return _buildUnassignedBookingCard(booking, controller);
+                final place = sortedPlaces[index];
+                final bookings = bookingsByPlace[place]!;
+                return _buildPickupPlaceGroup(place, bookings, controller);
               },
             ),
     );
   }
 
-  Widget _buildUnassignedBookingCard(PickupBooking booking, PickupController controller) {
+  Widget _buildPickupPlaceGroup(String place, List<PickupBooking> bookings, PickupController controller) {
+    // Calculate total guests for this pickup place
+    final totalGuests = bookings.fold<int>(0, (sum, booking) => sum + booking.numberOfGuests);
+    
+    // Truncate pickup place name to 12 characters
+    final truncatedPlace = place.length > 12 ? '${place.substring(0, 12)}...' : place;
+    
     return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      color: const Color(0xFF1A1A2E), // Dark background for better contrast
+      margin: const EdgeInsets.only(bottom: 8),
+      color: const Color(0xFF1A1A2E),
+      child: ExpansionTile(
+        tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        childrenPadding: const EdgeInsets.only(bottom: 8),
+        title: Row(
+          children: [
+            Icon(Icons.location_on, color: AppColors.primary, size: 18),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                truncatedPlace,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+            Text(
+              '${bookings.length}B • ${totalGuests}G',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+        children: bookings.map((booking) => _buildCompactBookingCard(booking, controller)).toList(),
+      ),
+    );
+  }
+
+  Widget _buildCompactBookingCard(PickupBooking booking, PickupController controller) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: const Color(0xFF2A2A3E),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.white.withOpacity(0.1)),
+      ),
       child: ListTile(
-        contentPadding: const EdgeInsets.all(16),
+        dense: true,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        leading: CircleAvatar(
+          backgroundColor: AppColors.primary.withOpacity(0.2),
+          radius: 18,
+          child: Text(
+            booking.customerFullName.isNotEmpty ? booking.customerFullName[0].toUpperCase() : '?',
+            style: const TextStyle(
+              color: AppColors.primary,
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
+            ),
+          ),
+        ),
         title: Text(
           booking.customerFullName,
           style: const TextStyle(
-            fontWeight: FontWeight.bold,
+            fontWeight: FontWeight.w600,
             color: Colors.white,
+            fontSize: 14,
           ),
         ),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              booking.pickupPlaceName,
-              style: const TextStyle(color: Colors.white),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Icon(Icons.access_time, size: 12, color: Colors.white70),
+                const SizedBox(width: 4),
+                Text(
+                  _formatTime(booking.pickupTime),
+                  style: const TextStyle(color: Colors.white70, fontSize: 12),
+                ),
+                const SizedBox(width: 12),
+                Icon(Icons.people, size: 12, color: Colors.white70),
+                const SizedBox(width: 4),
+                Text(
+                  '${booking.numberOfGuests} guest${booking.numberOfGuests > 1 ? 's' : ''}',
+                  style: const TextStyle(color: Colors.white70, fontSize: 12),
+                ),
+              ],
             ),
-            Text(
-              '${_formatTime(booking.pickupTime)} - ${booking.numberOfGuests} guests',
-              style: const TextStyle(color: Colors.white),
-            ),
-            Text(
-              '${booking.phoneNumber} • ${booking.email}',
-              style: const TextStyle(color: Colors.white),
-            ),
+            if (booking.phoneNumber.isNotEmpty || booking.email.isNotEmpty) ...[
+              const SizedBox(height: 2),
+              Row(
+                children: [
+                  if (booking.phoneNumber.isNotEmpty) ...[
+                    Icon(Icons.phone, size: 12, color: Colors.white70),
+                    const SizedBox(width: 4),
+                    Text(
+                      booking.phoneNumber,
+                      style: const TextStyle(color: Colors.white70, fontSize: 11),
+                    ),
+                  ],
+                  if (booking.phoneNumber.isNotEmpty && booking.email.isNotEmpty)
+                    const Text(' • ', style: TextStyle(color: Colors.white70, fontSize: 11)),
+                  if (booking.email.isNotEmpty) ...[
+                    Icon(Icons.email, size: 12, color: Colors.white70),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        booking.email,
+                        style: const TextStyle(color: Colors.white70, fontSize: 11),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ],
           ],
         ),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             IconButton(
-              icon: const Icon(Icons.edit, color: Colors.blue),
+              icon: const Icon(Icons.edit, color: Colors.blue, size: 18),
               onPressed: () => _editPickupPlace(booking, controller),
               tooltip: 'Edit Pickup Place',
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
             ),
+            const SizedBox(width: 4),
             PopupMenuButton<String>(
               onSelected: (value) {
                 if (value == 'delete') {
@@ -645,7 +753,9 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
                   ),
                 ),
               ],
-              child: const Icon(Icons.more_vert),
+              icon: const Icon(Icons.more_vert, size: 18),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
             ),
           ],
         ),
