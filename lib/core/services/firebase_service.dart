@@ -598,6 +598,11 @@ class FirebaseService {
     try {
       final docPath = '${date}_$guideId';
       print('💾 Attempting to save to: bus_guide_assignments/$docPath');
+      print('   busId: $busId');
+      print('   busName: $busName');
+      print('   guideId: $guideId');
+      print('   guideName: $guideName');
+      print('   date: $date');
       
       await _firestore!
           .collection('bus_guide_assignments')
@@ -612,6 +617,8 @@ class FirebaseService {
       }, SetOptions(merge: true));
       
       print('✅ Bus-guide assignment saved: $busName -> $guideName for date $date');
+      print('   Document path: bus_guide_assignments/$docPath');
+      print('   Saved busId field: $busId');
     } catch (e) {
       print('❌ Failed to save bus-guide assignment: $e');
       print('📋 Error details: ${e.toString()}');
@@ -665,6 +672,7 @@ class FirebaseService {
     }
     
     try {
+      print('🔍 Querying bus_guide_assignments for busId=$busId, date=$date');
       final query = await _firestore!
           .collection('bus_guide_assignments')
           .where('busId', isEqualTo: busId)
@@ -672,14 +680,25 @@ class FirebaseService {
           .limit(1)
           .get();
       
+      print('📋 Query returned ${query.docs.length} documents');
       if (query.docs.isNotEmpty) {
-        final data = query.docs.first.data();
+        final doc = query.docs.first;
+        final data = doc.data();
+        print('✅ Found assignment document:');
+        print('   Document ID: ${doc.id}');
+        print('   busId in doc: ${data['busId']}');
+        print('   busName in doc: ${data['busName']}');
+        print('   guideId: ${data['guideId']}');
+        print('   guideName: ${data['guideName']}');
+        print('   date in doc: ${data['date']}');
         return {
           'guideId': data['guideId'] as String? ?? '',
           'guideName': data['guideName'] as String? ?? '',
         };
       }
       
+      print('⚠️ No assignment found for busId=$busId on date=$date');
+      print('   Tried query: busId=$busId, date=$date');
       return null;
     } catch (e) {
       print('❌ Failed to get guide assignment for bus: $e');
@@ -741,6 +760,7 @@ class FirebaseService {
   }
 
   /// Retrieve cached bookings from Firebase
+  /// Also merges manual bookings for the date
   /// Returns empty list if no cache exists or on error
   static Future<List<PickupBooking>> getCachedBookings(String date) async {
     if (!_initialized || _firestore == null) {
@@ -754,6 +774,8 @@ class FirebaseService {
           .doc(date)
           .get();
       
+      List<PickupBooking> bookings = [];
+      
       if (doc.exists) {
         final data = doc.data() as Map<String, dynamic>;
         final bookingsData = data['bookings'] as List<dynamic>? ?? [];
@@ -761,17 +783,34 @@ class FirebaseService {
         
         print('📂 Found cached bookings for $date (cached at: $cachedAt)');
         
-        final bookings = bookingsData
+        bookings = bookingsData
             .map((b) => PickupBooking.fromJson(b as Map<String, dynamic>))
             .toList();
         
         print('✅ Retrieved ${bookings.length} cached bookings for date $date');
-        return bookings;
       } else {
         print('ℹ️ No cached bookings found for date $date');
       }
       
-      return [];
+      // Always load and merge manual bookings
+      try {
+        final manualBookings = await getManualBookings(date);
+        if (manualBookings.isNotEmpty) {
+          print('📋 Found ${manualBookings.length} manual bookings for date $date');
+          final existingIds = bookings.map((b) => b.id).toSet();
+          for (final manualBooking in manualBookings) {
+            if (!existingIds.contains(manualBooking.id)) {
+              bookings.add(manualBooking);
+              print('✅ Added manual booking to cached list: ${manualBooking.customerFullName}');
+            }
+          }
+          print('📋 Total bookings after merging manual: ${bookings.length}');
+        }
+      } catch (e) {
+        print('⚠️ Failed to load manual bookings when getting cache: $e');
+      }
+      
+      return bookings;
     } catch (e) {
       print('❌ Failed to retrieve cached bookings from Firebase: $e');
       return [];
@@ -791,6 +830,125 @@ class FirebaseService {
       return doc.exists;
     } catch (e) {
       return false;
+    }
+  }
+
+  /// Save manual booking to Firebase
+  static Future<void> saveManualBooking({
+    required String date, // YYYY-MM-DD format
+    required PickupBooking booking,
+  }) async {
+    if (!_initialized || _firestore == null) {
+      print('⚠️ Firebase not initialized - skipping manual booking save');
+      return;
+    }
+    
+    try {
+      final docId = '${date}_${booking.id}';
+      final bookingData = booking.toJson();
+      
+      print('💾 Saving manual booking to Firebase:');
+      print('   Collection: manual_bookings');
+      print('   Document ID: $docId');
+      print('   Date: $date');
+      print('   Booking ID: ${booking.id}');
+      print('   Customer: ${booking.customerFullName}');
+      
+      await _firestore!
+          .collection('manual_bookings')
+          .doc(docId)
+          .set({
+        'date': date,
+        'booking': bookingData,
+        'createdAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      
+      print('✅ Successfully saved manual booking ${booking.id} for date $date');
+      
+      // Verify the save by reading it back
+      final verifyDoc = await _firestore!
+          .collection('manual_bookings')
+          .doc(docId)
+          .get();
+      
+      if (verifyDoc.exists) {
+        print('✅ Verified: Manual booking exists in Firebase');
+      } else {
+        print('⚠️ Warning: Manual booking not found after save!');
+      }
+    } catch (e) {
+      print('❌ Failed to save manual booking: $e');
+      print('❌ Error details: ${e.toString()}');
+      rethrow;
+    }
+  }
+
+  /// Get manual bookings for a date
+  static Future<List<PickupBooking>> getManualBookings(String date) async {
+    if (!_initialized || _firestore == null) {
+      print('⚠️ Firebase not initialized - cannot retrieve manual bookings');
+      return [];
+    }
+    
+    try {
+      print('🔍 Querying manual bookings for date: $date');
+      final querySnapshot = await _firestore!
+          .collection('manual_bookings')
+          .where('date', isEqualTo: date)
+          .get();
+      
+      print('📋 Found ${querySnapshot.docs.length} manual booking documents for date $date');
+      
+      final bookings = <PickupBooking>[];
+      for (final doc in querySnapshot.docs) {
+        try {
+          final data = doc.data();
+          print('📄 Processing document: ${doc.id}');
+          final bookingData = data['booking'] as Map<String, dynamic>?;
+          if (bookingData == null) {
+            print('⚠️ Document ${doc.id} has no booking data');
+            continue;
+          }
+          final booking = PickupBooking.fromJson(bookingData);
+          bookings.add(booking);
+          print('✅ Parsed manual booking: ${booking.customerFullName} (ID: ${booking.id})');
+        } catch (e) {
+          print('⚠️ Error parsing manual booking ${doc.id}: $e');
+          print('⚠️ Document data: ${doc.data()}');
+        }
+      }
+      
+      print('✅ Retrieved ${bookings.length} manual bookings for date $date');
+      if (bookings.isNotEmpty) {
+        print('📋 Manual bookings: ${bookings.map((b) => b.customerFullName).join(", ")}');
+      }
+      return bookings;
+    } catch (e) {
+      print('❌ Failed to retrieve manual bookings: $e');
+      print('❌ Error details: ${e.toString()}');
+      return [];
+    }
+  }
+
+  /// Delete manual booking from Firebase
+  static Future<void> deleteManualBooking({
+    required String date,
+    required String bookingId,
+  }) async {
+    if (!_initialized || _firestore == null) {
+      print('⚠️ Firebase not initialized - skipping manual booking deletion');
+      return;
+    }
+    
+    try {
+      await _firestore!
+          .collection('manual_bookings')
+          .doc('${date}_$bookingId')
+          .delete();
+      
+      print('✅ Deleted manual booking $bookingId for date $date');
+    } catch (e) {
+      print('❌ Failed to delete manual booking: $e');
     }
   }
 
@@ -993,6 +1151,52 @@ class FirebaseService {
     } catch (e) {
       print('❌ Failed to get bus service info: $e');
       return null;
+    }
+  }
+
+  /// Get tour report for a specific date
+  static Future<Map<String, dynamic>?> getTourReport(String date) async {
+    if (!_initialized || _firestore == null) {
+      print('⚠️ Firebase not initialized');
+      return null;
+    }
+    
+    try {
+      final doc = await _firestore!
+          .collection('tour_reports')
+          .doc(date)
+          .get();
+      
+      if (doc.exists) {
+        return doc.data();
+      }
+      return null;
+    } catch (e) {
+      print('❌ Failed to get tour report: $e');
+      return null;
+    }
+  }
+
+  /// Get all tour reports (last 30 days)
+  static Future<List<Map<String, dynamic>>> getRecentTourReports() async {
+    if (!_initialized || _firestore == null) {
+      return [];
+    }
+    
+    try {
+      final thirtyDaysAgo = DateTime.now().subtract(const Duration(days: 30));
+      final dateStr = '${thirtyDaysAgo.year}-${thirtyDaysAgo.month.toString().padLeft(2, '0')}-${thirtyDaysAgo.day.toString().padLeft(2, '0')}';
+      
+      final querySnapshot = await _firestore!
+          .collection('tour_reports')
+          .where('date', isGreaterThanOrEqualTo: dateStr)
+          .orderBy('date', descending: true)
+          .get();
+      
+      return querySnapshot.docs.map((doc) => doc.data()).toList();
+    } catch (e) {
+      print('❌ Failed to get recent tour reports: $e');
+      return [];
     }
   }
 } 

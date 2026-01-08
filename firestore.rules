@@ -1,10 +1,23 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Helper function to check if current user is admin
+    function isAdmin() {
+      return request.auth != null && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+    
     match /users/{userId} {
+      // Users can read/write their own document
       allow read, write: if request.auth != null && request.auth.uid == userId;
+      // All authenticated users can read user documents
       allow read: if request.auth != null;
+      // Users can create their own document
       allow create: if request.auth != null && request.auth.uid == userId;
+      // Admins can delete any user document
+      allow delete: if request.auth != null && isAdmin();
+      // Admins can update any user document
+      allow update: if request.auth != null && (request.auth.uid == userId || isAdmin());
     }
     
     match /booking_status/{document} {
@@ -47,6 +60,16 @@ service cloud.firestore {
     
     // Bus-guide assignments - authenticated users can read/write
     match /bus_guide_assignments/{document} {
+      allow read, write: if request.auth != null;
+    }
+    
+    // Manual bookings - authenticated users can read/write
+    match /manual_bookings/{document} {
+      allow read, write: if request.auth != null;
+    }
+    
+    // Cached bookings - authenticated users can read/write
+    match /cached_bookings/{document} {
       allow read, write: if request.auth != null;
     }
   }

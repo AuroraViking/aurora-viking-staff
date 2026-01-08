@@ -365,6 +365,11 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
         foregroundColor: Colors.white,
         actions: [
           IconButton(
+            icon: const Icon(Icons.add),
+            onPressed: () => _showManualBookingDialog(context.read<PickupController>()),
+            tooltip: 'Add Manual Booking',
+          ),
+          IconButton(
             icon: const Icon(Icons.calendar_today),
             onPressed: _selectDate,
           ),
@@ -616,8 +621,30 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
               tooltip: 'Edit Pickup Place',
             ),
             PopupMenuButton<String>(
-              onSelected: (guideId) => _assignBookingToGuide(booking, guideId, controller),
-              itemBuilder: (context) => _buildGuideMenuItems(controller),
+              onSelected: (value) {
+                if (value == 'delete') {
+                  _deleteBooking(booking, controller);
+                } else {
+                  _assignBookingToGuide(booking, value, controller);
+                }
+              },
+              itemBuilder: (context) => [
+                ..._buildGuideMenuItems(controller),
+                const PopupMenuDivider(),
+                const PopupMenuItem(
+                  value: 'delete',
+                  child: Row(
+                    children: [
+                      Icon(Icons.delete, color: AppColors.error),
+                      SizedBox(width: 8),
+                      Text(
+                        'Delete Booking',
+                        style: TextStyle(color: AppColors.error),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
               child: const Icon(Icons.more_vert),
             ),
           ],
@@ -898,7 +925,17 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
   // Show bus selection dialog
   Future<void> _showBusSelectionDialog(GuidePickupList guideList, PickupController controller) async {
     final assignment = _busAssignments[guideList.guideId];
-    final initialSelectedBusId = assignment?['busId'];
+    String? initialSelectedBusId = assignment?['busId'];
+    
+    // Validate the stored busId exists in available buses
+    // This fixes cases where the busId might have been corrupted (e.g., 'O' vs '0')
+    if (initialSelectedBusId != null && initialSelectedBusId.isNotEmpty) {
+      final busExists = _availableBuses.any((b) => b['id'] == initialSelectedBusId);
+      if (!busExists) {
+        print('⚠️ Stored busId "$initialSelectedBusId" not found in available buses. Clearing selection.');
+        initialSelectedBusId = null;
+      }
+    }
     
     // Declare variable outside builder so it persists across rebuilds
     String? selectedBusId = initialSelectedBusId;
@@ -1005,12 +1042,24 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
       if (finalBusId == null) {
         await _assignBusToGuide(guideList.guideId, guideList.guideName, null, null, controller);
       } else {
-        final selectedBus = _availableBuses.firstWhere((b) => b['id'] == finalBusId);
+        // Validate that the busId exists in available buses to prevent mismatches
+        final selectedBus = _availableBuses.firstWhere(
+          (b) => b['id'] == finalBusId,
+          orElse: () => throw Exception('Selected bus not found in available buses list'),
+        );
+        
+        // Double-check: use the ID from the bus object, not the passed value
+        // This ensures we're using the exact ID from Firestore
+        final verifiedBusId = selectedBus['id'] as String;
+        final verifiedBusName = selectedBus['name'] as String;
+        
+        print('✅ Verifying bus assignment: ID=$verifiedBusId, Name=$verifiedBusName');
+        
         await _assignBusToGuide(
           guideList.guideId,
           guideList.guideName,
-          finalBusId,
-          selectedBus['name'] as String,
+          verifiedBusId,  // Use the verified ID from the bus object
+          verifiedBusName,
           controller,
         );
       }
@@ -1222,6 +1271,20 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
                   style: TextStyle(color: Colors.white),
                 ),
               ),
+              const PopupMenuDivider(),
+              const PopupMenuItem(
+                value: 'delete',
+                child: Row(
+                  children: [
+                    Icon(Icons.delete, color: AppColors.error),
+                    SizedBox(width: 8),
+                    Text(
+                      'Delete Booking',
+                      style: TextStyle(color: AppColors.error),
+                    ),
+                  ],
+                ),
+              ),
             ],
           ),
         ],
@@ -1342,6 +1405,10 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
         print('❌ Unassigning booking...');
         _unassignBooking(booking, controller);
         break;
+      case 'delete':
+        print('🗑️ Deleting booking...');
+        _deleteBooking(booking, controller);
+        break;
       default:
         print('⚠️ Unknown action: $action');
     }
@@ -1439,6 +1506,59 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
     }
   }
 
+  void _deleteBooking(PickupBooking booking, PickupController controller) async {
+    // Show confirmation dialog
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A2E),
+        title: const Text(
+          'Delete Booking',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: Text(
+          'Are you sure you want to delete the booking for ${booking.customerFullName}? This action cannot be undone.',
+          style: const TextStyle(color: Colors.white),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.error,
+            ),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      print('🗑️ Starting delete process for: ${booking.customerFullName}');
+      final success = await controller.deleteBooking(booking.id);
+      print('✅ Delete result: $success');
+      
+      if (success && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${booking.customerFullName} deleted'),
+            backgroundColor: AppColors.success,
+          ),
+        );
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to delete ${booking.customerFullName}'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _refreshData(PickupController controller) async {
     // Force refresh to always get fresh data from API and Firebase
     await controller.loadBookingsForDate(controller.selectedDate, forceRefresh: true);
@@ -1512,5 +1632,209 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
         );
       }
     }
+  }
+
+  // Show manual booking dialog
+  void _showManualBookingDialog(PickupController controller) {
+    final nameController = TextEditingController();
+    final pickupLocationController = TextEditingController();
+    final emailController = TextEditingController();
+    final phoneController = TextEditingController();
+    final numberOfGuestsController = TextEditingController(text: '1');
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A2E),
+        title: const Text(
+          'Add Manual Booking',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameController,
+                decoration: const InputDecoration(
+                  labelText: 'Customer Name',
+                  labelStyle: TextStyle(color: Colors.white70),
+                  enabledBorder: OutlineInputBorder(
+                    borderSide: BorderSide(color: Colors.white30),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderSide: BorderSide(color: AppColors.primary),
+                  ),
+                ),
+                style: const TextStyle(color: Colors.white),
+                autofocus: true,
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: pickupLocationController,
+                decoration: const InputDecoration(
+                  labelText: 'Pickup Location',
+                  labelStyle: TextStyle(color: Colors.white70),
+                  enabledBorder: OutlineInputBorder(
+                    borderSide: BorderSide(color: Colors.white30),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderSide: BorderSide(color: AppColors.primary),
+                  ),
+                ),
+                style: const TextStyle(color: Colors.white),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: emailController,
+                decoration: const InputDecoration(
+                  labelText: 'Email',
+                  labelStyle: TextStyle(color: Colors.white70),
+                  enabledBorder: OutlineInputBorder(
+                    borderSide: BorderSide(color: Colors.white30),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderSide: BorderSide(color: AppColors.primary),
+                  ),
+                ),
+                style: const TextStyle(color: Colors.white),
+                keyboardType: TextInputType.emailAddress,
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: phoneController,
+                decoration: const InputDecoration(
+                  labelText: 'Phone Number',
+                  labelStyle: TextStyle(color: Colors.white70),
+                  enabledBorder: OutlineInputBorder(
+                    borderSide: BorderSide(color: Colors.white30),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderSide: BorderSide(color: AppColors.primary),
+                  ),
+                ),
+                style: const TextStyle(color: Colors.white),
+                keyboardType: TextInputType.phone,
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: numberOfGuestsController,
+                decoration: const InputDecoration(
+                  labelText: 'Number of Guests',
+                  labelStyle: TextStyle(color: Colors.white70),
+                  enabledBorder: OutlineInputBorder(
+                    borderSide: BorderSide(color: Colors.white30),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderSide: BorderSide(color: AppColors.primary),
+                  ),
+                ),
+                style: const TextStyle(color: Colors.white),
+                keyboardType: TextInputType.number,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              print('🔵🔵🔵 Add Booking button pressed - START');
+              try {
+                print('🔵 Add Booking button pressed');
+                final name = nameController.text.trim();
+                final pickupLocation = pickupLocationController.text.trim();
+                final email = emailController.text.trim();
+                final phone = phoneController.text.trim();
+                final numberOfGuestsStr = numberOfGuestsController.text.trim();
+                
+                print('🔵 Form values: name=$name, location=$pickupLocation, email=$email, phone=$phone, guests=$numberOfGuestsStr');
+                
+                if (name.isEmpty || pickupLocation.isEmpty) {
+                  print('⚠️ Validation failed: name or location is empty');
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Name and Pickup Location are required'),
+                        backgroundColor: AppColors.error,
+                      ),
+                    );
+                  }
+                  return;
+                }
+                
+                final numberOfGuests = int.tryParse(numberOfGuestsStr) ?? 1;
+                if (numberOfGuests < 1) {
+                  print('⚠️ Validation failed: number of guests < 1');
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Number of guests must be at least 1'),
+                        backgroundColor: AppColors.error,
+                      ),
+                    );
+                  }
+                  return;
+                }
+                
+                print('✅ Validation passed, closing dialog and creating booking...');
+                Navigator.of(context).pop();
+                
+                print('🔵 Calling createManualBooking...');
+                final success = await controller.createManualBooking(
+                  customerName: name,
+                  pickupLocation: pickupLocation,
+                  email: email,
+                  phoneNumber: phone,
+                  numberOfGuests: numberOfGuests,
+                );
+                
+                print('🔵 createManualBooking returned: $success');
+                
+                if (mounted) {
+                  if (success) {
+                    print('✅ Showing success message');
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Manual booking added for $name'),
+                        backgroundColor: AppColors.success,
+                      ),
+                    );
+                  } else {
+                    print('❌ Showing error message - booking creation failed');
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Failed to add manual booking'),
+                        backgroundColor: AppColors.error,
+                      ),
+                    );
+                  }
+                } else {
+                  print('⚠️ Widget not mounted, cannot show message');
+                }
+              } catch (e, stackTrace) {
+                print('❌ Error in Add Booking button handler: $e');
+                print('❌ Stack trace: $stackTrace');
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Error: $e'),
+                      backgroundColor: AppColors.error,
+                    ),
+                  );
+                }
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+            ),
+            child: const Text('Add Booking'),
+          ),
+        ],
+      ),
+    );
   }
 } 

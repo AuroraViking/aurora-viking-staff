@@ -106,6 +106,25 @@ class PickupController extends ChangeNotifier {
         // FIX: Use API-safe date for the Bokun request
         bookings = await _pickupService.fetchBookingsForDate(apiDate);
         print('📋 API returned ${bookings.length} bookings for date $dateKey');
+        
+        // Load manual bookings and merge with API bookings
+        try {
+          final manualBookings = await FirebaseService.getManualBookings(dateKey);
+          if (manualBookings.isNotEmpty) {
+            print('📋 Found ${manualBookings.length} manual bookings for date $dateKey');
+            // Merge manual bookings with API bookings (avoid duplicates by ID)
+            final existingIds = bookings.map((b) => b.id).toSet();
+            for (final manualBooking in manualBookings) {
+              if (!existingIds.contains(manualBooking.id)) {
+                bookings.add(manualBooking);
+                print('✅ Added manual booking: ${manualBooking.customerFullName}');
+              }
+            }
+            print('📋 Total bookings after merge: ${bookings.length}');
+          }
+        } catch (e) {
+          print('⚠️ Failed to load manual bookings: $e');
+        }
       } catch (e) {
         // Handle API errors - check cache first, then existing data
         print('❌ API Error: $e');
@@ -117,7 +136,26 @@ class PickupController extends ChangeNotifier {
         // FIX: Check cache using normalized date key
         if (_bookingsCache.containsKey(dateKey)) {
           print('💾 Restoring bookings from cache for date $dateKey');
-          _bookings = _bookingsCache[dateKey]!;
+          var cachedBookings = List<PickupBooking>.from(_bookingsCache[dateKey]!);
+          
+          // Also load manual bookings and merge
+          try {
+            final manualBookings = await FirebaseService.getManualBookings(dateKey);
+            if (manualBookings.isNotEmpty) {
+              print('📋 Found ${manualBookings.length} manual bookings for date $dateKey');
+              final existingIds = cachedBookings.map((b) => b.id).toSet();
+              for (final manualBooking in manualBookings) {
+                if (!existingIds.contains(manualBooking.id)) {
+                  cachedBookings.add(manualBooking);
+                  print('✅ Added manual booking to cache: ${manualBooking.customerFullName}');
+                }
+              }
+            }
+          } catch (e) {
+            print('⚠️ Failed to load manual bookings from cache: $e');
+          }
+          
+          _bookings = cachedBookings;
           _guideLists = _guideListsCache[dateKey] ?? [];
           _stats = _statsCache[dateKey];
           
@@ -175,7 +213,26 @@ class PickupController extends ChangeNotifier {
         // If we have cached data, use it instead of clearing
         if (_bookingsCache.containsKey(dateKey) && _bookingsCache[dateKey]!.isNotEmpty) {
           print('💾 API returned empty but found cached bookings for date $dateKey. Restoring from cache.');
-          _bookings = _bookingsCache[dateKey]!;
+          var cachedBookings = List<PickupBooking>.from(_bookingsCache[dateKey]!);
+          
+          // Also load manual bookings and merge
+          try {
+            final manualBookings = await FirebaseService.getManualBookings(dateKey);
+            if (manualBookings.isNotEmpty) {
+              print('📋 Found ${manualBookings.length} manual bookings for date $dateKey');
+              final existingIds = cachedBookings.map((b) => b.id).toSet();
+              for (final manualBooking in manualBookings) {
+                if (!existingIds.contains(manualBooking.id)) {
+                  cachedBookings.add(manualBooking);
+                  print('✅ Added manual booking to cache: ${manualBooking.customerFullName}');
+                }
+              }
+            }
+          } catch (e) {
+            print('⚠️ Failed to load manual bookings: $e');
+          }
+          
+          _bookings = cachedBookings;
           _guideLists = _guideListsCache[dateKey] ?? [];
           _stats = _statsCache[dateKey];
           
@@ -257,7 +314,7 @@ class PickupController extends ChangeNotifier {
         print('⚠️ Failed to load updated pickup places: $e');
       }
 
-      // Apply statuses and assignments to bookings
+      // Apply statuses and assignments to bookings (including manual bookings)
       final updatedBookings = bookings.map((booking) {
         // Apply status
         final status = statuses[booking.id];
@@ -290,6 +347,12 @@ class PickupController extends ChangeNotifier {
 
         return updatedBooking;
       }).toList();
+      
+      // Debug: Log manual bookings in the list
+      final manualBookingsInList = updatedBookings.where((b) => b.id.startsWith('manual_')).toList();
+      if (manualBookingsInList.isNotEmpty) {
+        print('✅ Found ${manualBookingsInList.length} manual bookings in updated list: ${manualBookingsInList.map((b) => b.customerFullName).join(", ")}');
+      }
 
       // Sort bookings alphabetically by pickup place name
       updatedBookings.sort((a, b) => a.pickupPlaceName.compareTo(b.pickupPlaceName));
@@ -360,18 +423,24 @@ class PickupController extends ChangeNotifier {
                            selectedDateNormalized.isBefore(today.add(const Duration(days: 1))));
       
       if (shouldCache && updatedBookings.isNotEmpty) {
-        // Cache to Firebase for future retrieval
+        // Cache to Firebase for future retrieval (includes manual bookings)
         await FirebaseService.cacheBookings(
           date: dateKey,
           bookings: updatedBookings,
         );
-        print('💾 Auto-cached ${updatedBookings.length} bookings to Firebase for date $dateKey');
+        print('💾 Auto-cached ${updatedBookings.length} bookings to Firebase for date $dateKey (includes ${updatedBookings.where((b) => b.id.startsWith('manual_')).length} manual bookings)');
       }
       
-      // Also cache to local memory
+      // Also cache to local memory (includes manual bookings)
       _bookingsCache[dateKey] = List.from(updatedBookings);
       _guideListsCache[dateKey] = List.from(_guideLists);
       _statsCache[dateKey] = _stats;
+      
+      // Debug: Verify manual bookings are in cache
+      final manualInCache = _bookingsCache[dateKey]?.where((b) => b.id.startsWith('manual_')).toList() ?? [];
+      if (manualInCache.isNotEmpty) {
+        print('✅ Verified ${manualInCache.length} manual bookings in local cache: ${manualInCache.map((b) => b.customerFullName).join(", ")}');
+      }
       print('💾 Cached bookings for date $dateKey: ${updatedBookings.length} bookings');
     } catch (e) {
       print('❌ Error loading bookings: $e');
@@ -882,5 +951,135 @@ class PickupController extends ChangeNotifier {
     }).toList();
 
     print('✅ Updated guide lists: ${_guideLists.length} guides total');
+  }
+
+  // Create a manual booking
+  Future<bool> createManualBooking({
+    required String customerName,
+    required String pickupLocation,
+    required String email,
+    required String phoneNumber,
+    DateTime? pickupTime,
+    int numberOfGuests = 1,
+  }) async {
+    try {
+      // Generate a unique ID for the manual booking
+      final bookingId = 'manual_${DateTime.now().millisecondsSinceEpoch}';
+      
+      // Use provided pickup time or default to selected date at 9:00 AM
+      final time = pickupTime ?? DateTime(
+        _selectedDate.year,
+        _selectedDate.month,
+        _selectedDate.day,
+        9,
+        0,
+      );
+      
+      // Create the booking
+      final manualBooking = PickupBooking(
+        id: bookingId,
+        customerFullName: customerName,
+        pickupPlaceName: pickupLocation,
+        pickupTime: time,
+        numberOfGuests: numberOfGuests,
+        phoneNumber: phoneNumber,
+        email: email,
+        createdAt: DateTime.now(),
+      );
+      
+      // Add to bookings list
+      _bookings.add(manualBooking);
+      
+      // Update guide lists
+      _updateGuideLists();
+      
+      // Update stats
+      _stats = PickupListStats.fromBookings(_bookings, _guideLists);
+      
+      // Save manual booking to Firebase (separate collection)
+      final dateKey = _getDateKey(_selectedDate);
+      print('💾 Saving manual booking for date: $dateKey');
+      print('💾 Booking ID: ${manualBooking.id}');
+      print('💾 Customer: ${manualBooking.customerFullName}');
+      
+      await FirebaseService.saveManualBooking(
+        date: dateKey,
+        booking: manualBooking,
+      );
+      print('✅ Manual booking saved to Firebase');
+      
+      // Also update the cache (includes the new manual booking)
+      await FirebaseService.cacheBookings(
+        date: dateKey,
+        bookings: _bookings,
+      );
+      print('✅ Updated cache with ${_bookings.length} bookings (includes manual booking)');
+      
+      // Update local cache
+      _bookingsCache[dateKey] = List.from(_bookings);
+      _guideListsCache[dateKey] = List.from(_guideLists);
+      _statsCache[dateKey] = _stats;
+      
+      notifyListeners();
+      
+      print('✅ Created manual booking: $customerName (ID: ${manualBooking.id})');
+      return true;
+    } catch (e, stackTrace) {
+      print('❌ Error creating manual booking: $e');
+      print('❌ Stack trace: $stackTrace');
+      return false;
+    }
+  }
+
+  // Delete a booking
+  Future<bool> deleteBooking(String bookingId) async {
+    try {
+      // Check if this is a manual booking
+      final isManualBooking = bookingId.startsWith('manual_');
+      
+      // Remove from bookings list
+      _bookings.removeWhere((booking) => booking.id == bookingId);
+      
+      // Remove from current user bookings if present
+      _currentUserBookings.removeWhere((booking) => booking.id == bookingId);
+      
+      // Remove assignment from Firebase
+      await FirebaseService.removePickupAssignment(bookingId);
+      
+      // If it's a manual booking, delete from manual_bookings collection
+      if (isManualBooking) {
+        final dateKey = _getDateKey(_selectedDate);
+        await FirebaseService.deleteManualBooking(
+          date: dateKey,
+          bookingId: bookingId,
+        );
+      }
+      
+      // Update guide lists
+      _updateGuideLists();
+      
+      // Update stats
+      _stats = PickupListStats.fromBookings(_bookings, _guideLists);
+      
+      // Update Firebase cache
+      final dateKey = _getDateKey(_selectedDate);
+      await FirebaseService.cacheBookings(
+        date: dateKey,
+        bookings: _bookings,
+      );
+      
+      // Update local cache
+      _bookingsCache[dateKey] = List.from(_bookings);
+      _guideListsCache[dateKey] = List.from(_guideLists);
+      _statsCache[dateKey] = _stats;
+      
+      notifyListeners();
+      
+      print('✅ Deleted booking: $bookingId');
+      return true;
+    } catch (e) {
+      print('❌ Error deleting booking: $e');
+      return false;
+    }
   }
 }
