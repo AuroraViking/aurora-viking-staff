@@ -193,6 +193,15 @@ class FirebaseService {
     }
     
     try {
+      final docId = '${date}_$bookingId';
+      print('💾 Updating booking status:');
+      print('   Document ID: $docId');
+      print('   Booking ID: $bookingId');
+      print('   Date: $date');
+      print('   isArrived: $isArrived');
+      print('   isNoShow: $isNoShow');
+      print('   paidOnArrival: $paidOnArrival');
+      
       final updates = <String, dynamic>{};
       if (isArrived != null) updates['isArrived'] = isArrived;
       if (isNoShow != null) updates['isNoShow'] = isNoShow;
@@ -202,10 +211,14 @@ class FirebaseService {
 
       await _firestore!
           .collection('booking_status')
-          .doc('${date}_$bookingId')
+          .doc(docId)
           .set(updates, SetOptions(merge: true));
+      
+      print('✅ Booking status updated successfully in Firestore');
+      print('   This should trigger Cloud Function onPickupCompleted or onNoShowMarked');
     } catch (e) {
       print('❌ Failed to update booking status: $e');
+      print('   Stack trace: ${StackTrace.current}');
     }
   }
 

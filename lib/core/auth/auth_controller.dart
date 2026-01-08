@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import 'dart:async';
 import '../models/user_model.dart';
 import '../services/firebase_service.dart';
+import '../services/notification_service.dart';
 
 class AuthController extends ChangeNotifier {
   User? _currentUser;
@@ -63,6 +64,12 @@ class AuthController extends ChangeNotifier {
           print('🔄 Auth state changed: ${firebaseUser?.email ?? 'null'}');
           if (firebaseUser != null) {
             await _loadUserData(firebaseUser.uid);
+            // Save FCM token after user is loaded
+            try {
+              await NotificationService.saveFcmTokenIfNeeded();
+            } catch (e) {
+              print('⚠️ Failed to save FCM token after login: $e');
+            }
           } else {
             _currentUser = null;
             _safeNotifyListeners();
@@ -104,7 +111,7 @@ class AuthController extends ChangeNotifier {
   Future<bool> _testFirebaseConnection() async {
     try {
       // Try to access Firebase Auth to see if it's initialized
-      final auth = firebase_auth.FirebaseAuth.instance;
+      firebase_auth.FirebaseAuth.instance;
       return true;
     } catch (e) {
       return false;

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
 import 'modules/admin/admin_controller.dart';
@@ -9,6 +8,7 @@ import 'modules/pickup/pickup_controller.dart';
 import 'modules/photos/photo_controller.dart';
 import 'core/auth/auth_controller.dart';
 import 'core/services/firebase_service.dart';
+import 'core/services/notification_service.dart';
 import 'theme/av_theme.dart';
 import 'widgets/common/logo_widget.dart';
 
@@ -29,6 +29,10 @@ void main() async {
   try {
     await FirebaseService.initialize();
     print('✅ Firebase initialized in main()');
+    
+    // Initialize notification service after Firebase
+    await NotificationService.initialize();
+    print('✅ Notification service initialized in main()');
   } catch (e) {
     print('❌ Failed to initialize Firebase in main(): $e');
     // Continue without Firebase for development

@@ -604,6 +604,8 @@ class PickupController extends ChangeNotifier {
   // Mark booking as arrived
   void markBookingAsArrived(String bookingId, bool arrived) {
     try {
+      print('🔔 markBookingAsArrived called: bookingId=$bookingId, arrived=$arrived');
+      
       // Update local state
       final bookingIndex = _bookings.indexWhere((booking) => booking.id == bookingId);
       if (bookingIndex != -1) {
@@ -621,12 +623,15 @@ class PickupController extends ChangeNotifier {
 
       // Save to Firebase
       final dateStr = '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}';
+      print('💾 Calling FirebaseService.updateBookingStatus for date: $dateStr');
       FirebaseService.updateBookingStatus(
         bookingId: bookingId,
         date: dateStr,
         isArrived: arrived,
       );
+      print('✅ markBookingAsArrived completed');
     } catch (e) {
+      print('❌ Error in markBookingAsArrived: $e');
       _error = 'Failed to mark booking as arrived: $e';
       notifyListeners();
     }
