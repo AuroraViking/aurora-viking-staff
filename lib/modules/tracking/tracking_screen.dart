@@ -552,25 +552,60 @@ class _TrackingScreenState extends State<TrackingScreen> with AutomaticKeepAlive
   Widget _buildBusSelection() {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withOpacity(0.2)),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Colors.white.withOpacity(0.15),
+            Colors.white.withOpacity(0.08),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: Colors.white.withOpacity(0.3),
+          width: 1.5,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.2),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Text(
-            'Select Bus',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
-            ),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.blue.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Icons.directions_bus,
+                  color: Colors.blue,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Text(
+                'Select Bus',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 16),
           if (_buses.isEmpty)
             Container(
               padding: const EdgeInsets.all(16),
@@ -605,16 +640,42 @@ class _TrackingScreenState extends State<TrackingScreen> with AutomaticKeepAlive
           else
             DropdownButtonFormField<String>(
               value: _selectedBus,
-              decoration: const InputDecoration(
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide(color: Colors.grey.shade300),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide(color: Colors.grey.shade300),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: const BorderSide(color: Colors.blue, width: 2),
+                ),
                 filled: true,
                 fillColor: Colors.white,
                 hintText: 'Choose a bus to track',
+                hintStyle: TextStyle(color: Colors.grey.shade600),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               ),
+              style: const TextStyle(
+                color: Colors.black87,
+                fontSize: 16,
+                fontWeight: FontWeight.w500,
+              ),
+              dropdownColor: Colors.white,
+              icon: Icon(Icons.arrow_drop_down, color: Colors.grey.shade700),
               items: _buses.map((bus) {
                 return DropdownMenuItem<String>(
                   value: bus['id'] as String,
-                  child: Text('${bus['name']} (${bus['licensePlate']})'),
+                  child: Text(
+                    '${bus['name']} (${bus['licensePlate']})',
+                    style: const TextStyle(
+                      color: Colors.black87,
+                      fontSize: 16,
+                    ),
+                  ),
                 );
               }).toList(),
               onChanged: (value) {
@@ -631,104 +692,89 @@ class _TrackingScreenState extends State<TrackingScreen> with AutomaticKeepAlive
   Widget _buildOptimizationStatus() {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withOpacity(0.2)),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Colors.white.withOpacity(0.15),
+            Colors.white.withOpacity(0.08),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: Colors.white.withOpacity(0.3),
+          width: 1.5,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.2),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Text(
-            'Tracking Optimization',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
-            ),
-          ),
-          const SizedBox(height: 12),
           Row(
             children: [
-              Expanded(
-                child: Text(
-                  'Optimized for tracking: ${_isOptimizedForTracking ? 'Yes' : 'No'}',
-                  style: TextStyle(
-                    color: _isOptimizedForTracking ? Colors.green : Colors.red,
-                    fontWeight: FontWeight.w500,
-                  ),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: _isOptimizedForTracking 
+                      ? Colors.green.withOpacity(0.2)
+                      : Colors.orange.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  _isOptimizedForTracking ? Icons.check_circle : Icons.warning,
+                  color: _isOptimizedForTracking ? Colors.green : Colors.orange,
+                  size: 24,
                 ),
               ),
-              const SizedBox(width: 16),
-              ElevatedButton(
-                onPressed: _requestBatteryOptimizationBypass,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
+              const SizedBox(width: 12),
+              const Text(
+                'Tracking Optimization',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                  letterSpacing: 0.5,
                 ),
-                child: const Text('Bypass Optimization'),
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  'Background location enabled: ${_hasBackgroundLocation ? 'Yes' : 'No'}',
-                  style: TextStyle(
-                    color: _hasBackgroundLocation ? Colors.green : Colors.red,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 16),
-              ElevatedButton(
-                onPressed: _requestBackgroundLocation,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.purple,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-                child: const Text('Request Background'),
-              ),
-            ],
+          const SizedBox(height: 16),
+          _buildOptimizationRow(
+            label: 'Optimized for tracking',
+            value: _isOptimizedForTracking,
+            icon: Icons.tune,
+            onAction: _requestBatteryOptimizationBypass,
+            actionLabel: 'Bypass',
+            actionColor: Colors.blue,
           ),
           const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  'Precise location enabled: ${_hasPreciseLocation ? 'Yes' : 'No'}',
-                  style: TextStyle(
-                    color: _hasPreciseLocation ? Colors.green : Colors.red,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 16),
-              ElevatedButton(
-                onPressed: _checkAllPermissions,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.orange,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-                child: const Text('Refresh Status'),
-              ),
-            ],
+          const SizedBox(height: 12),
+          _buildOptimizationRow(
+            label: 'Background location',
+            value: _hasBackgroundLocation,
+            icon: Icons.location_searching,
+            onAction: _requestBackgroundLocation,
+            actionLabel: 'Request',
+            actionColor: Colors.purple,
+          ),
+          const SizedBox(height: 12),
+          const SizedBox(height: 12),
+          _buildOptimizationRow(
+            label: 'Precise location',
+            value: _hasPreciseLocation,
+            icon: Icons.gps_fixed,
+            onAction: _checkAllPermissions,
+            actionLabel: 'Refresh',
+            actionColor: Colors.orange,
           ),
           if (!_isOptimizedForTracking) ...[
             const SizedBox(height: 16),
@@ -754,41 +800,156 @@ class _TrackingScreenState extends State<TrackingScreen> with AutomaticKeepAlive
     );
   }
 
+  Widget _buildOptimizationRow({
+    required String label,
+    required bool value,
+    required IconData icon,
+    required VoidCallback onAction,
+    required String actionLabel,
+    required Color actionColor,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: value ? Colors.green.withOpacity(0.3) : Colors.red.withOpacity(0.3),
+          width: 1,
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            icon,
+            color: value ? Colors.green : Colors.red,
+            size: 20,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 13,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value ? 'Enabled' : 'Disabled',
+                  style: TextStyle(
+                    color: value ? Colors.green : Colors.red,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          ElevatedButton(
+            onPressed: onAction,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: actionColor,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+              elevation: 2,
+            ),
+            child: Text(actionLabel),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildControlButtons() {
     return Row(
       children: [
         Expanded(
-          child: ElevatedButton(
-            onPressed: _isTracking ? null : _startTracking,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.green,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.green.withOpacity(0.3),
+                  blurRadius: 8,
+                  offset: const Offset(0, 4),
+                ),
+              ],
             ),
-            child: const Text(
-              'Start Tracking',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            child: ElevatedButton(
+              onPressed: _isTracking ? null : _startTracking,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 18),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                elevation: 0,
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.play_arrow, size: 24),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'Start Tracking',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
         const SizedBox(width: 16),
         Expanded(
-          child: ElevatedButton(
-            onPressed: _isTracking ? _stopTracking : null,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.red.withOpacity(0.3),
+                  blurRadius: 8,
+                  offset: const Offset(0, 4),
+                ),
+              ],
             ),
-            child: const Text(
-              'Stop Tracking',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            child: ElevatedButton(
+              onPressed: _isTracking ? _stopTracking : null,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 18),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                elevation: 0,
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.stop, size: 24),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'Stop Tracking',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -797,98 +958,210 @@ class _TrackingScreenState extends State<TrackingScreen> with AutomaticKeepAlive
   }
 
   Widget _buildStatusSection() {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.white.withOpacity(0.2)),
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Colors.white.withOpacity(0.15),
+            Colors.white.withOpacity(0.08),
+          ],
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Status',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: _isTracking ? Colors.green.withOpacity(0.2) : Colors.grey.withOpacity(0.2),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                  color: _isTracking ? Colors.green : Colors.grey,
-                ),
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    _isTracking ? Icons.location_on : Icons.location_off,
-                    color: _isTracking ? Colors.green : Colors.grey,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _status,
-                      style: TextStyle(
-                        color: _isTracking ? Colors.green : Colors.grey,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            if (_currentPosition != null) ...[
-              const SizedBox(height: 20),
-              const Text(
-                'Current Location',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
-              ),
-              const SizedBox(height: 12),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: Colors.white.withOpacity(0.3),
+          width: 1.5,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.2),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
               Container(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.1),
+                  color: _isTracking 
+                      ? Colors.green.withOpacity(0.2)
+                      : Colors.grey.withOpacity(0.2),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Latitude: ${_currentPosition!.latitude.toStringAsFixed(6)}',
-                      style: const TextStyle(color: Colors.white),
-                    ),
-                    Text(
-                      'Longitude: ${_currentPosition!.longitude.toStringAsFixed(6)}',
-                      style: const TextStyle(color: Colors.white),
-                    ),
-                    Text(
-                      'Accuracy: ${_currentPosition!.accuracy.toStringAsFixed(1)}m',
-                      style: const TextStyle(color: Colors.white),
-                    ),
-                    if (_currentPosition!.speed > 0)
-                      Text(
-                        'Speed: ${(_currentPosition!.speed * 3.6).toStringAsFixed(1)} km/h',
-                        style: const TextStyle(color: Colors.white),
-                      ),
-                  ],
+                child: Icon(
+                  _isTracking ? Icons.location_on : Icons.location_off,
+                  color: _isTracking ? Colors.green : Colors.grey,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Text(
+                'Status',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                  letterSpacing: 0.5,
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: _isTracking
+                    ? [
+                        Colors.green.withOpacity(0.3),
+                        Colors.green.withOpacity(0.15),
+                      ]
+                    : [
+                        Colors.grey.withOpacity(0.3),
+                        Colors.grey.withOpacity(0.15),
+                      ],
+              ),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: _isTracking ? Colors.green.withOpacity(0.5) : Colors.grey.withOpacity(0.5),
+                width: 2,
+              ),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: _isTracking ? Colors.green : Colors.grey,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    _isTracking ? Icons.check_circle : Icons.cancel,
+                    color: Colors.white,
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    _status,
+                    style: TextStyle(
+                      color: _isTracking ? Colors.green.shade100 : Colors.grey.shade300,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 16,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (_currentPosition != null) ...[
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.my_location,
+                    color: Colors.blue,
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const Text(
+                  'Current Location',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: Colors.white.withOpacity(0.2),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildLocationInfoRow(
+                    Icons.navigation,
+                    'Latitude',
+                    '${_currentPosition!.latitude.toStringAsFixed(6)}',
+                  ),
+                  const SizedBox(height: 12),
+                  _buildLocationInfoRow(
+                    Icons.navigation,
+                    'Longitude',
+                    '${_currentPosition!.longitude.toStringAsFixed(6)}',
+                  ),
+                  const SizedBox(height: 12),
+                  _buildLocationInfoRow(
+                    Icons.gps_fixed,
+                    'Accuracy',
+                    '${_currentPosition!.accuracy.toStringAsFixed(1)}m',
+                  ),
+                  if (_currentPosition!.speed > 0) ...[
+                    const SizedBox(height: 12),
+                    _buildLocationInfoRow(
+                      Icons.speed,
+                      'Speed',
+                      '${(_currentPosition!.speed * 3.6).toStringAsFixed(1)} km/h',
+                    ),
+                  ],
+                ],
+              ),
+            ),
           ],
-        ),
+        ],
       ),
+    );
+  }
+
+  Widget _buildLocationInfoRow(IconData icon, String label, String value) {
+    return Row(
+      children: [
+        Icon(icon, color: Colors.blue.shade300, size: 18),
+        const SizedBox(width: 12),
+        Text(
+          '$label: ',
+          style: TextStyle(
+            color: Colors.white70,
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+      ],
     );
   }
 } 
