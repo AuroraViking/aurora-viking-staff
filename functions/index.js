@@ -1,9 +1,8 @@
 const {onRequest} = require('firebase-functions/v2/https');
 const {onSchedule} = require('firebase-functions/v2/scheduler');
 const {onCall} = require('firebase-functions/v2/https');
+const {onDocumentWritten} = require('firebase-functions/v2/firestore');
 const admin = require('firebase-admin');
-// Use v1 functions for Firestore triggers
-const functionsV1 = require('firebase-functions');
 const {getFirestore} = require('firebase-admin/firestore');
 const crypto = require('crypto');
 const https = require('https');
@@ -663,45 +662,153 @@ async function getBookingDetails(bookingId, date) {
 }
 
 /**
+ * Get guide assignment for a booking
+ */
+async function getGuideAssignment(bookingId, date) {
+  try {
+    // Try individual assignment format first (date_bookingId)
+    const assignmentDoc = await db.collection('pickup_assignments')
+      .doc(`${date}_${bookingId}`)
+      .get();
+    
+    if (assignmentDoc.exists) {
+      const data = assignmentDoc.data();
+      return {
+        guideId: data.guideId,
+        guideName: data.guideName,
+      };
+    }
+
+    // Try querying by bookingId
+    const querySnapshot = await db.collection('pickup_assignments')
+      .where('date', '==', date)
+      .where('bookingId', '==', bookingId)
+      .limit(1)
+      .get();
+    
+    if (!querySnapshot.empty) {
+      const data = querySnapshot.docs[0].data();
+      return {
+        guideId: data.guideId,
+        guideName: data.guideName,
+      };
+    }
+
+    return null;
+  } catch (error) {
+    console.error('❌ Error getting guide assignment:', error);
+    return null;
+  }
+}
+
+/**
+ * Check if all pickups are complete for a guide
+ */
+async function areAllPickupsCompleteForGuide(guideId, date) {
+  try {
+    // Get all bookings assigned to this guide for this date
+    const assignmentsSnapshot = await db.collection('pickup_assignments')
+      .where('date', '==', date)
+      .where('guideId', '==', guideId)
+      .get();
+
+    if (assignmentsSnapshot.empty) {
+      console.log(`⚠️ No assignments found for guide ${guideId} on ${date}`);
+      return false;
+    }
+
+    const bookingIds = [];
+    assignmentsSnapshot.forEach((doc) => {
+      const data = doc.data();
+      if (data.bookingId) {
+        bookingIds.push(data.bookingId);
+      } else if (data.bookings && Array.isArray(data.bookings)) {
+        // Bulk assignment format - extract booking IDs
+        data.bookings.forEach((booking) => {
+          if (booking.id) {
+            bookingIds.push(booking.id);
+          }
+        });
+      }
+    });
+
+    if (bookingIds.length === 0) {
+      console.log(`⚠️ No booking IDs found for guide ${guideId} on ${date}`);
+      return false;
+    }
+
+    console.log(`🔍 Checking ${bookingIds.length} bookings for guide ${guideId}`);
+
+    // Check status of each booking
+    const statusChecks = bookingIds.map(async (bid) => {
+      const statusDoc = await db.collection('booking_status')
+        .doc(`${date}_${bid}`)
+        .get();
+      
+      if (!statusDoc.exists) {
+        return false; // No status yet, not complete
+      }
+
+      const status = statusDoc.data();
+      const isArrived = status.isArrived === true;
+      const isNoShow = status.isNoShow === true;
+      
+      // Consider complete if arrived OR marked as no-show
+      return isArrived || isNoShow;
+    });
+
+    const results = await Promise.all(statusChecks);
+    const allComplete = results.every((complete) => complete === true);
+    const completedCount = results.filter((complete) => complete === true).length;
+
+    console.log(`📊 Guide ${guideId}: ${completedCount}/${bookingIds.length} pickups complete`);
+
+    return allComplete;
+  } catch (error) {
+    console.error('❌ Error checking if all pickups are complete:', error);
+    return false;
+  }
+}
+
+/**
  * Firestore trigger: Send notification when pickup is completed (isArrived becomes true)
  */
-exports.onPickupCompleted = functionsV1.firestore
-  .onDocumentWritten('booking_status/{documentId}', async (change, context) => {
-    // Extract documentId from context or change
-    const documentId = context?.params?.documentId || change.after?.ref?.id || change.before?.ref?.id;
-    
-    if (!documentId) {
-      console.log('⚠️ Could not extract documentId from context or change');
-      console.log('   context:', context);
-      console.log('   change.after.ref:', change.after?.ref?.id);
-      console.log('   change.before.ref:', change.before?.ref?.id);
-      return;
-    }
-    
-    console.log('🔔 onPickupCompleted triggered for document:', documentId);
-    
-    // Check if document was deleted
-    if (!change.after.exists) {
-      console.log('⚠️ Document was deleted, skipping');
+exports.onPickupCompleted = onDocumentWritten(
+  {
+    document: 'booking_status/{documentId}',
+    region: 'us-central1',
+  },
+  async (event) => {
+    const change = event.data;
+    if (!change) {
+      console.log('⚠️ No change data in event');
       return;
     }
 
-    const before = change.before.exists ? change.before.data() : null;
-    const after = change.after.data();
+    const before = change.before?.data();
+    const after = change.after?.data();
+    const documentId = event.params.documentId;
     
+    console.log('🔔 onPickupCompleted triggered for document:', documentId);
     console.log('📊 Before data:', JSON.stringify(before));
     console.log('📊 After data:', JSON.stringify(after));
+
+    // Check if document was deleted
+    if (!change.after?.exists) {
+      console.log('⚠️ Document was deleted, skipping');
+      return;
+    }
 
     // Extract date and bookingId from document ID (format: YYYY-MM-DD_bookingId)
     const parts = documentId.split('_');
     console.log(`🔍 Parsing document ID: "${documentId}" -> parts: [${parts.join(', ')}]`);
     
-    if (parts.length < 4) {
-      console.log(`⚠️ Document ID doesn't have enough parts (need at least 4 for YYYY-MM-DD_bookingId), got ${parts.length}`);
+    if (parts.length < 2) {
+      console.log(`⚠️ Document ID doesn't have enough parts (need at least 2 for date_bookingId), got ${parts.length}`);
       return;
     }
-    const date = parts.slice(0, 3).join('-'); // YYYY-MM-DD
-    const bookingId = parts.slice(3).join('_'); // bookingId (may contain underscores)
+    const date = parts[0]; // Already YYYY-MM-DD format
+    const bookingId = parts.slice(1).join('_'); // Rest is booking ID
     console.log(`✅ Parsed: date="${date}", bookingId="${bookingId}"`);
 
     // Check if isArrived changed from false/undefined to true
@@ -713,68 +820,87 @@ exports.onPickupCompleted = functionsV1.firestore
     if (!wasArrived && isNowArrived) {
       console.log(`✅ Pickup completed detected for booking ${bookingId} on ${date}`);
 
-      // Get booking details
-      const booking = await getBookingDetails(bookingId, date);
-      const customerName = booking?.customerFullName || booking?.customerName || 'Unknown Customer';
-      const pickupLocation = booking?.pickupPlaceName || 'Unknown Location';
+      // Get guide assignment for this booking
+      const guideAssignment = await getGuideAssignment(bookingId, date);
+      
+      if (!guideAssignment) {
+        console.log('⚠️ No guide assignment found for this booking, skipping notification');
+        return;
+      }
 
-      // Send notification to all users
-      await sendNotificationToAdmins(
-        '✅ Pickup Completed',
-        `${customerName} has been picked up from ${pickupLocation}`,
-        {
-          type: 'pickup_completed',
-          bookingId: bookingId,
-          date: date,
-          customerName: customerName,
-          pickupLocation: pickupLocation,
-        }
-      );
+      console.log(`👤 Booking assigned to guide: ${guideAssignment.guideName} (${guideAssignment.guideId})`);
+
+      // Check if all pickups are complete for this guide
+      const allComplete = await areAllPickupsCompleteForGuide(guideAssignment.guideId, date);
+
+      if (allComplete) {
+        console.log(`🎉 All pickups complete for guide ${guideAssignment.guideName}! Sending notification.`);
+
+        // Get booking details
+        const booking = await getBookingDetails(bookingId, date);
+        const customerName = booking?.customerFullName || booking?.customerName || 'Unknown Customer';
+
+        // Send notification to all users
+        await sendNotificationToAdmins(
+          '🎉 All Pickups Complete',
+          `${guideAssignment.guideName} has finished all pickups for ${date}`,
+          {
+            type: 'all_pickups_complete',
+            guideId: guideAssignment.guideId,
+            guideName: guideAssignment.guideName,
+            date: date,
+            lastBookingId: bookingId,
+            lastCustomerName: customerName,
+          }
+        );
+      } else {
+        console.log(`ℹ️ Not all pickups complete yet for guide ${guideAssignment.guideName}, skipping notification`);
+      }
     } else {
       console.log('ℹ️ Pickup status did not change from false to true, skipping notification');
     }
-  });
+  }
+);
 
 /**
  * Firestore trigger: Send notification when no-show is marked
  */
-exports.onNoShowMarked = functionsV1.firestore
-  .onDocumentWritten('booking_status/{documentId}', async (change, context) => {
-    // Extract documentId from context or change
-    const documentId = context?.params?.documentId || change.after?.ref?.id || change.before?.ref?.id;
-    
-    if (!documentId) {
-      console.log('⚠️ Could not extract documentId from context or change');
-      console.log('   context:', context);
-      console.log('   change.after.ref:', change.after?.ref?.id);
-      console.log('   change.before.ref:', change.before?.ref?.id);
-      return;
-    }
-    
-    console.log('🔔 onNoShowMarked triggered for document:', documentId);
-    
-    // Check if document was deleted
-    if (!change.after.exists) {
-      console.log('⚠️ Document was deleted, skipping');
+exports.onNoShowMarked = onDocumentWritten(
+  {
+    document: 'booking_status/{documentId}',
+    region: 'us-central1',
+  },
+  async (event) => {
+    const change = event.data;
+    if (!change) {
+      console.log('⚠️ No change data in event');
       return;
     }
 
-    const before = change.before.exists ? change.before.data() : null;
-    const after = change.after.data();
+    const before = change.before?.data();
+    const after = change.after?.data();
+    const documentId = event.params.documentId;
     
+    console.log('🔔 onNoShowMarked triggered for document:', documentId);
     console.log('📊 Before data:', JSON.stringify(before));
     console.log('📊 After data:', JSON.stringify(after));
+
+    // Check if document was deleted
+    if (!change.after?.exists) {
+      console.log('⚠️ Document was deleted, skipping');
+      return;
+    }
 
     // Extract date and bookingId from document ID
     const parts = documentId.split('_');
     console.log(`🔍 Parsing document ID: "${documentId}" -> parts: [${parts.join(', ')}]`);
     
-    if (parts.length < 4) {
-      console.log(`⚠️ Document ID doesn't have enough parts (need at least 4 for YYYY-MM-DD_bookingId), got ${parts.length}`);
+    if (parts.length < 2) {
+      console.log(`⚠️ Document ID doesn't have enough parts (need at least 2 for date_bookingId), got ${parts.length}`);
       return;
     }
-    const date = parts.slice(0, 3).join('-'); // YYYY-MM-DD
-    const bookingId = parts.slice(3).join('_'); // bookingId
+    const date = parts[0]; // Already YYYY-MM-DD format
+    const bookingId = parts.slice(1).join('_'); // Rest is booking ID
     console.log(`✅ Parsed: date="${date}", bookingId="${bookingId}"`);
 
     // Check if isNoShow changed from false/undefined to true
@@ -786,25 +912,45 @@ exports.onNoShowMarked = functionsV1.firestore
     if (!wasNoShow && isNowNoShow) {
       console.log(`✅ No-show detected for booking ${bookingId} on ${date}`);
 
-      // Get booking details
-      const booking = await getBookingDetails(bookingId, date);
-      const customerName = booking?.customerFullName || booking?.customerName || 'Unknown Customer';
-      const pickupLocation = booking?.pickupPlaceName || 'Unknown Location';
+      // Get guide assignment for this booking
+      const guideAssignment = await getGuideAssignment(bookingId, date);
+      
+      if (!guideAssignment) {
+        console.log('⚠️ No guide assignment found for this booking, skipping notification');
+        return;
+      }
 
-      // Send notification to all users
-      await sendNotificationToAdmins(
-        '⚠️ No-Show Reported',
-        `${customerName} did not show up at ${pickupLocation}`,
-        {
-          type: 'no_show',
-          bookingId: bookingId,
-          date: date,
-          customerName: customerName,
-          pickupLocation: pickupLocation,
-        }
-      );
+      console.log(`👤 Booking assigned to guide: ${guideAssignment.guideName} (${guideAssignment.guideId})`);
+
+      // Check if all pickups are complete for this guide (including no-shows)
+      const allComplete = await areAllPickupsCompleteForGuide(guideAssignment.guideId, date);
+
+      if (allComplete) {
+        console.log(`🎉 All pickups complete for guide ${guideAssignment.guideName}! Sending notification.`);
+
+        // Get booking details
+        const booking = await getBookingDetails(bookingId, date);
+        const customerName = booking?.customerFullName || booking?.customerName || 'Unknown Customer';
+
+        // Send notification to all users
+        await sendNotificationToAdmins(
+          '🎉 All Pickups Complete',
+          `${guideAssignment.guideName} has finished all pickups for ${date}`,
+          {
+            type: 'all_pickups_complete',
+            guideId: guideAssignment.guideId,
+            guideName: guideAssignment.guideName,
+            date: date,
+            lastBookingId: bookingId,
+            lastCustomerName: customerName,
+          }
+        );
+      } else {
+        console.log(`ℹ️ Not all pickups complete yet for guide ${guideAssignment.guideName}, skipping notification`);
+      }
     } else {
       console.log('ℹ️ No-show status did not change from false to true, skipping notification');
     }
-  });
+  }
+);
 
