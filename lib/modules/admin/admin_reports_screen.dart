@@ -6,6 +6,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../core/models/admin_models.dart';
 import '../../core/theme/colors.dart';
+import '../../core/services/firebase_service.dart';
 import 'admin_service.dart';
 
 class AdminReportsScreen extends StatefulWidget {
@@ -31,6 +32,11 @@ class _AdminReportsScreenState extends State<AdminReportsScreen> {
   bool _isLoadingShifts = false;
   bool _isLoadingPickups = false;
   bool _isGeneratingReport = false;
+  
+  // Date search for tour reports
+  DateTime? _searchDate;
+  Map<String, dynamic>? _searchedReport;
+  bool _isSearching = false;
 
   @override
   void initState() {
@@ -194,6 +200,251 @@ class _AdminReportsScreenState extends State<AdminReportsScreen> {
         );
       }
     }
+  }
+
+  Future<void> _openReport(String url) async {
+    await _openSheetUrl(url);
+  }
+
+  Future<void> _searchReportByDate(DateTime date) async {
+    setState(() {
+      _isSearching = true;
+      _searchedReport = null;
+    });
+
+    try {
+      final dateKey = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+      final report = await FirebaseService.getTourReport(dateKey);
+      
+      setState(() {
+        _searchDate = date;
+        _searchedReport = report;
+        _isSearching = false;
+      });
+
+      if (report == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('No report found for ${dateKey}'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      setState(() => _isSearching = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error searching: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _showDatePicker() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _searchDate ?? DateTime.now(),
+      firstDate: DateTime(2024, 1, 1),
+      lastDate: DateTime.now(),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.dark(
+              primary: AppColors.primary,
+              onPrimary: Colors.white,
+              surface: Color(0xFF1A1A2E),
+              onSurface: Colors.white,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (picked != null) {
+      await _searchReportByDate(picked);
+    }
+  }
+
+  Widget _buildQuickDateChip(String label, DateTime date) {
+    final isSelected = _searchDate != null &&
+        _searchDate!.year == date.year &&
+        _searchDate!.month == date.month &&
+        _searchDate!.day == date.day;
+
+    return ActionChip(
+      label: Text(label),
+      backgroundColor: isSelected ? AppColors.primary : const Color(0xFF252540),
+      labelStyle: TextStyle(
+        color: isSelected ? Colors.white : Colors.grey[400],
+        fontSize: 12,
+      ),
+      onPressed: () => _searchReportByDate(date),
+    );
+  }
+
+  Widget _buildQuickDateButtons() {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        _buildQuickDateChip('Yesterday', DateTime.now().subtract(const Duration(days: 1))),
+        _buildQuickDateChip('2 days ago', DateTime.now().subtract(const Duration(days: 2))),
+        _buildQuickDateChip('1 week ago', DateTime.now().subtract(const Duration(days: 7))),
+        _buildQuickDateChip('2 weeks ago', DateTime.now().subtract(const Duration(days: 14))),
+        _buildQuickDateChip('1 month ago', DateTime.now().subtract(const Duration(days: 30))),
+      ],
+    );
+  }
+
+  Widget _buildReportSearchSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              'Search Reports',
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: AppColors.primary,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        
+        // Search bar
+        InkWell(
+          onTap: _showDatePicker,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            decoration: BoxDecoration(
+              color: const Color(0xFF252540),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.grey[700]!),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.calendar_today, color: AppColors.primary),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    _searchDate != null
+                        ? '${_searchDate!.day}/${_searchDate!.month}/${_searchDate!.year}'
+                        : 'Tap to select a date...',
+                    style: TextStyle(
+                      color: _searchDate != null ? Colors.white : Colors.grey[500],
+                      fontSize: 16,
+                    ),
+                  ),
+                ),
+                if (_isSearching)
+                  const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                else
+                  const Icon(Icons.search, color: Colors.grey),
+              ],
+            ),
+          ),
+        ),
+        
+        const SizedBox(height: 12),
+        
+        // Quick date buttons
+        _buildQuickDateButtons(),
+        
+        const SizedBox(height: 16),
+        
+        // Search result
+        if (_searchedReport != null)
+          Card(
+            color: const Color(0xFF252540),
+            child: ListTile(
+              leading: Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.description, color: AppColors.primary),
+              ),
+              title: Text(
+                'Report: ${_searchedReport!['date']}',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${_searchedReport!['totalGuides'] ?? 0} guides • ${_searchedReport!['totalPassengers'] ?? 0} passengers',
+                    style: TextStyle(color: Colors.grey[400]),
+                  ),
+                  if (_searchedReport!['auroraSummary'] != null)
+                    Text(
+                      '🌌 ${(_searchedReport!['auroraSummary'] as Map)['display'] ?? 'Unknown'}',
+                      style: TextStyle(
+                        color: _getAuroraColor((_searchedReport!['auroraSummary'] as Map)['rating']),
+                        fontSize: 12,
+                      ),
+                    ),
+                ],
+              ),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (_searchedReport!['sheetUrl'] != null)
+                    IconButton(
+                      icon: const Icon(Icons.open_in_new, color: Colors.green),
+                      tooltip: 'Open Google Sheet',
+                      onPressed: () => _openReport(_searchedReport!['sheetUrl']),
+                    ),
+                  const Icon(Icons.chevron_right, color: Colors.grey),
+                ],
+              ),
+              onTap: () => _showReportDetail(_searchedReport!),
+            ),
+          )
+        else if (_searchDate != null && !_isSearching)
+          Card(
+            color: const Color(0xFF252540),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                children: [
+                  Icon(Icons.search_off, size: 48, color: Colors.grey[600]),
+                  const SizedBox(height: 12),
+                  Text(
+                    'No report found for this date',
+                    style: TextStyle(color: Colors.grey[400]),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Reports are generated when guides submit end-of-shift reports',
+                    style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        
+        const SizedBox(height: 24),
+      ],
+    );
   }
 
   Future<void> _openTourReport(Map<String, dynamic> report) async {
@@ -1160,6 +1411,9 @@ class _AdminReportsScreenState extends State<AdminReportsScreen> {
                   ],
                   
                   const SizedBox(height: 32),
+                  
+                  // Search Reports Section
+                  _buildReportSearchSection(),
                   
                   // Tour Reports Section
                   Column(
