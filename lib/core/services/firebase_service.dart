@@ -147,6 +147,7 @@ class FirebaseService {
             profilePictureUrl: firebaseUser.photoURL,
             createdAt: DateTime.now(),
             isActive: true,
+            isAdmin: false, // Default to false, can be set manually in Firestore
           );
           
           // Save the new user document
@@ -313,6 +314,15 @@ class FirebaseService {
       }
       
       await batch.commit();
+      
+      // Auto-create shifts for all guides with assignments
+      for (final guideList in guideLists) {
+        await ensureGuideHasShift(
+          guideId: guideList.guideId,
+          guideName: guideList.guideName,
+          date: date,
+        );
+      }
     } catch (e) {
       print('❌ Failed to save pickup assignments: $e');
     }
@@ -418,6 +428,13 @@ class FirebaseService {
       }, SetOptions(merge: true));
       
       print('✅ Pickup assignment saved: $bookingId -> $guideName');
+      
+      // Auto-create shift if needed
+      await ensureGuideHasShift(
+        guideId: guideId,
+        guideName: guideName,
+        date: dateStr,
+      );
     } catch (e) {
       print('❌ Failed to save pickup assignment: $e');
     }
@@ -634,6 +651,15 @@ class FirebaseService {
       print('✅ Bus-guide assignment saved: $busName -> $guideName for date $date');
       print('   Document path: bus_guide_assignments/$docPath');
       print('   Saved busId field: $busId');
+      
+      // Auto-create shift if needed (with bus info)
+      await ensureGuideHasShift(
+        guideId: guideId,
+        guideName: guideName,
+        date: date,
+        busId: busId,
+        busName: busName,
+      );
     } catch (e) {
       print('❌ Failed to save bus-guide assignment: $e');
       print('📋 Error details: ${e.toString()}');
@@ -1333,6 +1359,85 @@ class FirebaseService {
     } catch (e) {
       print('❌ Failed to check end of shift report: $e');
       return false;
+    }
+  }
+
+  /// Ensure guide has a shift for the date (auto-create if missing)
+  /// Called automatically when assigning pickups to a guide
+  static Future<void> ensureGuideHasShift({
+    required String guideId,
+    required String guideName,
+    required String date,  // YYYY-MM-DD format
+    String shiftType = 'northernLights',  // Default to northern lights
+    String? busId,
+    String? busName,
+  }) async {
+    if (!_initialized || _firestore == null) {
+      print('⚠️ Firebase not initialized - skipping shift auto-creation');
+      return;
+    }
+    
+    try {
+      // Parse date string to DateTime for the shift
+      final dateParts = date.split('-');
+      final dateTime = DateTime(
+        int.parse(dateParts[0]),
+        int.parse(dateParts[1]),
+        int.parse(dateParts[2]),
+      );
+      
+      // Check if guide already has a shift on this date
+      final existingShifts = await _firestore!
+          .collection('shifts')
+          .where('guideId', isEqualTo: guideId)
+          .where('date', isEqualTo: dateTime.toIso8601String())
+          .limit(1)
+          .get();
+      
+      if (existingShifts.docs.isNotEmpty) {
+        print('ℹ️ Guide $guideName already has a shift on $date - no auto-creation needed');
+        
+        // Optionally update bus assignment on existing shift
+        if (busId != null && busName != null) {
+          final existingShift = existingShifts.docs.first;
+          final existingData = existingShift.data();
+          if (existingData['busId'] != busId) {
+            await existingShift.reference.update({
+              'busId': busId,
+              'busName': busName,
+              'updatedAt': FieldValue.serverTimestamp(),
+            });
+            print('✅ Updated bus assignment on existing shift');
+          }
+        }
+        return;
+      }
+      
+      // Create new shift
+      final shiftId = '${date}_${guideId}_auto';
+      
+      await _firestore!.collection('shifts').doc(shiftId).set({
+        'id': shiftId,
+        'type': shiftType,
+        'date': dateTime.toIso8601String(),
+        'startTime': shiftType == 'northernLights' ? '20:00' : '09:00',
+        'endTime': shiftType == 'northernLights' ? '03:00' : '17:00',
+        'status': 'accepted',
+        'guideId': guideId,
+        'guideName': guideName,
+        'busId': busId,
+        'busName': busName,
+        'notes': 'Auto-created from pickup assignment',
+        'assignedManually': true,
+        'autoCreated': true,  // Flag for auto-created shifts
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      
+      print('✅ Auto-created shift for $guideName on $date (from pickup assignment)');
+    } catch (e) {
+      print('⚠️ Failed to auto-create shift (non-critical): $e');
+      // Don't throw - this is a convenience feature, shouldn't block pickup assignment
     }
   }
 } 

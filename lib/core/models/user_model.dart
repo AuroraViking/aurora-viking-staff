@@ -5,10 +5,11 @@ class User {
   final String fullName;
   final String email;
   final String phoneNumber;
-  final String role; // 'staff' or 'admin'
+  final String role; // 'staff', 'guide', or 'admin'
   final String? profilePictureUrl;
   final DateTime createdAt;
   final bool isActive;
+  final bool isAdmin;
 
   User({
     required this.id,
@@ -19,6 +20,7 @@ class User {
     this.profilePictureUrl,
     required this.createdAt,
     this.isActive = true,
+    this.isAdmin = false,
   });
 
   factory User.fromJson(Map<String, dynamic> json) {
@@ -31,6 +33,7 @@ class User {
       profilePictureUrl: json['profilePictureUrl'],
       createdAt: DateTime.parse(json['createdAt'] ?? DateTime.now().toIso8601String()),
       isActive: json['isActive'] ?? true,
+      isAdmin: json['isAdmin'] ?? false,
     );
   }
 
@@ -44,6 +47,7 @@ class User {
       'profilePictureUrl': profilePictureUrl,
       'createdAt': createdAt.toIso8601String(),
       'isActive': isActive,
+      'isAdmin': isAdmin,
     };
   }
 
@@ -56,6 +60,7 @@ class User {
     String? profilePictureUrl,
     DateTime? createdAt,
     bool? isActive,
+    bool? isAdmin,
   }) {
     return User(
       id: id ?? this.id,
@@ -66,9 +71,10 @@ class User {
       profilePictureUrl: profilePictureUrl ?? this.profilePictureUrl,
       createdAt: createdAt ?? this.createdAt,
       isActive: isActive ?? this.isActive,
+      isAdmin: isAdmin ?? this.isAdmin,
     );
   }
 
-  bool get isAdmin => role == 'admin';
   bool get isStaff => role == 'staff';
+  bool get isGuide => role == 'guide';
 } 

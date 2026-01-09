@@ -17,7 +17,7 @@ class AuthController extends ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get error => _error;
   bool get isAuthenticated => _currentUser != null;
-  bool get isAdmin => _currentUser?.role == 'admin';
+  bool get isAdmin => _currentUser?.isAdmin ?? false;
   bool get isGuide => _currentUser?.role == 'guide';
   bool get firebaseInitialized => _firebaseInitialized;
   bool get isDisposed => _disposed;
@@ -87,6 +87,7 @@ class AuthController extends ChangeNotifier {
           profilePictureUrl: null,
           createdAt: DateTime.now(),
           isActive: true,
+          isAdmin: false,
         );
         _safeNotifyListeners();
       }
@@ -103,6 +104,7 @@ class AuthController extends ChangeNotifier {
         profilePictureUrl: null,
         createdAt: DateTime.now(),
         isActive: true,
+        isAdmin: false,
       );
       _safeNotifyListeners();
     }
@@ -166,15 +168,17 @@ class AuthController extends ChangeNotifier {
     
     if (!_firebaseInitialized) {
       // In development mode, allow any login
+      final isAdminUser = email.contains('admin');
       _currentUser = User(
         id: 'dev-user',
         fullName: 'Development User',
         email: email,
         phoneNumber: '',
-        role: email.contains('admin') ? 'admin' : 'guide',
+        role: isAdminUser ? 'admin' : 'guide',
         profilePictureUrl: null,
         createdAt: DateTime.now(),
         isActive: true,
+        isAdmin: isAdminUser,
       );
       _safeNotifyListeners();
       print('✅ Development mode sign in successful');
@@ -225,15 +229,17 @@ class AuthController extends ChangeNotifier {
     
     if (!_firebaseInitialized) {
       // In development mode, create a local user
+      final isAdminUser = email.contains('admin');
       _currentUser = User(
         id: 'dev-user-${DateTime.now().millisecondsSinceEpoch}',
         fullName: fullName,
         email: email,
         phoneNumber: '',
-        role: email.contains('admin') ? 'admin' : 'guide',
+        role: isAdminUser ? 'admin' : 'guide',
         profilePictureUrl: null,
         createdAt: DateTime.now(),
         isActive: true,
+        isAdmin: isAdminUser,
       );
       _safeNotifyListeners();
       print('✅ Development mode sign up successful');
@@ -258,6 +264,7 @@ class AuthController extends ChangeNotifier {
           profilePictureUrl: null,
           createdAt: DateTime.now(),
           isActive: true,
+          isAdmin: false, // Default to false, can be set manually in Firestore
         );
         
         await FirebaseService.saveUserData(user);

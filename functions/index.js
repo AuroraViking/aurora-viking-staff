@@ -618,6 +618,157 @@ exports.onEndOfShiftSubmitted = onDocumentCreated(
 );
 
 // ============================================
+// FIRESTORE TRIGGER - Update report when pickups change
+// ============================================
+// Whenever cached_bookings is updated (which happens when 
+// guides are assigned to pickups), regenerate the tour report.
+exports.onPickupAssignmentsChanged = onDocumentWritten(
+  {
+    document: 'cached_bookings/{date}',
+    region: 'us-central1',
+  },
+  async (event) => {
+    const date = event.params.date;
+    
+    // Skip if document was deleted
+    if (!event.data.after.exists) {
+      console.log(`📋 cached_bookings/${date} was deleted, skipping report update`);
+      return null;
+    }
+
+    const beforeData = event.data.before.exists ? event.data.before.data() : null;
+    const afterData = event.data.after.data();
+
+    // Check if this is just a timestamp update or actual assignment change
+    const beforeBookings = beforeData?.bookings || [];
+    const afterBookings = afterData?.bookings || [];
+
+    // Quick check: did any assignments actually change?
+    const assignmentChanged = hasAssignmentChanged(beforeBookings, afterBookings);
+    
+    if (!assignmentChanged) {
+      console.log(`📋 No assignment changes detected for ${date}, skipping report update`);
+      return null;
+    }
+
+    console.log(`📋 Pickup assignments changed for ${date}, updating tour report...`);
+
+    // Rate limiting: Don't regenerate more than once per minute
+    const reportDoc = await db.collection('tour_reports').doc(date).get();
+    if (reportDoc.exists) {
+      const lastUpdated = reportDoc.data()?.lastUpdatedAt;
+      if (lastUpdated) {
+        const lastUpdateTime = new Date(lastUpdated);
+        const now = new Date();
+        const secondsSinceUpdate = (now - lastUpdateTime) / 1000;
+        
+        if (secondsSinceUpdate < 60) {
+          console.log(`⏱️ Report was updated ${secondsSinceUpdate.toFixed(0)}s ago, skipping (rate limit)`);
+          return null;
+        }
+      }
+    }
+
+    try {
+      const result = await generateReport(date);
+      console.log(`✅ Tour report auto-updated for ${date}:`, result);
+      return result;
+    } catch (error) {
+      console.error(`❌ Failed to auto-update report for ${date}:`, error);
+      return null;
+    }
+  }
+);
+
+// Helper: Check if any guide assignments changed
+function hasAssignmentChanged(beforeBookings, afterBookings) {
+  // If different lengths, something definitely changed
+  if (beforeBookings.length !== afterBookings.length) {
+    return true;
+  }
+
+  // Create maps of bookingId -> assignedGuideId
+  const beforeAssignments = {};
+  const afterAssignments = {};
+
+  beforeBookings.forEach((b) => {
+    beforeAssignments[b.id || b.bookingId] = b.assignedGuideId || null;
+  });
+
+  afterBookings.forEach((b) => {
+    afterAssignments[b.id || b.bookingId] = b.assignedGuideId || null;
+  });
+
+  // Check if any assignments differ
+  for (const bookingId of Object.keys(afterAssignments)) {
+    if (beforeAssignments[bookingId] !== afterAssignments[bookingId]) {
+      console.log(`📝 Assignment changed for booking ${bookingId}: ${beforeAssignments[bookingId]} → ${afterAssignments[bookingId]}`);
+      return true;
+    }
+  }
+
+  // Check for new bookings
+  for (const bookingId of Object.keys(afterAssignments)) {
+    if (!(bookingId in beforeAssignments)) {
+      console.log(`📝 New booking added: ${bookingId}`);
+      return true;
+    }
+  }
+
+  return false;
+}
+
+// ============================================
+// FIRESTORE TRIGGER - Update report when bus assignment changes
+// ============================================
+// This fires when bus is assigned to a guide
+exports.onBusAssignmentChanged = onDocumentWritten(
+  {
+    document: 'bus_guide_assignments/{assignmentId}',
+    region: 'us-central1',
+  },
+  async (event) => {
+    // Get date from the document
+    const afterData = event.data.after.exists ? event.data.after.data() : null;
+    const beforeData = event.data.before.exists ? event.data.before.data() : null;
+    
+    const date = afterData?.date || beforeData?.date;
+    
+    if (!date) {
+      console.log('⚠️ No date found in bus_guide_assignment, skipping');
+      return null;
+    }
+
+    console.log(`🚌 Bus assignment changed for ${date}, updating tour report...`);
+
+    // Rate limiting
+    const reportDoc = await db.collection('tour_reports').doc(date).get();
+    if (reportDoc.exists) {
+      const lastUpdated = reportDoc.data()?.lastUpdatedAt;
+      if (lastUpdated) {
+        const lastUpdateTime = new Date(lastUpdated);
+        const now = new Date();
+        const secondsSinceUpdate = (now - lastUpdateTime) / 1000;
+        
+        if (secondsSinceUpdate < 30) {
+          console.log(`⏱️ Report was updated ${secondsSinceUpdate.toFixed(0)}s ago, skipping`);
+          return null;
+        }
+      }
+    }
+
+    try {
+      const result = await generateReport(date);
+      console.log(`✅ Tour report auto-updated for ${date} (bus assignment):`, result);
+      return result;
+    } catch (error) {
+      console.error(`❌ Failed to auto-update report:`, error);
+      return null;
+    }
+  }
+);
+
+// ============================================
 // SCHEDULED FUNCTION - 5am fallback (Iceland time)
 // ============================================
 // This catches any tours where guides forgot to submit end-of-shift
@@ -689,23 +840,53 @@ exports.generateTourReportManual = onCall(
 
 /**
  * Send notification to ADMIN users only
- * Filters users by role === 'admin'
+ * Filters users by isAdmin === true (with fallback to role === 'admin' for backwards compatibility)
  */
 async function sendNotificationToAdminsOnly(title, body, data = {}) {
   try {
     console.log(`📤 Preparing to send admin-only notification: "${title}"`);
     
-    // Get ONLY admin users
+    // Get users with isAdmin = true (supports both old role:'admin' and new isAdmin:true)
     const usersSnapshot = await db
       .collection('users')
-      .where('role', '==', 'admin')
+      .where('isAdmin', '==', true)  // NEW: Check isAdmin field
       .get();
 
     console.log(`👥 Found ${usersSnapshot.size} admin users in database`);
 
+    // If no admins found with isAdmin field, fallback to role check
+    // (for backwards compatibility during migration)
     if (usersSnapshot.empty) {
-      console.log('⚠️ No admin users found to send notification');
-      return {success: false, message: 'No admin users found'};
+      console.log('⚠️ No users with isAdmin=true, trying role=admin fallback...');
+      const fallbackSnapshot = await db
+        .collection('users')
+        .where('role', '==', 'admin')
+        .get();
+      
+      if (fallbackSnapshot.empty) {
+        console.log('⚠️ No admin users found to send notification');
+        return {success: false, message: 'No admin users found'};
+      }
+      
+      // Process fallback results
+      const tokens = [];
+      const adminNames = [];
+      fallbackSnapshot.forEach((doc) => {
+        const userData = doc.data();
+        if (userData.fcmToken) {
+          tokens.push(userData.fcmToken);
+          adminNames.push(userData.fullName || userData.email || doc.id);
+          console.log(`  ✓ Admin ${userData.fullName || doc.id} has FCM token (fallback)`);
+        } else {
+          console.log(`  ✗ Admin ${userData.fullName || doc.id} has no FCM token (fallback)`);
+        }
+      });
+      
+      if (tokens.length === 0) {
+        return {success: false, message: 'No FCM tokens found for admins'};
+      }
+      
+      return await sendPushNotifications(tokens, title, body, data, adminNames);
     }
 
     const tokens = [];
@@ -729,52 +910,59 @@ async function sendNotificationToAdminsOnly(title, body, data = {}) {
       return {success: false, message: 'No FCM tokens found for admins'};
     }
 
-    // Send notification to admin tokens only
-    const messages = tokens.map((token) => ({
-      notification: {
-        title: title,
-        body: body,
-      },
-      data: {
-        ...Object.keys(data).reduce((acc, key) => {
-          acc[key] = String(data[key]);
-          return acc;
-        }, {}),
-        click_action: 'FLUTTER_NOTIFICATION_CLICK',
-      },
-      token: token,
-      android: {
-        priority: 'high',
-        notification: {
-          channelId: 'aurora_viking_staff',
-          sound: 'default',
-        },
-      },
-      apns: {
-        payload: {
-          aps: {
-            sound: 'default',
-          },
-        },
-      },
-    }));
-
-    const response = await admin.messaging().sendEach(messages);
-
-    console.log(`✅ Notification sent to ${response.successCount} admin(s)`);
-    if (response.failureCount > 0) {
-      console.log(`⚠️ Failed to send to ${response.failureCount} admin(s)`);
-    }
-
-    return {
-      success: true,
-      sent: response.successCount,
-      failed: response.failureCount,
-    };
+    return await sendPushNotifications(tokens, title, body, data, adminNames);
   } catch (error) {
     console.error('❌ Error sending notification to admins:', error);
     return {success: false, error: error.message};
   }
+}
+
+/**
+ * Helper function to send push notifications
+ */
+async function sendPushNotifications(tokens, title, body, data, recipientNames) {
+  const messages = tokens.map((token) => ({
+    notification: {
+      title: title,
+      body: body,
+    },
+    data: {
+      ...Object.keys(data).reduce((acc, key) => {
+        acc[key] = String(data[key]);
+        return acc;
+      }, {}),
+      click_action: 'FLUTTER_NOTIFICATION_CLICK',
+    },
+    token: token,
+    android: {
+      priority: 'high',
+      notification: {
+        channelId: 'aurora_viking_staff',
+        sound: 'default',
+      },
+    },
+    apns: {
+      payload: {
+        aps: {
+          sound: 'default',
+        },
+      },
+    },
+  }));
+
+  const response = await admin.messaging().sendEach(messages);
+
+  console.log(`✅ Notification sent to ${response.successCount} admin(s): ${recipientNames.join(', ')}`);
+  if (response.failureCount > 0) {
+    console.log(`⚠️ Failed to send to ${response.failureCount} admin(s)`);
+  }
+
+  return {
+    success: true,
+    sent: response.successCount,
+    failed: response.failureCount,
+    recipients: recipientNames,
+  };
 }
 
 /**

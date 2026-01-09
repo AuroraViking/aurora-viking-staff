@@ -49,7 +49,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (user != null) {
       setState(() {
         _userName = user.fullName;
-        _userRole = user.role == 'admin' ? 'Administrator' : 'Tour Guide';
+        _userRole = user.isAdmin ? 'Administrator' : 'Tour Guide';
         _userEmail = user.email;
         _userPhone = user.phoneNumber.isNotEmpty ? user.phoneNumber : 'Not provided';
       });
@@ -154,11 +154,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
         final authController = context.read<AuthController>();
         final currentUser = authController.currentUser;
         if (currentUser != null) {
+          // Preserve isAdmin status and set role based on display text
+          // Note: isAdmin should be set manually in Firestore, not through profile edit
           final updatedUser = currentUser.copyWith(
             fullName: _userName,
             email: _userEmail,
             phoneNumber: _userPhone,
             role: _userRole.toLowerCase().contains('admin') ? 'admin' : 'guide',
+            // Keep existing isAdmin value - don't allow changing it through profile edit
           );
           await authController.updateUserProfile(updatedUser);
           ScaffoldMessenger.of(context).showSnackBar(
