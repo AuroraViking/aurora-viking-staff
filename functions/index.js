@@ -284,7 +284,7 @@ async function generateReport(targetDate) {
           // End of shift data (null if not submitted yet)
           auroraRating: shiftReport.auroraRating || null,
           auroraRatingDisplay: shiftReport.auroraRatingDisplay || null,
-          shouldRequestReviews: shiftReport.shouldRequestReviews,
+          shouldRequestReviews: shiftReport.shouldRequestReviews ?? true,
           shiftNotes: shiftReport.notes || null,
           hasSubmittedReport: !!shiftReport.auroraRating,
           // Booking data
@@ -350,7 +350,7 @@ async function generateReport(targetDate) {
       busName: data.busName,
       auroraRating: data.auroraRating,
       auroraRatingDisplay: data.auroraRatingDisplay,
-      shouldRequestReviews: data.shouldRequestReviews,
+      shouldRequestReviews: data.shouldRequestReviews ?? true,
       shiftNotes: data.shiftNotes,
       hasSubmittedReport: data.hasSubmittedReport,
       totalPassengers: data.totalPassengers,
