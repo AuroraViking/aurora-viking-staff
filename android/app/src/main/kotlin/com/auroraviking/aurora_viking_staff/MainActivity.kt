@@ -60,6 +60,16 @@ class MainActivity : FlutterActivity() {
                 "readFile" -> {
                     result.error("DEPRECATED", "Use copyFileToPath instead to avoid memory issues", null)
                 }
+                "readFileStreaming" -> {
+                    val uri = call.argument<String>("uri")
+                    if (uri != null) {
+                        Thread {
+                            readFileStreaming(uri, result)
+                        }.start()
+                    } else {
+                        result.error("INVALID_URI", "URI is required", null)
+                    }
+                }
                 else -> result.notImplemented()
             }
         }
@@ -228,6 +238,63 @@ class MainActivity : FlutterActivity() {
             e.printStackTrace()
             runOnUiThread {
                 result.error("COPY_ERROR", e.message ?: "Unknown error", null)
+            }
+        }
+    }
+
+    /**
+     * Read file in chunks and return bytes
+     * Uses streaming to handle large files without OOM
+     */
+    private fun readFileStreaming(uriString: String, result: MethodChannel.Result) {
+        try {
+            val uri = Uri.parse(uriString)
+            
+            val inputStream = contentResolver.openInputStream(uri)
+            if (inputStream == null) {
+                runOnUiThread {
+                    result.error("READ_ERROR", "Cannot open file", null)
+                }
+                return
+            }
+            
+            // Read in chunks
+            val outputStream = java.io.ByteArrayOutputStream()
+            val buffer = ByteArray(65536) // 64KB buffer
+            var bytesRead: Int
+            var totalBytes = 0L
+            val maxSize = 100 * 1024 * 1024L // 100MB max
+            
+            inputStream.use { input ->
+                while (input.read(buffer).also { bytesRead = it } != -1) {
+                    outputStream.write(buffer, 0, bytesRead)
+                    totalBytes += bytesRead
+                    
+                    if (totalBytes > maxSize) {
+                        android.util.Log.w("SAF", "File too large, truncating at $totalBytes bytes")
+                        break
+                    }
+                }
+            }
+            
+            val bytes = outputStream.toByteArray()
+            outputStream.close()
+            
+            android.util.Log.d("SAF", "Read ${bytes.size} bytes from file")
+            
+            runOnUiThread {
+                result.success(bytes)
+            }
+        } catch (e: OutOfMemoryError) {
+            android.util.Log.e("SAF", "Out of memory reading file", e)
+            System.gc()
+            runOnUiThread {
+                result.error("OOM_ERROR", "File too large to read into memory", null)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("SAF", "Error reading file: ${e.message}", e)
+            runOnUiThread {
+                result.error("READ_ERROR", e.message, null)
             }
         }
     }

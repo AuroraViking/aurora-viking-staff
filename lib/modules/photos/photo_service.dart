@@ -2,11 +2,8 @@
 import 'dart:io' as io;
 import 'dart:typed_data';
 import 'package:googleapis/drive/v3.dart' as drive;
-import 'package:googleapis_auth/auth_io.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:http/http.dart' as http;
-import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 
 class PhotoService {
   static final PhotoService _instance = PhotoService._internal();
@@ -15,7 +12,6 @@ class PhotoService {
 
   drive.DriveApi? _driveApi;
   bool _isInitialized = false;
-  final FirebaseAuth _auth = FirebaseAuth.instance;
   final GoogleSignIn _googleSignIn = GoogleSignIn(
     scopes: [
       'email',
@@ -154,6 +150,15 @@ class PhotoService {
     }
   }
 
+  /// Create folder structure and return the folder ID (public method)
+  Future<String?> createFolderStructurePublic(String folderPath) async {
+    if (!_isInitialized) {
+      final initialized = await initialize();
+      if (!initialized) return null;
+    }
+    return _createFolderStructure(folderPath);
+  }
+
   // Create folder structure in Drive
   Future<String?> _createFolderStructure(String folderPath) async {
     try {
@@ -171,7 +176,7 @@ class PhotoService {
           final folder = drive.File()
             ..name = folderName
             ..mimeType = 'application/vnd.google-apps.folder'
-            ..parents = parentId != null ? [parentId!] : null;
+            ..parents = parentId != null ? [parentId] : null;
 
           final createdFolder = await _driveApi!.files.create(folder);
           folderId = createdFolder.id;
@@ -229,6 +234,34 @@ class PhotoService {
       return true;
     } catch (e) {
       print('❌ Failed to upload photo $fileName: $e');
+      return false;
+    }
+  }
+
+  /// Upload raw bytes directly to Drive
+  Future<bool> uploadBytesToDrive({
+    required Uint8List bytes,
+    required String fileName,
+    required String folderId,
+    String mimeType = 'application/octet-stream',
+  }) async {
+    if (_driveApi == null) return false;
+
+    try {
+      final driveFile = drive.File()
+        ..name = fileName
+        ..parents = [folderId];
+
+      final stream = Stream.value(bytes);
+
+      await _driveApi!.files.create(
+        driveFile,
+        uploadMedia: drive.Media(stream, bytes.length),
+      );
+
+      return true;
+    } catch (e) {
+      print('❌ Upload error for $fileName: $e');
       return false;
     }
   }
