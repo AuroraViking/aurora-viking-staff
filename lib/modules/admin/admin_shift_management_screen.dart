@@ -16,6 +16,7 @@ import '../../core/services/bus_management_service.dart';
 import '../../theme/colors.dart';
 import '../pickup/pickup_service.dart';
 import '../../widgets/common/logo_widget.dart';
+import 'manual_shift_assignment_dialog.dart';
 
 class AdminShiftManagementScreen extends StatefulWidget {
   const AdminShiftManagementScreen({super.key});
@@ -433,6 +434,16 @@ class _AdminShiftManagementScreenState extends State<AdminShiftManagementScreen>
                     ),
                   ),
                 ),
+              const SizedBox(width: 8),
+              ElevatedButton.icon(
+                onPressed: _showManualAssignmentDialog,
+                icon: const Icon(Icons.person_add, size: 18),
+                label: const Text('Add Guide'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AVColors.primaryTeal,
+                  foregroundColor: Colors.white,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 16),
@@ -1397,5 +1408,20 @@ class _AdminShiftManagementScreenState extends State<AdminShiftManagementScreen>
       case ShiftStatus.available:
         return 'Available';
     }
+  }
+
+  void _showManualAssignmentDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => ManualShiftAssignmentDialog(
+        date: _selectedDay,
+        preselectedType: ShiftType.northernLights, // Default to northern lights
+        onComplete: (success) {
+          if (success) {
+            _loadShifts(); // Refresh the shifts list
+          }
+        },
+      ),
+    );
   }
 } 
