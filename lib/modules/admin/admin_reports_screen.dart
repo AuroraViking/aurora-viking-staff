@@ -8,6 +8,7 @@ import '../../core/models/admin_models.dart';
 import '../../core/theme/colors.dart';
 import '../../core/services/firebase_service.dart';
 import 'admin_service.dart';
+import 'gps_trail_viewer.dart';
 
 class AdminReportsScreen extends StatefulWidget {
   const AdminReportsScreen({super.key});
@@ -204,6 +205,20 @@ class _AdminReportsScreenState extends State<AdminReportsScreen> {
 
   Future<void> _openReport(String url) async {
     await _openSheetUrl(url);
+  }
+
+  void _openGpsTrail(Map<String, dynamic> report, {Map<String, dynamic>? guide}) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => GpsTrailViewer(
+          date: report['date'] as String,
+          busId: guide?['busId'] as String?,
+          busName: guide?['busName'] as String?,
+          guideName: guide?['guideName'] as String?,
+        ),
+      ),
+    );
   }
 
   Future<void> _searchReportByDate(DateTime date) async {
@@ -522,6 +537,14 @@ class _AdminReportsScreenState extends State<AdminReportsScreen> {
                       ),
                     ),
                     IconButton(
+                      icon: const Icon(Icons.route, color: Colors.green),
+                      tooltip: 'View GPS Trail',
+                      onPressed: () {
+                        Navigator.pop(context);
+                        _openGpsTrail(report);
+                      },
+                    ),
+                    IconButton(
                       icon: const Icon(Icons.close, color: Colors.white),
                       onPressed: () => Navigator.pop(context),
                     ),
@@ -633,15 +656,15 @@ class _AdminReportsScreenState extends State<AdminReportsScreen> {
                   controller: scrollController,
                   padding: const EdgeInsets.all(16),
                   itemCount: ((report['guides'] as List?)?.length ?? 0) + (report['unassigned'] != null ? 1 : 0),
-                  itemBuilder: (context, index) {
-                    final guides = report['guides'] as List? ?? [];
-                    if (index < guides.length) {
-                      return _buildGuideSection(guides[index]);
-                    } else if (report['unassigned'] != null) {
-                      return _buildGuideSection(report['unassigned']);
-                    }
-                    return const SizedBox.shrink();
-                  },
+                itemBuilder: (context, index) {
+                  final guides = report['guides'] as List? ?? [];
+                  if (index < guides.length) {
+                    return _buildGuideSection(report, guides[index]);
+                  } else if (report['unassigned'] != null) {
+                    return _buildGuideSection(report, report['unassigned']);
+                  }
+                  return const SizedBox.shrink();
+                },
                 ),
               ),
             ],
@@ -703,7 +726,7 @@ class _AdminReportsScreenState extends State<AdminReportsScreen> {
     }
   }
 
-  Widget _buildGuideSection(Map<String, dynamic> guide) {
+  Widget _buildGuideSection(Map<String, dynamic> report, Map<String, dynamic> guide) {
     final bookings = guide['bookings'] as List? ?? [];
     final busName = guide['busName'] as String?;
     final auroraRating = guide['auroraRating'] as String?;
@@ -735,6 +758,20 @@ class _AdminReportsScreenState extends State<AdminReportsScreen> {
                 ),
               ),
             ),
+            // GPS Trail button
+            if (guide['busId'] != null)
+              IconButton(
+                icon: const Icon(Icons.route, size: 20),
+                color: Colors.green,
+                tooltip: 'View GPS Trail',
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                onPressed: () {
+                  Navigator.pop(context);
+                  _openGpsTrail(report, guide: guide);
+                },
+              ),
+            const SizedBox(width: 8),
             // Aurora rating badge
             if (auroraDisplay != null)
               Container(

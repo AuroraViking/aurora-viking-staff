@@ -35,7 +35,7 @@ class LocationService {
 
   static const int _updateIntervalSeconds = 10; // More frequent updates
   static const int _distanceFilterMeters = 5;
-  static const int _historyRetentionHours = 48;
+  static const int _historyRetentionHours = 2160; // 90 days
   static const int _maxConsecutiveErrors = 5;
   static const int _keepAliveIntervalSeconds = 30;
   static const int _locationTimeoutSeconds = 45;
