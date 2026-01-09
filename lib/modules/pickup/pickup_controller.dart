@@ -764,6 +764,20 @@ class PickupController extends ChangeNotifier {
         }
       }
 
+      // ⭐ THE FIX: Save to Firebase!
+      print('💾 Saving move to Firebase: $bookingId → $toGuideName');
+      final saved = await _pickupService.assignBookingToGuide(
+        bookingId,
+        toGuideId,
+        toGuideName,
+        date: _selectedDate,
+      );
+      
+      if (!saved) {
+        print('⚠️ Failed to save move to Firebase');
+        // Still return true since local state updated - will sync on next refresh
+      }
+
       notifyListeners();
       return true;
     } catch (e) {
