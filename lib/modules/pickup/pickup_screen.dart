@@ -5,10 +5,12 @@ import 'dart:async';
 import '../../core/theme/colors.dart';
 import '../../core/auth/auth_controller.dart';
 import '../../core/models/pickup_models.dart';
+import '../../core/services/firebase_service.dart';
 import '../../widgets/common/loading_widget.dart';
 import '../../widgets/common/error_widget.dart';
 import '../../widgets/common/logo_widget.dart';
 import 'pickup_controller.dart';
+import 'end_of_shift_dialog.dart';
 
 class PickupScreen extends StatefulWidget {
   const PickupScreen({Key? key}) : super(key: key);
@@ -24,6 +26,7 @@ class _PickupScreenState extends State<PickupScreen> {
 
   // FIX: Track initialization state
   bool _isInitialized = false;
+  bool _hasSubmittedEndOfShift = false;
 
   @override
   void initState() {
@@ -76,6 +79,9 @@ class _PickupScreenState extends State<PickupScreen> {
 
     // Load bookings
     await pickupController.loadBookingsForDate(DateTime.now());
+
+    // Check end of shift status
+    await _checkEndOfShiftStatus();
 
     if (mounted) {
       setState(() {
@@ -272,7 +278,10 @@ class _PickupScreenState extends State<PickupScreen> {
                   onRefresh: () async {
                     await _refreshData();
                   },
-                  child: ReorderableListView.builder(
+                  child: Column(
+                    children: [
+                      Expanded(
+                        child: ReorderableListView.builder(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     itemCount: bookings.length,
                     onReorder: (oldIndex, newIndex) {
@@ -500,6 +509,11 @@ class _PickupScreenState extends State<PickupScreen> {
                         ),
                       );
                     },
+                  ),
+                      ),
+                      // End Shift Button
+                      _buildEndShiftButton(),
+                    ],
                   ),
                 ),
               ),
@@ -1020,6 +1034,9 @@ class _PickupScreenState extends State<PickupScreen> {
 
       // Force refresh when date changes to get latest data
       await controller.loadBookingsForDate(selectedDate, forceRefresh: true);
+      
+      // Check end of shift status for new date
+      await _checkEndOfShiftStatus();
     }
   }
 
@@ -1041,5 +1058,136 @@ class _PickupScreenState extends State<PickupScreen> {
   String _getDayName(DateTime date) {
     final days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
     return days[date.weekday - 1];
+  }
+
+  String _getDateKey(DateTime date) {
+    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+  }
+
+  Future<void> _checkEndOfShiftStatus() async {
+    final controller = context.read<PickupController>();
+    final user = context.read<AuthController>().currentUser;
+    
+    if (user == null) return;
+    
+    final dateKey = _getDateKey(controller.selectedDate);
+    final hasSubmitted = await FirebaseService.hasSubmittedEndOfShiftReport(
+      date: dateKey,
+      guideId: user.id,
+    );
+    
+    if (mounted) {
+      setState(() => _hasSubmittedEndOfShift = hasSubmitted);
+    }
+  }
+
+  Widget _buildEndShiftButton() {
+    final controller = context.read<PickupController>();
+    
+    // Only show for today's date
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final selectedDate = DateTime(
+      controller.selectedDate.year,
+      controller.selectedDate.month,
+      controller.selectedDate.day,
+    );
+    
+    if (!selectedDate.isAtSameMomentAs(today)) {
+      return const SizedBox.shrink();
+    }
+    
+    // Check if user has any assigned bookings
+    final hasAssignments = controller.currentUserBookings.isNotEmpty;
+    if (!hasAssignments) {
+      return const SizedBox.shrink();
+    }
+    
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: ElevatedButton.icon(
+        onPressed: _hasSubmittedEndOfShift ? null : _showEndOfShiftDialog,
+        icon: Icon(
+          _hasSubmittedEndOfShift ? Icons.check_circle : Icons.nightlight_round,
+        ),
+        label: Text(
+          _hasSubmittedEndOfShift ? 'Shift Report Submitted' : 'End Shift',
+        ),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: _hasSubmittedEndOfShift 
+              ? Colors.green.withOpacity(0.3)
+              : AppColors.primary,
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          minimumSize: const Size(double.infinity, 56),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showEndOfShiftDialog() async {
+    final controller = context.read<PickupController>();
+    final user = context.read<AuthController>().currentUser;
+    
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please log in to submit shift report')),
+      );
+      return;
+    }
+    
+    // Get bus info if available
+    String? busId;
+    String? busName;
+    
+    // Try to get bus assignment for this guide
+    final dateKey = _getDateKey(controller.selectedDate);
+    try {
+      // Check bus_guide_assignments for this guide's bus
+      final assignments = await FirebaseService.getBusGuideAssignments(dateKey);
+      for (final assignment in assignments) {
+        if (assignment['guideId'] == user.id) {
+          busId = assignment['busId'];
+          busName = assignment['busName'];
+          break;
+        }
+      }
+    } catch (e) {
+      print('⚠️ Could not get bus assignment: $e');
+    }
+    
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => EndOfShiftDialog(
+        guideName: user.fullName,
+        busName: busName,
+        onSubmit: (auroraRating, shouldRequestReviews, notes) async {
+          await FirebaseService.saveEndOfShiftReport(
+            date: dateKey,
+            guideId: user.id,
+            guideName: user.fullName,
+            busId: busId,
+            busName: busName,
+            auroraRating: auroraRating,
+            shouldRequestReviews: shouldRequestReviews,
+            notes: notes,
+          );
+        },
+      ),
+    );
+    
+    if (result == true && mounted) {
+      setState(() => _hasSubmittedEndOfShift = true);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('✅ Shift report submitted! Thank you!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    }
   }
 }

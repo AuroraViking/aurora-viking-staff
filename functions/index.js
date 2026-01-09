@@ -1,7 +1,7 @@
 const {onRequest} = require('firebase-functions/v2/https');
 const {onSchedule} = require('firebase-functions/v2/scheduler');
 const {onCall} = require('firebase-functions/v2/https');
-const {onDocumentWritten} = require('firebase-functions/v2/firestore');
+const {onDocumentWritten, onDocumentCreated} = require('firebase-functions/v2/firestore');
 const admin = require('firebase-admin');
 const {getFirestore} = require('firebase-admin/firestore');
 const crypto = require('crypto');
@@ -78,302 +78,381 @@ async function createSheetInFolder(auth, title, folderId) {
   return spreadsheetId;
 }
 
-// ============================================
-// FORMAT AND POPULATE THE SHEET
-// ============================================
-async function populateSheet(auth, spreadsheetId, reportData) {
+// ========== HELPER: Populate sheet with report data ==========
+async function populateSheetWithReportData(auth, spreadsheetId, reportData) {
   const sheets = google.sheets({version: 'v4', auth});
-  
-  // Prepare the data rows
+
   const rows = [];
-  
-  // Title row
+
+  // Header
   rows.push([`Aurora Viking Tour Report - ${reportData.date}`]);
   rows.push([`Generated: ${new Date().toLocaleString('en-GB', {timeZone: 'Atlantic/Reykjavik'})}`]);
-  rows.push([`Total Guides: ${reportData.totalGuides} | Total Passengers: ${reportData.totalPassengers}`]);
-  rows.push([]); // Empty row
-  
-  // Process each guide
+  rows.push([
+    `Guides: ${reportData.totalGuides}`,
+    `Passengers: ${reportData.totalPassengers}`,
+    `Bookings: ${reportData.totalBookings}`,
+    `Reports: ${reportData.guidesWithReports}/${reportData.totalGuides}`,
+  ]);
+
+  // Aurora summary (if available)
+  if (reportData.auroraSummary) {
+    rows.push([`🌌 Aurora Tonight: ${reportData.auroraSummary.display}`]);
+  } else {
+    rows.push([`🌌 Aurora: No reports submitted yet`]);
+  }
+
+  rows.push([]);
+
+  // Each guide
   reportData.guides.forEach((guide) => {
-    // Guide header
+    const busInfo = guide.busName ? `🚌 ${guide.busName}` : '🚌 -';
+    const auroraInfo = guide.auroraRatingDisplay || '⏳ Pending';
+    const reviewInfo = guide.shouldRequestReviews === false ? '❌ No Reviews' : '';
+
     rows.push([
-      `🚌 ${guide.guideName}`,
-      '',
-      '',
-      `Total: ${guide.totalPassengers} passengers`,
+      `👤 ${guide.guideName}`,
+      busInfo,
+      `🌌 ${auroraInfo}`,
+      reviewInfo,
+      `${guide.totalPassengers} pax`,
     ]);
-    
-    // Column headers for this guide's bookings
-    rows.push([
-      'Customer Name',
-      'Passengers',
-      'Pickup Location', 
-      'Pickup Time',
-      'Phone',
-      'Email',
-    ]);
-    
-    // Booking rows
+
+    if (guide.shiftNotes) {
+      rows.push([`   📝 ${guide.shiftNotes}`]);
+    }
+
+    // Column headers
+    rows.push(['Customer', 'Pax', 'Pickup', 'Time', 'Phone', 'Status']);
+
+    // Bookings
     guide.bookings.forEach((booking) => {
+      const status = booking.isCompleted ? '✅' : booking.isArrived ? '📍' : '⏳';
+      const time = booking.pickupTime ? (booking.pickupTime.split('T')[1] || '').substring(0, 5) : '';
       rows.push([
-        booking.customerName || 'Unknown',
-        booking.participants || 0,
-        booking.pickupLocation || 'Unknown',
-        booking.pickupTime || '',
-        booking.phone || '',
-        booking.email || '',
+        booking.customerName,
+        booking.participants,
+        (booking.pickupLocation || '').substring(0, 40),
+        time,
+        booking.phone,
+        status,
       ]);
     });
-    
-    // Empty rows between guides
-    rows.push([]);
+
     rows.push([]);
   });
-  
-  // Write all data to the sheet
+
+  // Write to sheet
   await sheets.spreadsheets.values.update({
     spreadsheetId,
     range: 'Sheet1!A1',
     valueInputOption: 'USER_ENTERED',
-    requestBody: {
-      values: rows,
-    },
+    requestBody: {values: rows},
   });
-  
-  // Apply formatting
-  const requests = [
-    // Bold the title row
-    {
-      repeatCell: {
-        range: {sheetId: 0, startRowIndex: 0, endRowIndex: 1},
-        cell: {
-          userEnteredFormat: {
-            textFormat: {bold: true, fontSize: 16},
-          },
-        },
-        fields: 'userEnteredFormat.textFormat',
-      },
-    },
-    // Bold the summary row
-    {
-      repeatCell: {
-        range: {sheetId: 0, startRowIndex: 2, endRowIndex: 3},
-        cell: {
-          userEnteredFormat: {
-            textFormat: {bold: true},
-          },
-        },
-        fields: 'userEnteredFormat.textFormat',
-      },
-    },
-    // Set column widths
-    {
-      updateDimensionProperties: {
-        range: {
-          sheetId: 0,
-          dimension: 'COLUMNS',
-          startIndex: 0,
-          endIndex: 1,
-        },
-        properties: {pixelSize: 200},
-        fields: 'pixelSize',
-      },
-    },
-    {
-      updateDimensionProperties: {
-        range: {
-          sheetId: 0,
-          dimension: 'COLUMNS',
-          startIndex: 2,
-          endIndex: 3,
-        },
-        properties: {pixelSize: 200},
-        fields: 'pixelSize',
-      },
-    },
-  ];
-  
-  // Find and format guide header rows (the ones with 🚌)
-  let currentRow = 4; // Start after the header rows
-  reportData.guides.forEach((guide) => {
-    // Bold the guide name row
-    requests.push({
-      repeatCell: {
-        range: {sheetId: 0, startRowIndex: currentRow, endRowIndex: currentRow + 1},
-        cell: {
-          userEnteredFormat: {
-            textFormat: {bold: true, fontSize: 12},
-            backgroundColor: {red: 0.9, green: 0.95, blue: 1.0},
-          },
-        },
-        fields: 'userEnteredFormat.textFormat,userEnteredFormat.backgroundColor',
-      },
-    });
-    
-    // Bold the column headers
-    requests.push({
-      repeatCell: {
-        range: {sheetId: 0, startRowIndex: currentRow + 1, endRowIndex: currentRow + 2},
-        cell: {
-          userEnteredFormat: {
-            textFormat: {bold: true},
-            backgroundColor: {red: 0.95, green: 0.95, blue: 0.95},
-          },
-        },
-        fields: 'userEnteredFormat.textFormat,userEnteredFormat.backgroundColor',
-      },
-    });
-    
-    currentRow += guide.bookings.length + 4; // bookings + header rows + empty rows
-  });
-  
-  await sheets.spreadsheets.batchUpdate({
-    spreadsheetId,
-    requestBody: {requests},
-  });
-  
-  console.log('✨ Sheet formatted successfully');
+
+  console.log('✨ Sheet populated');
+}
+
+// Helper function to get display text for aurora rating
+function getAuroraRatingDisplay(rating) {
+  const ratings = {
+    'not_seen': 'Not seen 😔',
+    'camera_only': 'Only through camera 📷',
+    'a_little': 'A little bit ✨',
+    'good': 'Good 🌟',
+    'great': 'Great ⭐',
+    'exceptional': 'Exceptional 🤩',
+  };
+  return ratings[rating] || rating;
+}
+
+// Helper function to get the best aurora rating from multiple guides
+function getBestAuroraRating(ratings) {
+  const order = ['exceptional', 'great', 'good', 'a_little', 'camera_only', 'not_seen'];
+  for (const level of order) {
+    if (ratings.includes(level)) {
+      return {
+        rating: level,
+        display: getAuroraRatingDisplay(level),
+      };
+    }
+  }
+  return null;
 }
 
 // ============================================
-// MAIN REPORT GENERATION LOGIC
+// DEFENSIVE generateReport - Works at any stage of the tour
 // ============================================
+// This version handles:
+// - No end_of_shift_reports yet (before tour ends)
+// - No bus_guide_assignments (if buses not assigned)
+// - Empty collections
+// - Missing fields
 async function generateReport(targetDate) {
   console.log(`📅 Generating report for: ${targetDate}`);
-  
-  // Fetch pickup assignments for the date
-  const assignmentsSnapshot = await db
-    .collection('pickup_assignments')
-    .where('date', '==', targetDate)
-    .get();
-  
-  if (assignmentsSnapshot.empty) {
-    console.log('⚠️ No pickup assignments found for this date.');
-    return {success: false, message: 'No assignments found', date: targetDate};
-  }
-  
-  // Group bookings by guide
-  const guideData = {};
-  const individualAssignments = [];
-  
-  assignmentsSnapshot.forEach((doc) => {
-    const data = doc.data();
+
+  // ========== STEP 1: Get cached bookings ==========
+  let bookings = [];
+  try {
+    const cacheDoc = await db.collection('cached_bookings').doc(targetDate).get();
     
-    if (data.bookingId) {
-      // Individual assignment format
-      individualAssignments.push({
-        bookingId: data.bookingId,
-        guideId: data.guideId,
-        guideName: data.guideName,
-        date: data.date,
-      });
-    } else if (data.bookings) {
-      // Bulk assignment format
-      if (!guideData[data.guideId]) {
-        guideData[data.guideId] = {
-          guideName: data.guideName,
+    if (!cacheDoc.exists) {
+      console.log('⚠️ No cached_bookings document found for this date.');
+      return {success: false, message: 'No cached bookings found', date: targetDate};
+    }
+    
+    const cachedData = cacheDoc.data();
+    bookings = cachedData.bookings || [];
+    console.log(`📋 Found ${bookings.length} bookings in cached_bookings`);
+  } catch (error) {
+    console.error('❌ Error fetching cached_bookings:', error);
+    return {success: false, message: 'Error fetching bookings: ' + error.message, date: targetDate};
+  }
+
+  if (bookings.length === 0) {
+    console.log('⚠️ Bookings array is empty.');
+    return {success: false, message: 'No bookings in cache', date: targetDate};
+  }
+
+  // ========== STEP 2: Get bus-guide assignments (optional) ==========
+  const guideToBus = {};
+  try {
+    const busAssignmentsSnapshot = await db
+      .collection('bus_guide_assignments')
+      .where('date', '==', targetDate)
+      .get();
+
+    busAssignmentsSnapshot.forEach((doc) => {
+      const data = doc.data();
+      if (data.guideId) {
+        guideToBus[data.guideId] = {
+          busId: data.busId || null,
+          busName: data.busName || null,
+        };
+      }
+    });
+    console.log(`🚌 Found ${Object.keys(guideToBus).length} bus-guide assignments`);
+  } catch (error) {
+    // Not critical - continue without bus data
+    console.log('⚠️ Could not fetch bus assignments (this is okay):', error.message);
+  }
+
+  // ========== STEP 3: Get end-of-shift reports (optional) ==========
+  const guideReports = {};
+  try {
+    const endOfShiftSnapshot = await db
+      .collection('end_of_shift_reports')
+      .where('date', '==', targetDate)
+      .get();
+
+    endOfShiftSnapshot.forEach((doc) => {
+      const data = doc.data();
+      if (data.guideId) {
+        guideReports[data.guideId] = {
+          auroraRating: data.auroraRating || null,
+          auroraRatingDisplay: data.auroraRating ? getAuroraRatingDisplay(data.auroraRating) : null,
+          shouldRequestReviews: data.shouldRequestReviews !== false, // Default to true
+          notes: data.notes || null,
+          submittedAt: data.createdAt || null,
+        };
+      }
+    });
+    console.log(`📝 Found ${Object.keys(guideReports).length} end-of-shift reports`);
+  } catch (error) {
+    // Not critical - continue without end-of-shift data
+    console.log('⚠️ Could not fetch end-of-shift reports (this is okay):', error.message);
+  }
+
+  // ========== STEP 4: Group bookings by assigned guide ==========
+  const guideData = {};
+  const unassignedBookings = [];
+
+  bookings.forEach((booking) => {
+    const guideId = booking.assignedGuideId;
+    const guideName = booking.assignedGuideName || 'Unknown Guide';
+
+    if (guideId) {
+      if (!guideData[guideId]) {
+        // Get bus info (may not exist)
+        const busInfo = guideToBus[guideId] || {};
+        // Get end-of-shift report (may not exist)
+        const shiftReport = guideReports[guideId] || {};
+
+        guideData[guideId] = {
+          guideName: guideName,
+          busId: busInfo.busId || null,
+          busName: busInfo.busName || null,
+          // End of shift data (null if not submitted yet)
+          auroraRating: shiftReport.auroraRating || null,
+          auroraRatingDisplay: shiftReport.auroraRatingDisplay || null,
+          shouldRequestReviews: shiftReport.shouldRequestReviews,
+          shiftNotes: shiftReport.notes || null,
+          hasSubmittedReport: !!shiftReport.auroraRating,
+          // Booking data
           totalPassengers: 0,
           bookings: [],
         };
       }
-      guideData[data.guideId].totalPassengers += data.totalPassengers || 0;
-      guideData[data.guideId].bookings.push(...(data.bookings || []));
+
+      const passengers = booking.totalParticipants || booking.numberOfGuests || 0;
+      guideData[guideId].bookings.push(booking);
+      guideData[guideId].totalPassengers += passengers;
+    } else {
+      unassignedBookings.push(booking);
     }
   });
-  
-  // If we have individual assignments, fetch booking details from cache
-  if (Object.keys(guideData).length === 0 && individualAssignments.length > 0) {
-    console.log(`📋 Processing ${individualAssignments.length} individual assignments`);
-    
-    const cacheDoc = await db.collection('cached_bookings').doc(targetDate).get();
-    const cachedBookings = cacheDoc.exists ? (cacheDoc.data().bookings || []) : [];
-    
-    const bookingMap = {};
-    cachedBookings.forEach((booking) => {
-      bookingMap[booking.id] = booking;
-    });
-    
-    individualAssignments.forEach((assignment) => {
-      if (!guideData[assignment.guideId]) {
-        guideData[assignment.guideId] = {
-          guideName: assignment.guideName,
-          totalPassengers: 0,
-          bookings: [],
-        };
-      }
-      
-      const booking = bookingMap[assignment.bookingId];
-      if (booking) {
-        guideData[assignment.guideId].bookings.push(booking);
-        guideData[assignment.guideId].totalPassengers += booking.totalParticipants || 0;
-      }
-    });
-  }
-  
+
   console.log(`👥 Found ${Object.keys(guideData).length} guides with assignments`);
+  console.log(`⚠️ ${unassignedBookings.length} unassigned bookings`);
+
+  // ========== STEP 5: Calculate totals ==========
+  let totalPassengers = 0;
+  let guidesWithReports = 0;
   
-  // Build report data
+  Object.values(guideData).forEach((guide) => {
+    totalPassengers += guide.totalPassengers;
+    if (guide.hasSubmittedReport) guidesWithReports++;
+    console.log(`  - ${guide.guideName}: ${guide.bookings.length} bookings, ${guide.totalPassengers} pax, Report: ${guide.hasSubmittedReport ? '✅' : '⏳'}`);
+  });
+
+  // Aurora summary (only if we have reports)
+  const auroraRatings = Object.values(guideData)
+    .filter((g) => g.auroraRating)
+    .map((g) => g.auroraRating);
+
+  const auroraSummary = auroraRatings.length > 0 ? getBestAuroraRating(auroraRatings) : null;
+
+  // Unassigned passengers
+  let unassignedPassengers = 0;
+  unassignedBookings.forEach((b) => {
+    unassignedPassengers += b.totalParticipants || b.numberOfGuests || 0;
+  });
+
+  // ========== STEP 6: Build report data ==========
   const reportData = {
     date: targetDate,
     generatedAt: new Date().toISOString(),
+    lastUpdatedAt: new Date().toISOString(),
+    // Summary stats
     totalGuides: Object.keys(guideData).length,
-    totalPassengers: Object.values(guideData).reduce((sum, g) => sum + g.totalPassengers, 0),
+    guidesWithReports: guidesWithReports,
+    totalPassengers: totalPassengers,
+    totalBookings: bookings.length,
+    unassignedBookings: unassignedBookings.length,
+    unassignedPassengers: unassignedPassengers,
+    // Aurora (null if no reports yet)
+    auroraSummary: auroraSummary,
+    auroraReports: auroraRatings.length,
+    // Guide details
     guides: Object.entries(guideData).map(([guideId, data]) => ({
       guideId,
       guideName: data.guideName,
+      busId: data.busId,
+      busName: data.busName,
+      auroraRating: data.auroraRating,
+      auroraRatingDisplay: data.auroraRatingDisplay,
+      shouldRequestReviews: data.shouldRequestReviews,
+      shiftNotes: data.shiftNotes,
+      hasSubmittedReport: data.hasSubmittedReport,
       totalPassengers: data.totalPassengers,
+      bookingCount: data.bookings.length,
       bookings: data.bookings.map((b) => ({
-        id: b.id,
+        id: b.id || b.bookingId || 'unknown',
         customerName: b.customerFullName || b.customerName || 'Unknown',
-        participants: b.totalParticipants || 0,
-        pickupLocation: b.pickupPlaceName || 'Unknown',
+        participants: b.totalParticipants || b.numberOfGuests || 0,
+        pickupLocation: b.pickupPlaceName || b.pickupLocation || 'Unknown',
         pickupTime: b.pickupTime || null,
-        phone: b.customerPhone || '',
-        email: b.customerEmail || '',
+        phone: b.customerPhone || b.phoneNumber || '',
+        email: b.customerEmail || b.email || '',
+        confirmationCode: b.confirmationCode || '',
+        isArrived: b.isArrived || false,
+        isCompleted: b.isCompleted || false,
       })),
     })),
   };
-  
-  // Save to Firestore
-  await db.collection('tour_reports').doc(targetDate).set(reportData);
-  console.log(`✅ Report saved to Firestore: tour_reports/${targetDate}`);
-  
-  // Create Google Sheet
+
+  // Include unassigned if any
+  if (unassignedBookings.length > 0) {
+    reportData.unassigned = {
+      guideName: '⚠️ UNASSIGNED',
+      totalPassengers: unassignedPassengers,
+      bookingCount: unassignedBookings.length,
+      bookings: unassignedBookings.map((b) => ({
+        id: b.id || b.bookingId || 'unknown',
+        customerName: b.customerFullName || b.customerName || 'Unknown',
+        participants: b.totalParticipants || b.numberOfGuests || 0,
+        pickupLocation: b.pickupPlaceName || b.pickupLocation || 'Unknown',
+        pickupTime: b.pickupTime || null,
+      })),
+    };
+  }
+
+  // ========== STEP 7: Save to Firestore ==========
   try {
+    await db.collection('tour_reports').doc(targetDate).set(reportData, {merge: true});
+    console.log(`✅ Report saved to Firestore: tour_reports/${targetDate}`);
+  } catch (error) {
+    console.error('❌ Error saving to Firestore:', error);
+    return {success: false, message: 'Error saving report: ' + error.message, date: targetDate};
+  }
+
+  // ========== STEP 8: Create/Update Google Sheet ==========
+  let sheetUrl = null;
+  try {
+    // Check if sheet already exists
+    const existingReport = await db.collection('tour_reports').doc(targetDate).get();
+    const existingData = existingReport.data() || {};
+    const existingSheetId = existingData.spreadsheetId;
+
     const auth = await getGoogleAuth();
-    const sheetTitle = `Aurora Viking Tour Report - ${targetDate}`;
+    let spreadsheetId;
+
+    if (existingSheetId) {
+      // Update existing sheet
+      console.log(`📊 Updating existing sheet: ${existingSheetId}`);
+      spreadsheetId = existingSheetId;
+      
+      // Clear and repopulate
+      const sheets = google.sheets({version: 'v4', auth});
+      try {
+        await sheets.spreadsheets.values.clear({
+          spreadsheetId,
+          range: 'Sheet1!A:Z',
+        });
+      } catch (clearError) {
+        console.log('⚠️ Could not clear sheet (might be new):', clearError.message);
+      }
+      
+      await populateSheetWithReportData(auth, spreadsheetId, reportData);
+    } else {
+      // Create new sheet
+      const sheetTitle = `Aurora Viking Tour Report - ${targetDate}`;
+      spreadsheetId = await createSheetInFolder(auth, sheetTitle, DRIVE_FOLDER_ID);
+      await populateSheetWithReportData(auth, spreadsheetId, reportData);
+    }
+
+    sheetUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}`;
     
-    const spreadsheetId = await createSheetInFolder(auth, sheetTitle, DRIVE_FOLDER_ID);
-    await populateSheet(auth, spreadsheetId, reportData);
-    
-    // Update Firestore with the sheet URL
-    const sheetUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}`;
     await db.collection('tour_reports').doc(targetDate).update({
       sheetUrl: sheetUrl,
       spreadsheetId: spreadsheetId,
     });
-    
-    console.log(`📊 Google Sheet created: ${sheetUrl}`);
-    
-    return {
-      success: true,
-      date: targetDate,
-      guides: Object.keys(guideData).length,
-      totalPassengers: reportData.totalPassengers,
-      sheetUrl: sheetUrl,
-    };
-    
+
+    console.log(`📊 Google Sheet ready: ${sheetUrl}`);
   } catch (sheetError) {
-    console.error('⚠️ Failed to create Google Sheet:', sheetError);
-    // Don't fail the whole function - Firestore save succeeded
-    return {
-      success: true,
-      date: targetDate,
-      guides: Object.keys(guideData).length,
-      totalPassengers: reportData.totalPassengers,
-      sheetError: sheetError.message,
-    };
+    console.error('⚠️ Google Sheet error (report still saved):', sheetError.message);
+    // Don't fail - Firestore save succeeded
   }
+
+  return {
+    success: true,
+    date: targetDate,
+    guides: Object.keys(guideData).length,
+    guidesWithReports: guidesWithReports,
+    totalPassengers: totalPassengers,
+    totalBookings: bookings.length,
+    auroraSummary: auroraSummary,
+    sheetUrl: sheetUrl,
+  };
 }
 
 /**
@@ -505,49 +584,101 @@ exports.getBookings = onRequest(
 );
 
 // ============================================
-// SCHEDULED FUNCTION - Runs at 11pm Iceland time
+// FIRESTORE TRIGGER - Generate report when end-of-shift is submitted
 // ============================================
-exports.generateTourReport = onSchedule(
+exports.onEndOfShiftSubmitted = onDocumentCreated(
   {
-    schedule: '0 23 * * *',
-    timeZone: 'Atlantic/Reykjavik',
+    document: 'end_of_shift_reports/{reportId}',
     region: 'us-central1',
   },
-  async () => {
-    console.log('🚀 Starting scheduled tour report generation...');
-    
-    const today = new Date();
-    // Adjust for Iceland timezone
-    const icelandDate = new Date(today.toLocaleString('en-US', {timeZone: 'Atlantic/Reykjavik'}));
-    const dateStr = `${icelandDate.getFullYear()}-${String(icelandDate.getMonth() + 1).padStart(2, '0')}-${String(icelandDate.getDate()).padStart(2, '0')}`;
-    
-    return await generateReport(dateStr);
+  async (event) => {
+    const snapshot = event.data;
+    if (!snapshot) {
+      console.log('No data in snapshot');
+      return null;
+    }
+
+    const data = snapshot.data();
+    const date = data.date;
+    const guideName = data.guideName;
+
+    console.log(`🌙 End of shift submitted by ${guideName} for ${date}`);
+    console.log(`📝 Aurora: ${data.auroraRating}, Request Reviews: ${data.shouldRequestReviews}`);
+
+    // Generate/update the report for this date
+    try {
+      const result = await generateReport(date);
+      console.log(`✅ Report generated/updated for ${date}:`, result);
+      return result;
+    } catch (error) {
+      console.error(`❌ Failed to generate report for ${date}:`, error);
+      return null;
+    }
   }
 );
 
 // ============================================
-// MANUAL TRIGGER - Call from app or for testing
+// SCHEDULED FUNCTION - 5am fallback (Iceland time)
+// ============================================
+// This catches any tours where guides forgot to submit end-of-shift
+// Runs at 5am to ensure all late-night tours (ending ~3am) are covered
+exports.generateTourReport = onSchedule(
+  {
+    schedule: '0 5 * * *',  // 5am every day
+    timeZone: 'Atlantic/Reykjavik',
+    region: 'us-central1',
+  },
+  async () => {
+    console.log('🌅 Starting 5am fallback report generation...');
+
+    // Generate report for YESTERDAY (since 5am is the morning after the tour)
+    const now = new Date();
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    
+    // Adjust for Iceland timezone
+    const icelandYesterday = new Date(yesterday.toLocaleString('en-US', {timeZone: 'Atlantic/Reykjavik'}));
+    const dateStr = `${icelandYesterday.getFullYear()}-${String(icelandYesterday.getMonth() + 1).padStart(2, '0')}-${String(icelandYesterday.getDate()).padStart(2, '0')}`;
+
+    console.log(`📅 Generating fallback report for: ${dateStr}`);
+
+    try {
+      const result = await generateReport(dateStr);
+      console.log(`✅ Fallback report result:`, result);
+      return result;
+    } catch (error) {
+      console.error(`❌ Fallback report failed:`, error);
+      return null;
+    }
+  }
+);
+
+// ============================================
+// MANUAL TRIGGER - For testing or regenerating reports
 // ============================================
 exports.generateTourReportManual = onCall(
   {
     region: 'us-central1',
-    invoker: 'public',  // Allow public access for internal staff app
+    invoker: 'public',
   },
   async (request) => {
     console.log('📝 Manual report generation requested');
-    
+
     const dateParam = request.data?.date;
-    
-    // If no date provided, use today (Iceland time)
+
+    // If no date provided, use yesterday (Iceland time) since tours end after midnight
     let targetDate;
     if (dateParam) {
       targetDate = dateParam;
     } else {
-      const today = new Date();
-      const icelandDate = new Date(today.toLocaleString('en-US', {timeZone: 'Atlantic/Reykjavik'}));
-      targetDate = `${icelandDate.getFullYear()}-${String(icelandDate.getMonth() + 1).padStart(2, '0')}-${String(icelandDate.getDate()).padStart(2, '0')}`;
+      const now = new Date();
+      const yesterday = new Date(now);
+      yesterday.setDate(yesterday.getDate() - 1);
+      const icelandYesterday = new Date(yesterday.toLocaleString('en-US', {timeZone: 'Atlantic/Reykjavik'}));
+      targetDate = `${icelandYesterday.getFullYear()}-${String(icelandYesterday.getMonth() + 1).padStart(2, '0')}-${String(icelandYesterday.getDate()).padStart(2, '0')}`;
     }
-    
+
+    console.log(`📅 Generating report for: ${targetDate}`);
     return await generateReport(targetDate);
   }
 );

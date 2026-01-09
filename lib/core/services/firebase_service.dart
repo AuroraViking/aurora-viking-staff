@@ -1214,4 +1214,125 @@ class FirebaseService {
       return [];
     }
   }
+
+  /// Get all bus-guide assignments for a date
+  static Future<List<Map<String, dynamic>>> getBusGuideAssignments(String date) async {
+    if (!_initialized || _firestore == null) return [];
+    
+    try {
+      final querySnapshot = await _firestore!
+          .collection('bus_guide_assignments')
+          .where('date', isEqualTo: date)
+          .get();
+      
+      return querySnapshot.docs.map((doc) => doc.data()).toList();
+    } catch (e) {
+      print('❌ Failed to get bus guide assignments: $e');
+      return [];
+    }
+  }
+
+  /// Save end of shift report
+  static Future<void> saveEndOfShiftReport({
+    required String date,
+    required String guideId,
+    required String guideName,
+    String? busId,
+    String? busName,
+    required String auroraRating,
+    required bool shouldRequestReviews,
+    String? notes,
+  }) async {
+    if (!_initialized || _firestore == null) {
+      print('⚠️ Firebase not initialized - skipping end of shift report save');
+      return;
+    }
+    
+    try {
+      final docId = '${date}_$guideId';
+      
+      await _firestore!
+          .collection('end_of_shift_reports')
+          .doc(docId)
+          .set({
+        'id': docId,
+        'date': date,
+        'guideId': guideId,
+        'guideName': guideName,
+        'busId': busId,
+        'busName': busName,
+        'auroraRating': auroraRating,
+        'shouldRequestReviews': shouldRequestReviews,
+        'notes': notes,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+      
+      print('✅ End of shift report saved for guide $guideName on $date');
+    } catch (e) {
+      print('❌ Failed to save end of shift report: $e');
+      rethrow;
+    }
+  }
+
+  /// Get end of shift report for a specific guide and date
+  static Future<Map<String, dynamic>?> getEndOfShiftReport({
+    required String date,
+    required String guideId,
+  }) async {
+    if (!_initialized || _firestore == null) return null;
+    
+    try {
+      final docId = '${date}_$guideId';
+      final doc = await _firestore!
+          .collection('end_of_shift_reports')
+          .doc(docId)
+          .get();
+      
+      if (doc.exists) {
+        return doc.data();
+      }
+      return null;
+    } catch (e) {
+      print('❌ Failed to get end of shift report: $e');
+      return null;
+    }
+  }
+
+  /// Get all end of shift reports for a date
+  static Future<List<Map<String, dynamic>>> getEndOfShiftReportsForDate(String date) async {
+    if (!_initialized || _firestore == null) return [];
+    
+    try {
+      final querySnapshot = await _firestore!
+          .collection('end_of_shift_reports')
+          .where('date', isEqualTo: date)
+          .get();
+      
+      return querySnapshot.docs.map((doc) => doc.data()).toList();
+    } catch (e) {
+      print('❌ Failed to get end of shift reports: $e');
+      return [];
+    }
+  }
+
+  /// Check if guide has already submitted end of shift report
+  static Future<bool> hasSubmittedEndOfShiftReport({
+    required String date,
+    required String guideId,
+  }) async {
+    if (!_initialized || _firestore == null) return false;
+    
+    try {
+      final docId = '${date}_$guideId';
+      final doc = await _firestore!
+          .collection('end_of_shift_reports')
+          .doc(docId)
+          .get();
+      
+      return doc.exists;
+    } catch (e) {
+      print('❌ Failed to check end of shift report: $e');
+      return false;
+    }
+  }
 } 
