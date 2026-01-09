@@ -11,6 +11,7 @@ import 'services/sunrise_sunset_service.dart';
 import 'services/permission_util.dart';
 import 'widgets/forecast_chart_widget.dart';
 import 'widgets/cloud_cover_map.dart';
+import 'widgets/aurora_sighting_widget.dart';
 import '../../widgets/common/logo_widget.dart';
 
 class ForecastScreen extends StatefulWidget {
@@ -313,6 +314,8 @@ class _ForecastScreenState extends State<ForecastScreen> {
                     child: Column(
                       children: [
                         const SizedBox(height: 16),
+                        const AuroraSightingWidget(),
+                        const SizedBox(height: 8),
                         _buildAuroraStatusCard(),
                         const SizedBox(height: 16),
                         _buildBzChart(),

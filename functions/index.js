@@ -688,6 +688,96 @@ exports.generateTourReportManual = onCall(
 // ============================================
 
 /**
+ * Send notification to ADMIN users only
+ * Filters users by role === 'admin'
+ */
+async function sendNotificationToAdminsOnly(title, body, data = {}) {
+  try {
+    console.log(`📤 Preparing to send admin-only notification: "${title}"`);
+    
+    // Get ONLY admin users
+    const usersSnapshot = await db
+      .collection('users')
+      .where('role', '==', 'admin')
+      .get();
+
+    console.log(`👥 Found ${usersSnapshot.size} admin users in database`);
+
+    if (usersSnapshot.empty) {
+      console.log('⚠️ No admin users found to send notification');
+      return {success: false, message: 'No admin users found'};
+    }
+
+    const tokens = [];
+    const adminNames = [];
+    usersSnapshot.forEach((doc) => {
+      const userData = doc.data();
+      if (userData.fcmToken) {
+        tokens.push(userData.fcmToken);
+        adminNames.push(userData.fullName || userData.email || doc.id);
+        console.log(`  ✓ Admin ${userData.fullName || doc.id} has FCM token`);
+      } else {
+        console.log(`  ✗ Admin ${userData.fullName || doc.id} has no FCM token`);
+      }
+    });
+
+    console.log(`📱 Found ${tokens.length} FCM tokens for admin users`);
+    console.log(`👤 Admins to notify: ${adminNames.join(', ')}`);
+
+    if (tokens.length === 0) {
+      console.log('⚠️ No FCM tokens found for admin users');
+      return {success: false, message: 'No FCM tokens found for admins'};
+    }
+
+    // Send notification to admin tokens only
+    const messages = tokens.map((token) => ({
+      notification: {
+        title: title,
+        body: body,
+      },
+      data: {
+        ...Object.keys(data).reduce((acc, key) => {
+          acc[key] = String(data[key]);
+          return acc;
+        }, {}),
+        click_action: 'FLUTTER_NOTIFICATION_CLICK',
+      },
+      token: token,
+      android: {
+        priority: 'high',
+        notification: {
+          channelId: 'aurora_viking_staff',
+          sound: 'default',
+        },
+      },
+      apns: {
+        payload: {
+          aps: {
+            sound: 'default',
+          },
+        },
+      },
+    }));
+
+    const response = await admin.messaging().sendEach(messages);
+
+    console.log(`✅ Notification sent to ${response.successCount} admin(s)`);
+    if (response.failureCount > 0) {
+      console.log(`⚠️ Failed to send to ${response.failureCount} admin(s)`);
+    }
+
+    return {
+      success: true,
+      sent: response.successCount,
+      failed: response.failureCount,
+    };
+  } catch (error) {
+    console.error('❌ Error sending notification to admins:', error);
+    return {success: false, error: error.message};
+  }
+}
+
+/**
  * Send push notification to all users
  */
 async function sendNotificationToAdmins(title, body, data = {}) {
@@ -1082,6 +1172,129 @@ exports.onNoShowMarked = onDocumentWritten(
     } else {
       console.log('ℹ️ No-show status did not change from false to true, skipping notification');
     }
+  }
+);
+
+// ============================================
+// AURORA SIGHTING NOTIFICATION FUNCTION
+// ============================================
+
+/**
+ * Get a Google Maps link for coordinates
+ */
+function getGoogleMapsLink(latitude, longitude) {
+  if (!latitude || !longitude) return null;
+  return `https://maps.google.com/?q=${latitude},${longitude}`;
+}
+
+/**
+ * Get emoji for aurora level
+ */
+function getAuroraEmoji(level) {
+  const emojis = {
+    'weak': '🌌',
+    'medium': '✨',
+    'strong': '🔥',
+    'exceptional': '🤯',
+  };
+  return emojis[level] || '🌌';
+}
+
+/**
+ * Firestore trigger: Send notification when aurora sighting is reported
+ * Triggers on NEW documents in aurora_sightings collection
+ */
+exports.onAuroraSighting = onDocumentWritten(
+  {
+    document: 'aurora_sightings/{sightingId}',
+    region: 'us-central1',
+  },
+  async (event) => {
+    const sightingId = event.params.sightingId;
+    
+    console.log('🌌 onAuroraSighting triggered for document:', sightingId);
+    
+    // Only process NEW documents (not updates or deletes)
+    if (!event.data.after.exists) {
+      console.log('⚠️ Document was deleted, skipping');
+      return;
+    }
+    
+    // Check if this is a new document (before didn't exist)
+    if (event.data.before.exists) {
+      console.log('ℹ️ Document was updated (not created), skipping');
+      return;
+    }
+
+    const sightingData = event.data.after.data();
+    
+    console.log('📊 Sighting data:', JSON.stringify(sightingData));
+
+    // Check if already processed (prevent duplicate notifications)
+    if (sightingData.processed === true) {
+      console.log('ℹ️ Sighting already processed, skipping');
+      return;
+    }
+
+    const guideName = sightingData.guideName || 'A guide';
+    const level = sightingData.level || 'unknown';
+    const levelLabel = sightingData.levelLabel || level;
+    const emoji = getAuroraEmoji(level);
+    const latitude = sightingData.latitude;
+    const longitude = sightingData.longitude;
+    const hasLocation = sightingData.hasLocation === true;
+
+    // Build notification body
+    let notificationBody = `${guideName} spotted ${levelLabel.toLowerCase()} aurora!`;
+    
+    if (hasLocation && latitude && longitude) {
+      // Add approximate location description
+      notificationBody += ` 📍 Location available`;
+    }
+
+    // Build data payload
+    const notificationData = {
+      type: 'aurora_sighting',
+      sightingId: sightingId,
+      guideId: sightingData.guideId || '',
+      guideName: guideName,
+      level: level,
+      levelLabel: levelLabel,
+      timestamp: sightingData.timestamp?.toDate?.()?.toISOString() || new Date().toISOString(),
+    };
+
+    if (hasLocation && latitude && longitude) {
+      notificationData.latitude = String(latitude);
+      notificationData.longitude = String(longitude);
+      notificationData.mapsLink = getGoogleMapsLink(latitude, longitude);
+    }
+
+    if (sightingData.busId) {
+      notificationData.busId = sightingData.busId;
+    }
+
+    // Send notification to ADMINS ONLY
+    console.log(`🌌 Sending ${emoji} ${levelLabel} aurora alert from ${guideName}`);
+    
+    const result = await sendNotificationToAdminsOnly(
+      `${emoji} ${levelLabel} Aurora Spotted!`,
+      notificationBody,
+      notificationData
+    );
+
+    // Mark as processed to prevent duplicate notifications
+    try {
+      await db.collection('aurora_sightings').doc(sightingId).update({
+        processed: true,
+        processedAt: admin.firestore.FieldValue.serverTimestamp(),
+        notificationResult: result,
+      });
+      console.log('✅ Sighting marked as processed');
+    } catch (updateError) {
+      console.error('⚠️ Failed to mark sighting as processed:', updateError);
+    }
+
+    return result;
   }
 );
 

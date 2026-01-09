@@ -84,5 +84,12 @@ service cloud.firestore {
       allow read: if request.auth != null;
       allow write: if request.auth != null;
     }
+    
+    // Aurora sightings - guides can create, all authenticated can read
+    match /aurora_sightings/{sightingId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if false;  // Only Cloud Functions can update (processed flag)
+    }
   }
 } 
