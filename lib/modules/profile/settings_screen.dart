@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../../core/auth/auth_controller.dart';
 import '../../theme/colors.dart' as av;
-import '../../widgets/common/logo_widget.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -49,21 +48,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Logo and App Info Section
+            // App Info Section
             Center(
-              child: Column(
-                children: [
-                  const LogoMedium(),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Aurora Viking Staff',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: av.AVColors.textHigh,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                ],
+              child: Text(
+                'Aurora Viking Staff',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: av.AVColors.textHigh,
+                ),
               ),
             ),
             const SizedBox(height: 24),

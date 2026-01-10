@@ -82,6 +82,52 @@ class _AdminGuideManagementScreenState extends State<AdminGuideManagementScreen>
     }
   }
 
+  Future<void> _deleteGuide(AdminGuide guide) async {
+    // Show confirmation dialog
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Guide'),
+        content: Text('Are you sure you want to delete ${guide.name}? This action cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      final success = await AdminService.deleteGuide(guide.id);
+      if (success && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${guide.name} has been deleted'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        _loadGuides();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error deleting guide: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _showGuideDetails(AdminGuide guide) async {
     final detailedGuide = await AdminService.getGuideById(guide.id);
     
@@ -168,6 +214,13 @@ class _AdminGuideManagementScreenState extends State<AdminGuideManagementScreen>
               },
               child: const Text('Activate', style: TextStyle(color: Colors.green)),
             ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _deleteGuide(detailedGuide);
+            },
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+          ),
         ],
       ),
     );
@@ -390,6 +443,9 @@ class _AdminGuideManagementScreenState extends State<AdminGuideManagementScreen>
                                     case 'activate':
                                       _updateGuideStatus(guide, 'active');
                                       break;
+                                    case 'delete':
+                                      _deleteGuide(guide);
+                                      break;
                                   }
                                 },
                                 itemBuilder: (context) => [
@@ -425,6 +481,16 @@ class _AdminGuideManagementScreenState extends State<AdminGuideManagementScreen>
                                         ],
                                       ),
                                     ),
+                                  const PopupMenuItem(
+                                    value: 'delete',
+                                    child: Row(
+                                      children: [
+                                        Icon(Icons.delete, color: Colors.red),
+                                        SizedBox(width: 8),
+                                        Text('Delete', style: TextStyle(color: Colors.red)),
+                                      ],
+                                    ),
+                                  ),
                                 ],
                               ),
                               onTap: () => _showGuideDetails(guide),

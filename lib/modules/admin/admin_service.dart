@@ -1,7 +1,5 @@
 // Admin service for handling all admin-related API calls and data management
 
-import 'dart:convert';
-import 'package:http/http.dart' as http;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../core/models/admin_models.dart';
 import '../../core/models/user_model.dart';
@@ -14,12 +12,6 @@ class AdminService {
   static const String baseUrl = AppConstants.apiBaseUrl;
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   
-  // Headers for API requests
-  static Map<String, String> get _headers => {
-    'Content-Type': 'application/json',
-    // TODO: Add authentication headers when API is ready
-    // 'Authorization': 'Bearer $token',
-  };
 
   // ==================== STATISTICS & DASHBOARD ====================
   
@@ -185,6 +177,21 @@ class AdminService {
       return true;
     } catch (e) {
       throw Exception('Failed to update guide status: $e');
+    }
+  }
+
+  /// Delete a guide from Firebase
+  static Future<bool> deleteGuide(String guideId) async {
+    try {
+      // Delete the user document from Firestore
+      await _firestore.collection('users').doc(guideId).delete();
+      
+      // Note: This only deletes the Firestore document.
+      // To delete the Firebase Auth account, a Cloud Function would be needed.
+      
+      return true;
+    } catch (e) {
+      throw Exception('Failed to delete guide: $e');
     }
   }
 
@@ -437,12 +444,16 @@ class AdminService {
               })
           .toList();
       
+      // Get total passengers for the month from tour_reports
+      final totalPassengers = await getMonthlyPassengers(year, month);
+      
       return {
         'month': '$year-$month',
         'totalShifts': totalShifts,
         'dayTours': dayTours,
         'northernLights': northernLights,
         'totalGuides': totalGuides,
+        'totalPassengers': totalPassengers,
         'averageRating': 4.5, // TODO: Calculate real average
         'topGuides': topGuides,
         'revenue': 125000, // TODO: Calculate from bookings
@@ -452,6 +463,42 @@ class AdminService {
     } catch (e) {
       throw Exception('Failed to load monthly report: $e');
     }
+  }
+
+  /// Get total passengers for a month from tour reports
+  static Future<int> getMonthlyPassengers(int year, int month) async {
+    try {
+      final startDate = DateTime(year, month, 1);
+      final endDate = DateTime(year, month + 1, 0);
+      
+      // Format dates as YYYY-MM-DD strings for querying tour_reports
+      final startDateStr = _formatDate(startDate);
+      final endDateStr = _formatDate(endDate);
+      
+      int totalPassengers = 0;
+      
+      // Query tour_reports collection for the month
+      // Note: tour_reports use date as string in format YYYY-MM-DD
+      final reportsSnapshot = await _firestore
+          .collection('tour_reports')
+          .where('date', isGreaterThanOrEqualTo: startDateStr)
+          .where('date', isLessThanOrEqualTo: endDateStr)
+          .get();
+      
+      for (final doc in reportsSnapshot.docs) {
+        final data = doc.data();
+        totalPassengers += (data['totalPassengers'] as int?) ?? 0;
+      }
+      
+      return totalPassengers;
+    } catch (e) {
+      print('Error getting monthly passengers: $e');
+      return 0;
+    }
+  }
+  
+  static String _formatDate(DateTime date) {
+    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
   }
 
   /// Get guide performance report from Firebase
@@ -550,6 +597,191 @@ class AdminService {
       return 'export_${dataType}_${DateTime.now().millisecondsSinceEpoch}.csv';
     } catch (e) {
       throw Exception('Failed to export data: $e');
+    }
+  }
+
+  // ==================== TOUR REPORTS ====================
+  
+  /// Get all tour reports (recent ones)
+  static Future<List<Map<String, dynamic>>> getTourReports({int days = 30}) async {
+    try {
+      return await FirebaseService.getRecentTourReports();
+    } catch (e) {
+      throw Exception('Failed to load tour reports: $e');
+    }
+  }
+
+  /// Get tour report for a specific date
+  static Future<Map<String, dynamic>?> getTourReportForDate(String date) async {
+    try {
+      return await FirebaseService.getTourReport(date);
+    } catch (e) {
+      throw Exception('Failed to load tour report: $e');
+    }
+  }
+
+  // ==================== SHIFTS ANALYTICS ====================
+  
+  /// Get detailed shifts statistics for a date range
+  static Future<Map<String, dynamic>> getShiftsStatistics({
+    DateTime? startDate,
+    DateTime? endDate,
+  }) async {
+    try {
+      Query query = _firestore.collection('shifts');
+      
+      if (startDate != null) {
+        query = query.where('date', isGreaterThanOrEqualTo: startDate.toIso8601String());
+      }
+      if (endDate != null) {
+        query = query.where('date', isLessThanOrEqualTo: endDate.toIso8601String());
+      }
+      
+      final snapshot = await query.get();
+      final shifts = snapshot.docs.map((doc) {
+        final data = doc.data() as Map<String, dynamic>;
+        return Shift.fromJson({'id': doc.id, ...data});
+      }).toList();
+      
+      // Calculate statistics
+      final totalShifts = shifts.length;
+      final byStatus = <String, int>{};
+      final byType = <String, int>{};
+      final byGuide = <String, Map<String, dynamic>>{};
+      
+      for (final shift in shifts) {
+        // Count by status
+        byStatus[shift.status.name] = (byStatus[shift.status.name] ?? 0) + 1;
+        
+        // Count by type
+        byType[shift.type.name] = (byType[shift.type.name] ?? 0) + 1;
+        
+        // Count by guide (use guideId as key, store name and count)
+        if (shift.guideId != null) {
+          if (!byGuide.containsKey(shift.guideId!)) {
+            byGuide[shift.guideId!] = {
+              'guideName': shift.guideName ?? 'Unknown Guide',
+              'count': 0,
+            };
+          }
+          byGuide[shift.guideId!]!['count'] = (byGuide[shift.guideId!]!['count'] as int) + 1;
+        }
+      }
+      
+      return {
+        'totalShifts': totalShifts,
+        'byStatus': byStatus,
+        'byType': byType,
+        'byGuide': byGuide,
+        'shifts': shifts.map((s) => s.toJson()).toList(),
+      };
+    } catch (e) {
+      throw Exception('Failed to load shifts statistics: $e');
+    }
+  }
+
+  // ==================== PICKUP ANALYTICS ====================
+  
+  /// Get pickup assignments statistics for a date range
+  static Future<Map<String, dynamic>> getPickupStatistics({
+    DateTime? startDate,
+    DateTime? endDate,
+  }) async {
+    try {
+      Query query = _firestore.collection('pickup_assignments');
+      
+      final snapshot = await query.get();
+      final assignments = snapshot.docs.map((doc) => doc.data() as Map<String, dynamic>).toList();
+      
+      // Filter by date range if provided
+      List<Map<String, dynamic>> filteredAssignments = assignments;
+      if (startDate != null || endDate != null) {
+        final startStr = startDate != null 
+            ? '${startDate.year}-${startDate.month.toString().padLeft(2, '0')}-${startDate.day.toString().padLeft(2, '0')}'
+            : null;
+        final endStr = endDate != null
+            ? '${endDate.year}-${endDate.month.toString().padLeft(2, '0')}-${endDate.day.toString().padLeft(2, '0')}'
+            : null;
+        
+        filteredAssignments = assignments.where((assignment) {
+          final date = assignment['date'] as String?;
+          if (date == null) return false;
+          if (startStr != null && date.compareTo(startStr) < 0) return false;
+          if (endStr != null && date.compareTo(endStr) > 0) return false;
+          return true;
+        }).toList();
+      }
+      
+      // Calculate statistics
+      int totalAssignments = filteredAssignments.length;
+      int totalPassengers = 0;
+      final byGuide = <String, Map<String, dynamic>>{};
+      final byDate = <String, Map<String, dynamic>>{};
+      
+      for (final assignment in filteredAssignments) {
+        final date = assignment['date'] as String? ?? 'unknown';
+        final guideId = assignment['guideId'] as String?;
+        final guideName = assignment['guideName'] as String? ?? 'Unknown';
+        final passengers = (assignment['totalPassengers'] as num?)?.toInt() ?? 0;
+        final bookings = (assignment['bookings'] as List?)?.length ?? 0;
+        
+        totalPassengers += passengers;
+        
+        // Count by guide
+        if (guideId != null) {
+          if (!byGuide.containsKey(guideId)) {
+            byGuide[guideId] = {
+              'guideName': guideName,
+              'totalAssignments': 0,
+              'totalPassengers': 0,
+              'totalBookings': 0,
+            };
+          }
+          byGuide[guideId]!['totalAssignments'] = (byGuide[guideId]!['totalAssignments'] as int) + 1;
+          byGuide[guideId]!['totalPassengers'] = (byGuide[guideId]!['totalPassengers'] as int) + passengers;
+          byGuide[guideId]!['totalBookings'] = (byGuide[guideId]!['totalBookings'] as int) + bookings;
+        }
+        
+        // Count by date
+        if (!byDate.containsKey(date)) {
+          byDate[date] = {
+            'totalAssignments': 0,
+            'totalPassengers': 0,
+            'totalBookings': 0,
+            'guides': <String>{},
+          };
+        }
+        byDate[date]!['totalAssignments'] = (byDate[date]!['totalAssignments'] as int) + 1;
+        byDate[date]!['totalPassengers'] = (byDate[date]!['totalPassengers'] as int) + passengers;
+        byDate[date]!['totalBookings'] = (byDate[date]!['totalBookings'] as int) + bookings;
+        if (guideId != null) {
+          (byDate[date]!['guides'] as Set).add(guideId);
+        }
+      }
+      
+      // Convert sets to counts for dates
+      final byDateList = byDate.entries.map<Map<String, dynamic>>((entry) {
+        final guidesSet = entry.value['guides'] as Set;
+        return {
+          'date': entry.key,
+          'totalAssignments': entry.value['totalAssignments'],
+          'totalPassengers': entry.value['totalPassengers'],
+          'totalBookings': entry.value['totalBookings'],
+          'totalGuides': guidesSet.length,
+        };
+      }).toList();
+      
+      // Sort by date descending
+      byDateList.sort((a, b) => b['date'].toString().compareTo(a['date'].toString()));
+      
+      return {
+        'totalAssignments': totalAssignments,
+        'totalPassengers': totalPassengers,
+        'byGuide': byGuide,
+        'byDate': byDateList,
+      };
+    } catch (e) {
+      throw Exception('Failed to load pickup statistics: $e');
     }
   }
 } 

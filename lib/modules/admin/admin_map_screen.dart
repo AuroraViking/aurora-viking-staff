@@ -10,13 +10,16 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:provider/provider.dart';
 import 'dart:math';
+import 'dart:async';
 import '../../core/theme/colors.dart';
 import '../../core/config/env_config.dart';
 import '../../core/services/bus_management_service.dart';
 import '../../core/services/firebase_service.dart';
 import '../../core/models/pickup_models.dart';
+import '../../core/models/admin_models.dart';
 import '../../core/services/location_service.dart';
 import '../pickup/pickup_controller.dart';
+import 'admin_service.dart';
 
 class AdminMapScreen extends StatefulWidget {
   const AdminMapScreen({super.key});
@@ -57,18 +60,29 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
   Map<String, Map<String, String>> _busGuideAssignments = {};
   Map<String, GuidePickupList?> _guidePickupLists = {};
 
+  // Timer to periodically refresh assignments
+  Timer? _assignmentRefreshTimer;
+
   @override
   void initState() {
     super.initState();
     _checkApiKey();
     _loadBusData();
     _loadBusLocations();
+    
+    // Start periodic refresh of assignments (every 15 seconds)
+    _assignmentRefreshTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
+      if (mounted) {
+        _loadBusGuideAssignments();
+      }
+    });
   }
 
   @override
   void dispose() {
     // Save daily distances before disposing
     _saveDailyDistances();
+    _assignmentRefreshTimer?.cancel();
     _mapController?.dispose();
     super.dispose();
   }
@@ -103,13 +117,16 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
 
       final busData = <String, Map<String, dynamic>>{};
 
+      print('🚌 Loading ${buses.length} buses from Firestore:');
       for (final bus in buses) {
         final busId = bus['id'] as String;
+        final busName = bus['name'] as String;
         final colorName = bus['color'] as String? ?? 'blue';
         final color = _getColorFromString(colorName);
 
+        print('  - Bus: $busName, ID: $busId');
         busData[busId] = {
-          'name': bus['name'] as String,
+          'name': busName,
           'licensePlate': bus['licensePlate'] as String,
           'color': color,
           'trailColor': color.withOpacity(0.6),
@@ -522,6 +539,8 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
 
   void _refreshTrails() async {
     await _loadAllBusTrails();
+    // Also refresh assignments to pick up any changes from pickup management
+    await _loadBusGuideAssignments();
   }
 
   @override
@@ -653,12 +672,55 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
     );
   }
 
-  // NEW: Color legend for map
+  // NEW: Bus list legend showing names and completion percentages
   Widget _buildLegend() {
+    // Get bus completion data
+    final busCompletionData = <Map<String, dynamic>>[];
+    
+    for (final bus in _activeBuses) {
+      final busId = bus['busId'] as String;
+      final busName = bus['name'] as String;
+      
+      // Get guide assignment and pickup info
+      final assignment = _busGuideAssignments[busId];
+      final guideId = assignment?['guideId'];
+      final guidePickupList = guideId != null ? _guidePickupLists[guideId] : null;
+      
+      // Calculate completion percentage
+      int pickedUpCount = 0;
+      int totalPassengers = 0;
+      if (guidePickupList != null) {
+        pickedUpCount = guidePickupList.bookings
+            .where((b) => b.isArrived)
+            .fold<int>(0, (sum, b) => sum + b.numberOfGuests);
+        totalPassengers = guidePickupList.totalPassengers;
+      }
+      
+      final percentage = totalPassengers > 0 
+          ? (pickedUpCount / totalPassengers * 100).round()
+          : 0;
+      
+      busCompletionData.add({
+        'busName': busName,
+        'percentage': percentage,
+        'pickedUp': pickedUpCount,
+        'total': totalPassengers,
+      });
+    }
+    
+    // Sort by bus name
+    busCompletionData.sort((a, b) => 
+        (a['busName'] as String).compareTo(b['busName'] as String));
+    
+    if (busCompletionData.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    
     return Container(
       padding: const EdgeInsets.all(8),
+      constraints: const BoxConstraints(maxWidth: 200),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.9),
+        color: Colors.white.withOpacity(0.95),
         borderRadius: BorderRadius.circular(8),
         boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 4)],
       ),
@@ -666,29 +728,82 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          _buildLegendItem(Colors.red, 'Not started'),
-          _buildLegendItem(Colors.orange, '<25%'),
-          _buildLegendItem(Colors.amber, '25-75%'),
-          _buildLegendItem(Colors.lightGreen, '>75%'),
-          _buildLegendItem(Colors.green, 'Complete'),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildLegendItem(Color color, String label) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 12,
-            height: 12,
-            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          const Text(
+            'Buses',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              color: Colors.black87,
+            ),
           ),
-          const SizedBox(width: 6),
-          Text(label, style: const TextStyle(fontSize: 11)),
+          const SizedBox(height: 6),
+          ...busCompletionData.map((busData) {
+            final busName = busData['busName'] as String;
+            final percentage = busData['percentage'] as int;
+            final pickedUp = busData['pickedUp'] as int;
+            final total = busData['total'] as int;
+            
+            Color indicatorColor;
+            if (total == 0) {
+              indicatorColor = Colors.grey;
+            } else if (percentage == 0) {
+              indicatorColor = Colors.red;
+            } else if (percentage < 25) {
+              indicatorColor = Colors.orange;
+            } else if (percentage < 75) {
+              indicatorColor = Colors.amber;
+            } else if (percentage < 100) {
+              indicatorColor = Colors.lightGreen;
+            } else {
+              indicatorColor = Colors.green;
+            }
+            
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: 3),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 12,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      color: indicatorColor,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.black26, width: 1),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          busName,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                            color: Colors.black87,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        Text(
+                          total > 0 
+                              ? '$percentage% ($pickedUp/$total)'
+                              : 'No pickups',
+                          style: const TextStyle(
+                            fontSize: 10,
+                            color: Colors.black54,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }).toList(),
         ],
       ),
     );
@@ -911,24 +1026,52 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
 
   Future<void> _loadBusGuideAssignments() async {
     try {
-      if (_busData.isEmpty) return;
+      if (_busData.isEmpty) {
+        print('⚠️ _loadBusGuideAssignments: No bus data loaded yet');
+        return;
+      }
 
       final today = DateTime.now();
       final dateStr = '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
 
+      print('🔄 _loadBusGuideAssignments: Loading assignments for ${_busData.length} buses on date $dateStr');
+
+      // Check for assignments for all buses
       for (final busId in _busData.keys) {
+        final busName = _busData[busId]?['name'] ?? 'Unknown';
+        print('🔍 Checking assignment for bus: $busName (ID: $busId)');
         final assignment = await FirebaseService.getGuideAssignmentForBus(
           busId: busId,
           date: dateStr,
         );
 
         if (assignment != null && assignment['guideId']!.isNotEmpty) {
+          print('✅ Found assignment for $busName: ${assignment['guideName']} (${assignment['guideId']})');
+          // Always update the assignment - the query filters by date, so if we get a result
+          // it's for today. This fixes the issue where the same guide on consecutive days
+          // wasn't updating because the guideId comparison was the same.
           if (mounted) {
             setState(() {
               _busGuideAssignments[busId] = assignment;
             });
           }
+          // Always reload pickup list - even if same guide, date has changed
           await _loadGuidePickupList(assignment['guideId']!, today);
+        } else {
+          print('⚠️ No assignment found for $busName (ID: $busId) on date $dateStr');
+          // Remove assignment if it was removed from Firebase
+          if (_busGuideAssignments.containsKey(busId)) {
+            if (mounted) {
+              setState(() {
+                _busGuideAssignments.remove(busId);
+              });
+            }
+            // Also clear the pickup list for this bus
+            final oldAssignment = _busGuideAssignments[busId];
+            if (oldAssignment != null && oldAssignment['guideId'] != null) {
+              _guidePickupLists.remove(oldAssignment['guideId']);
+            }
+          }
         }
       }
 
@@ -1020,19 +1163,186 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
       final today = DateTime.now();
       final dateStr = '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
 
+      print('🔍 Loading assignment for bus $busId on date $dateStr');
       final assignment = await FirebaseService.getGuideAssignmentForBus(
         busId: busId,
         date: dateStr,
       );
 
+      print('📋 Assignment result for bus $busId: $assignment');
       if (assignment != null && assignment['guideId']!.isNotEmpty && mounted) {
+        print('✅ Found assignment: ${assignment['guideName']} (${assignment['guideId']})');
         setState(() {
           _busGuideAssignments[busId] = assignment;
         });
         await _loadGuidePickupList(assignment['guideId']!, today);
+      } else {
+        print('⚠️ No assignment found for bus $busId on date $dateStr');
       }
     } catch (e) {
       print('❌ Error loading bus assignment: $e');
+    }
+  }
+
+  // Show guide selection dialog for bus assignment
+  Future<void> _showGuideSelectionDialog(String busId, String busName) async {
+    try {
+      // Load guides (get more than default limit to ensure we get all active guides)
+      final guides = await AdminService.getGuides(limit: 100, status: 'active');
+      
+      // Filter to active guides only (double check in case status filter didn't work)
+      final activeGuides = guides.where((guide) => guide.status == 'active').toList();
+      
+      if (activeGuides.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('No active guides available'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+        return;
+      }
+
+      // Show dialog
+      final selectedGuide = await showDialog<AdminGuide>(
+        context: context,
+        builder: (context) {
+          return AlertDialog(
+            backgroundColor: const Color(0xFF1A1A2E),
+            title: Text(
+              'Assign Guide to $busName',
+              style: const TextStyle(color: Colors.white),
+            ),
+            content: SizedBox(
+              width: double.maxFinite,
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: activeGuides.length,
+                itemBuilder: (context, index) {
+                  final guide = activeGuides[index];
+                  return ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: AppColors.primary,
+                      child: Text(
+                        guide.name.isNotEmpty ? guide.name[0].toUpperCase() : '?',
+                        style: const TextStyle(color: Colors.white),
+                      ),
+                    ),
+                    title: Text(
+                      guide.name,
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                    subtitle: Text(
+                      guide.email,
+                      style: const TextStyle(color: Colors.white70, fontSize: 12),
+                    ),
+                    onTap: () => Navigator.of(context).pop(guide),
+                  );
+                },
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
+              ),
+            ],
+          );
+        },
+      );
+
+      if (selectedGuide != null && mounted) {
+        await _assignGuideToBus(
+          busId: busId,
+          busName: busName,
+          guideId: selectedGuide.id,
+          guideName: selectedGuide.name,
+        );
+      }
+    } catch (e) {
+      print('❌ Error showing guide selection dialog: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to load guides: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  // Assign guide to bus
+  Future<void> _assignGuideToBus({
+    required String busId,
+    required String busName,
+    required String guideId,
+    required String guideName,
+  }) async {
+    try {
+      final today = DateTime.now();
+      final dateStr = '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+
+      // Show loading
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Assigning guide...'),
+            duration: Duration(seconds: 1),
+          ),
+        );
+      }
+
+      // Save assignment
+      await FirebaseService.saveBusGuideAssignment(
+        guideId: guideId,
+        guideName: guideName,
+        busId: busId,
+        busName: busName,
+        date: dateStr,
+      );
+
+      // Reload assignment
+      await _loadBusAssignmentForBus(busId);
+      
+      // Reload all bus assignments to refresh the map
+      await _loadBusGuideAssignments();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('✅ Assigned $guideName to $busName'),
+            backgroundColor: AppColors.success,
+          ),
+        );
+      }
+
+      // Close the bottom sheet and reopen to show updated info
+      if (Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+        // Small delay to ensure the bottom sheet is fully closed before reopening
+        await Future.delayed(const Duration(milliseconds: 100));
+      }
+      
+      // Re-tap the bus marker to refresh the bottom sheet
+      if (mounted) {
+        final busInfo = _busData[busId];
+        if (busInfo != null) {
+          _onBusMarkerTapped(busId);
+        }
+      }
+    } catch (e) {
+      print('❌ Error assigning guide to bus: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to assign guide: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -1141,16 +1451,29 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
             ),
           )
         else
-          Container(
-            margin: const EdgeInsets.symmetric(horizontal: 16),
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(color: Colors.grey.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
-            child: const Row(
-              children: [
-                Icon(Icons.info_outline, color: Colors.grey, size: 20),
-                SizedBox(width: 12),
-                Text('No guide assigned', style: TextStyle(color: Colors.grey, fontSize: 14)),
-              ],
+          InkWell(
+            onTap: () => _showGuideSelectionDialog(busId, busName),
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 16),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.primary.withOpacity(0.3)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.person_add, color: AppColors.primary, size: 20),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Text(
+                      'No guide assigned - Tap to assign',
+                      style: TextStyle(color: AppColors.primary, fontSize: 14, fontWeight: FontWeight.w500),
+                    ),
+                  ),
+                  const Icon(Icons.arrow_forward_ios, color: AppColors.primary, size: 16),
+                ],
+              ),
             ),
           ),
 

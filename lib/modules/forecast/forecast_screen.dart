@@ -12,7 +12,6 @@ import 'services/permission_util.dart';
 import 'widgets/forecast_chart_widget.dart';
 import 'widgets/cloud_cover_map.dart';
 import 'widgets/aurora_sighting_widget.dart';
-import '../../widgets/common/logo_widget.dart';
 
 class ForecastScreen extends StatefulWidget {
   const ForecastScreen({super.key});
@@ -278,16 +277,9 @@ class _ForecastScreenState extends State<ForecastScreen> {
       backgroundColor: Colors.black,
       appBar: AppBar(
         backgroundColor: Colors.black,
-        title: const Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            LogoSmall(),
-            SizedBox(width: 12),
-            Text(
-              'Aurora Nowcast',
-              style: TextStyle(color: Colors.white),
-            ),
-          ],
+        title: const Text(
+          'Aurora Nowcast',
+          style: TextStyle(color: Colors.white),
         ),
         actions: [
           IconButton(

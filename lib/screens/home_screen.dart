@@ -14,7 +14,6 @@ import '../modules/admin/admin_dashboard.dart';
 import '../modules/admin/admin_controller.dart';
 import '../core/auth/auth_controller.dart';
 import '../core/utils/platform_utils.dart';
-import '../widgets/common/logo_widget.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -25,6 +24,11 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+  }
 
   // Build screens list based on platform capabilities
   List<Widget> get _screens {
@@ -188,13 +192,8 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const LogoSmall(),
-            if (isWeb) ...[
-              const SizedBox(width: 8),
-              Container(
+        title: isWeb
+            ? Container(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
                   color: Colors.white.withOpacity(0.2),
@@ -204,10 +203,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   'WEB',
                   style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
                 ),
-              ),
-            ],
-          ],
-        ),
+              )
+            : null,
         centerTitle: true,
         leading: Consumer<AdminController>(
           builder: (context, adminController, child) {

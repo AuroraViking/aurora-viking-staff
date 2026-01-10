@@ -5,7 +5,6 @@ import '../../core/auth/auth_controller.dart';
 import '../shifts/shifts_screen.dart';
 import '../shifts/shifts_service.dart';
 import '../../core/models/shift_model.dart';
-import '../../widgets/common/logo_widget.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -241,8 +240,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
               child: Row(
                 children: [
-                  // Logo
-                  const LogoMedium(),
+                  // Avatar
+                  CircleAvatar(
+                    radius: 32,
+                    backgroundColor: av.AVColors.primaryTeal.withOpacity(0.2),
+                    child: Text(
+                      _userName.isNotEmpty ? _userName[0].toUpperCase() : '?',
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: av.AVColors.primaryTeal,
+                      ),
+                    ),
+                  ),
                   const SizedBox(width: 16),
                   // Name and role
                   Expanded(

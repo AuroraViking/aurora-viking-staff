@@ -490,7 +490,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             
                             // Mode toggle and forgot password
                             if (!_isForgotPassword) ...[
-                              Row(
+                              Column(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
                                   Text(
@@ -498,7 +498,14 @@ class _LoginScreenState extends State<LoginScreen> {
                                     style: const TextStyle(color: Colors.grey),
                                   ),
                                   TextButton(
-                                    onPressed: _toggleMode,
+                                    onPressed: () {
+                                      _toggleMode();
+                                    },
+                                    style: TextButton.styleFrom(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      minimumSize: Size.zero,
+                                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                    ),
                                     child: Text(
                                       _isSignUp ? 'Sign In' : 'Create Account',
                                       style: const TextStyle(

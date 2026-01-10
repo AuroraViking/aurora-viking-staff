@@ -8,7 +8,6 @@ import 'package:permission_handler/permission_handler.dart';
 import '../../core/services/location_service.dart';
 import '../../core/services/bus_management_service.dart';
 import '../../core/services/platform_service.dart';
-import '../../widgets/common/logo_widget.dart';
 
 class TrackingScreen extends StatefulWidget {
   const TrackingScreen({super.key});
@@ -476,24 +475,19 @@ class _TrackingScreenState extends State<TrackingScreen> with AutomaticKeepAlive
         child: SafeArea(
           child: Column(
             children: [
-              // Header - Fixed height with logo
+              // Header
               Container(
-                height: 80,
-                padding: const EdgeInsets.all(20.0),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const LogoSmall(),
-                    const SizedBox(width: 12),
-                    const Text(
-                      'Location Tracking',
-                      style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
+                height: 60,
+                padding: const EdgeInsets.all(16.0),
+                child: const Center(
+                  child: Text(
+                    'Location Tracking',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
                     ),
-                  ],
+                  ),
                 ),
               ),
               

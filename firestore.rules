@@ -7,6 +7,51 @@ service cloud.firestore {
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
     }
     
+    // Helper function to check if user is authenticated staff
+    function isStaff() {
+      return request.auth != null && 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+    
+    // ============================================
+    // UNIFIED INBOX - Messaging Collections
+    // ============================================
+    
+    // Messages: Staff read/write only
+    match /messages/{messageId} {
+      allow read, write: if isStaff();
+    }
+    
+    // Customers: Staff read/write only
+    match /customers/{customerId} {
+      allow read, write: if isStaff();
+    }
+    
+    // Conversations: Staff read/write only
+    match /conversations/{conversationId} {
+      allow read, write: if isStaff();
+    }
+    
+    // AI Drafts: Staff read/write only (Phase 2+)
+    match /aiDrafts/{draftId} {
+      allow read, write: if isStaff();
+    }
+    
+    // Suggested Actions: Staff read/write only (Phase 3+)
+    match /suggestedActions/{actionId} {
+      allow read, write: if isStaff();
+    }
+    
+    // Staff Activity: Write for authenticated staff, read for all staff
+    match /staffActivity/{activityId} {
+      allow create: if isStaff() && request.auth.uid == request.resource.data.staffId;
+      allow read: if isStaff();
+    }
+    
+    // ============================================
+    // Existing Collections
+    // ============================================
+    
     match /users/{userId} {
       // Users can read/write their own document
       allow read, write: if request.auth != null && request.auth.uid == userId;

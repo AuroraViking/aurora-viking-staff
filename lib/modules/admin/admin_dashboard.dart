@@ -11,7 +11,8 @@ import 'admin_guide_management_screen.dart';
 import 'admin_reports_screen.dart';
 import 'admin_pickup_management_screen.dart';
 import 'admin_bus_management_screen.dart';
-import '../../widgets/common/logo_widget.dart';
+import '../inbox/unified_inbox_screen.dart';
+import '../inbox/inbox_controller.dart';
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
@@ -156,14 +157,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
       builder: (context, adminController, child) {
         return Scaffold(
           appBar: AppBar(
-            title: const Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                LogoSmall(),
-                SizedBox(width: 12),
-                Text('Admin Dashboard'),
-              ],
-            ),
+            title: const Text('Admin Dashboard'),
             backgroundColor: AppColors.primary,
             foregroundColor: Colors.white,
             actions: [
@@ -348,6 +342,35 @@ class _AdminDashboardState extends State<AdminDashboard> {
           ),
           const SizedBox(height: 16),
           
+          // Inbox with unread badge
+          Consumer<InboxController>(
+            builder: (context, inboxController, child) {
+              // Initialize inbox controller when admin dashboard opens
+              if (!inboxController.isInitialized) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  inboxController.initialize();
+                });
+              }
+              return _buildActionCardWithBadge(
+                'Inbox',
+                'Manage customer messages from Gmail, WhatsApp, and Wix',
+                Icons.inbox_rounded,
+                Colors.indigo,
+                inboxController.unreadCount,
+                () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const UnifiedInboxScreen(),
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+          
+          const SizedBox(height: 12),
+          
           _buildActionCard(
             'Live Tracking Map',
             'Monitor all active tours and guide locations in real-time',
@@ -503,6 +526,58 @@ class _AdminDashboardState extends State<AdminDashboard> {
         title: Text(
           title,
           style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+        subtitle: Text(description),
+        trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+        onTap: onTap,
+      ),
+    );
+  }
+
+  Widget _buildActionCardWithBadge(
+    String title,
+    String description,
+    IconData icon,
+    Color color,
+    int badgeCount,
+    VoidCallback onTap,
+  ) {
+    return Card(
+      elevation: 2,
+      child: ListTile(
+        leading: Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(icon, color: color),
+        ),
+        title: Row(
+          children: [
+            Text(
+              title,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+            if (badgeCount > 0) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.red,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  badgeCount > 99 ? '99+' : '$badgeCount',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ],
         ),
         subtitle: Text(description),
         trailing: const Icon(Icons.arrow_forward_ios, size: 16),

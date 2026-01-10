@@ -8,7 +8,6 @@ import '../../core/models/pickup_models.dart';
 import '../../core/services/firebase_service.dart';
 import '../../widgets/common/loading_widget.dart';
 import '../../widgets/common/error_widget.dart';
-import '../../widgets/common/logo_widget.dart';
 import 'pickup_controller.dart';
 import 'end_of_shift_dialog.dart';
 
@@ -116,14 +115,7 @@ class _PickupScreenState extends State<PickupScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            LogoSmall(),
-            SizedBox(width: 12),
-            Text('My Pickup List'),
-          ],
-        ),
+        title: const Text('My Pickup List'),
         backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
         actions: [
