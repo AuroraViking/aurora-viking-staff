@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import '../../core/models/admin_models.dart';
 import '../../core/theme/colors.dart';
 import '../../core/services/firebase_service.dart';
 import 'admin_service.dart';
@@ -19,20 +18,13 @@ class AdminReportsScreen extends StatefulWidget {
 }
 
 class _AdminReportsScreenState extends State<AdminReportsScreen> {
-  AdminStats? _stats;
-  bool _isLoading = true;
+  // Month/Year for Financial Analytics filtering (defaults to current month)
   int _selectedYear = DateTime.now().year;
   int _selectedMonth = DateTime.now().month;
-  Map<String, dynamic>? _monthlyReport;
-  bool _isLoadingReport = false;
   
-  // New data for Tour Reports, Shifts, and Pickups
+  // Tour Reports data
   List<Map<String, dynamic>> _tourReports = [];
-  Map<String, dynamic>? _shiftsStats;
-  Map<String, dynamic>? _pickupStats;
   bool _isLoadingTourReports = false;
-  bool _isLoadingShifts = false;
-  bool _isLoadingPickups = false;
   bool _isGeneratingReport = false;
   
   // Date search for tour reports
@@ -46,75 +38,7 @@ class _AdminReportsScreenState extends State<AdminReportsScreen> {
   @override
   void initState() {
     super.initState();
-    _loadStats();
-    _loadMonthlyReport();
     _loadTourReports();
-    _loadShiftsStats();
-    _loadPickupStats();
-  }
-
-  Future<void> _loadStats() async {
-    setState(() {
-      _isLoading = true;
-    });
-
-    try {
-      final stats = await AdminService.getDashboardStats();
-      setState(() {
-        _stats = stats;
-        _isLoading = false;
-      });
-    } catch (e) {
-      setState(() {
-        _isLoading = false;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error loading stats: $e')),
-      );
-    }
-  }
-
-  Future<void> _loadMonthlyReport() async {
-    setState(() {
-      _isLoadingReport = true;
-    });
-
-    try {
-      final report = await AdminService.getMonthlyReport(_selectedYear, _selectedMonth);
-      setState(() {
-        _monthlyReport = report;
-        _isLoadingReport = false;
-      });
-    } catch (e) {
-      setState(() {
-        _isLoadingReport = false;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error loading monthly report: $e')),
-      );
-    }
-  }
-
-  void _onYearChanged(int year) {
-    setState(() {
-      _selectedYear = year;
-    });
-    _loadMonthlyReport();
-  }
-
-  void _onMonthChanged(int month) {
-    setState(() {
-      _selectedMonth = month;
-    });
-    _loadMonthlyReport();
-  }
-
-  String _getMonthName(int month) {
-    const months = [
-      'January', 'February', 'March', 'April', 'May', 'June',
-      'July', 'August', 'September', 'October', 'November', 'December'
-    ];
-    return months[month - 1];
   }
 
   Future<void> _loadTourReports() async {
@@ -152,51 +76,6 @@ class _AdminReportsScreenState extends State<AdminReportsScreen> {
     }
   }
 
-  Future<void> _loadShiftsStats() async {
-    setState(() {
-      _isLoadingShifts = true;
-    });
-
-    try {
-      final stats = await AdminService.getShiftsStatistics();
-      setState(() {
-        _shiftsStats = stats;
-        _isLoadingShifts = false;
-      });
-    } catch (e) {
-      setState(() {
-        _isLoadingShifts = false;
-      });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error loading shifts statistics: $e')),
-        );
-      }
-    }
-  }
-
-  Future<void> _loadPickupStats() async {
-    setState(() {
-      _isLoadingPickups = true;
-    });
-
-    try {
-      final stats = await AdminService.getPickupStatistics();
-      setState(() {
-        _pickupStats = stats;
-        _isLoadingPickups = false;
-      });
-    } catch (e) {
-      setState(() {
-        _isLoadingPickups = false;
-      });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error loading pickup statistics: $e')),
-        );
-      }
-    }
-  }
 
   Future<void> _openSheetUrl(String url) async {
     try {
@@ -1202,538 +1081,129 @@ class _AdminReportsScreenState extends State<AdminReportsScreen> {
         actions: [
           IconButton(
             onPressed: () {
-              _loadStats();
-              _loadMonthlyReport();
               _loadTourReports();
-              _loadShiftsStats();
-              _loadPickupStats();
             },
             icon: const Icon(Icons.refresh),
-            tooltip: 'Refresh All',
+            tooltip: 'Refresh',
           ),
         ],
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
+      body: SingleChildScrollView(
               padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Overview Stats
-                  Text(
-                    'Overview',
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.primary,
-                    ),
+                  // ===== FINANCIAL ANALYTICS =====
+                  FinancialAnalyticsWidget(
+                    totalPassengers: _tourReports
+                        .where((r) => _isInSelectedMonth(r['date'] as String?))
+                        .fold(0, (sum, r) => sum + ((r['totalPassengers'] as int?) ?? 0)),
+                    totalTours: _tourReports
+                        .where((r) => _isInSelectedMonth(r['date'] as String?))
+                        .length,
+                    totalGuidesWorked: _tourReports
+                        .where((r) => _isInSelectedMonth(r['date'] as String?))
+                        .fold(0, (sum, r) => sum + ((r['totalGuides'] as int?) ?? 0)),
                   ),
-                  const SizedBox(height: 16),
-                  if (_stats != null) ...[
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _buildStatCard(
-                            'Total Guides',
-                            _stats!.totalGuides.toString(),
-                            Icons.people,
-                            Colors.blue,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: _buildStatCard(
-                            'Active Guides',
-                            _stats!.activeGuides.toString(),
-                            Icons.person,
-                            Colors.green,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _buildStatCard(
-                            'Pending Shifts',
-                            _stats!.pendingShifts.toString(),
-                            Icons.schedule,
-                            Colors.orange,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: _buildStatCard(
-                            'Today\'s Tours',
-                            _stats!.todayTours.toString(),
-                            Icons.directions_bus,
-                            Colors.purple,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
                   
                   const SizedBox(height: 32),
                   
-                  // Monthly Report
+                  // ===== SEARCH REPORTS =====
+                  _buildReportSearchSection(),
+                  
+                  const SizedBox(height: 32),
+                  
+                  // ===== GENERATE TOUR REPORT =====
                   Text(
-                    'Monthly Report',
+                    'Generate Tour Report',
                     style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                       fontWeight: FontWeight.bold,
                       color: AppColors.primary,
                     ),
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 12),
                   
-                  // Month/Year Selector
+                  // Date selector and generate button row
                   Row(
                     children: [
                       Expanded(
-                        child: DropdownButtonFormField<int>(
-                          value: _selectedMonth,
-                          decoration: const InputDecoration(
-                            labelText: 'Month',
-                            border: OutlineInputBorder(),
-                          ),
-                          items: List.generate(12, (index) => index + 1)
-                              .map((month) => DropdownMenuItem(
-                                    value: month,
-                                    child: Text(_getMonthName(month)),
-                                  ))
-                              .toList(),
-                          onChanged: (value) => _onMonthChanged(value!),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: DropdownButtonFormField<int>(
-                          value: _selectedYear,
-                          decoration: const InputDecoration(
-                            labelText: 'Year',
-                            border: OutlineInputBorder(),
-                          ),
-                          items: List.generate(5, (index) => DateTime.now().year - 2 + index)
-                              .map((year) => DropdownMenuItem(
-                                    value: year,
-                                    child: Text(year.toString()),
-                                  ))
-                              .toList(),
-                          onChanged: (value) => _onYearChanged(value!),
-                        ),
-                      ),
-                    ],
-                  ),
-                  
-                  const SizedBox(height: 16),
-                  
-                  if (_isLoadingReport)
-                    const Center(child: CircularProgressIndicator())
-                  else if (_monthlyReport != null) ...[
-                    // Monthly Stats Cards
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _buildReportCard(
-                            'Total Shifts',
-                            _monthlyReport!['totalShifts'].toString(),
-                            Icons.work,
-                            Colors.blue,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: _buildReportCard(
-                            'Day Tours',
-                            _monthlyReport!['dayTours'].toString(),
-                            Icons.wb_sunny,
-                            Colors.orange,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _buildReportCard(
-                            'Northern Lights',
-                            _monthlyReport!['northernLights'].toString(),
-                            Icons.nightlight,
-                            Colors.purple,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: _buildReportCard(
-                            'Revenue',
-                            '\$${_monthlyReport!['revenue'].toString()}',
-                            Icons.attach_money,
-                            Colors.green,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _buildReportCard(
-                            'Profit',
-                            '\$${_monthlyReport!['profit'].toString()}',
-                            Icons.trending_up,
-                            Colors.green,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: _buildReportCard(
-                            'Total Guides',
-                            _monthlyReport!['totalGuides'].toString(),
-                            Icons.people,
-                            Colors.blue,
-                          ),
-                        ),
-                      ],
-                    ),
-                    
-                    const SizedBox(height: 32),
-                    
-                    // Financial Analytics Section
-                    FinancialAnalyticsWidget(
-                      totalPassengers: _tourReports
-                          .where((r) => _isInSelectedMonth(r['date'] as String?))
-                          .fold(0, (sum, r) => sum + ((r['totalPassengers'] as int?) ?? 0)),
-                      totalTours: _tourReports
-                          .where((r) => _isInSelectedMonth(r['date'] as String?))
-                          .length,
-                      totalGuidesWorked: _tourReports
-                          .where((r) => _isInSelectedMonth(r['date'] as String?))
-                          .fold(0, (sum, r) => sum + ((r['totalGuides'] as int?) ?? 0)),
-                    ),
-                    
-                    const SizedBox(height: 24),
-                    
-                    // Top Guides
-                    if (_monthlyReport!['topGuides'] != null) ...[
-                      Text(
-                        'Top Performing Guides',
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      ...(_monthlyReport!['topGuides'] as List<dynamic>).map((guide) => Card(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        child: ListTile(
-                          leading: CircleAvatar(
-                            backgroundColor: AppColors.primary.withOpacity(0.1),
-                            child: Text(
-                              guide['name'].toString().split(' ').map((e) => e[0]).join(''),
-                              style: TextStyle(color: AppColors.primary),
+                        child: InkWell(
+                          onTap: _isGeneratingReport ? null : _showGenerateReportDatePicker,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF252540),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.grey[700]!),
                             ),
-                          ),
-                          title: Text(guide['name']),
-                          subtitle: Text('${guide['shifts']} shifts completed'),
-                          trailing: Text(
-                            '${guide['shifts']} shifts',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: AppColors.primary,
-                            ),
-                          ),
-                        ),
-                      )),
-                    ],
-                  ],
-                  
-                  const SizedBox(height: 32),
-                  
-                  // Shift Type Breakdown
-                  if (_stats != null) ...[
-                    Text(
-                      'Shift Type Breakdown',
-                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.primary,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          children: _stats!.shiftsByType.entries.map((entry) => Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
                             child: Row(
                               children: [
-                                Icon(
-                                  entry.key == 'day_tour' ? Icons.wb_sunny : Icons.nightlight,
-                                  color: entry.key == 'day_tour' ? Colors.orange : Colors.purple,
-                                ),
+                                const Icon(Icons.calendar_today, color: AppColors.primary),
                                 const SizedBox(width: 12),
                                 Expanded(
                                   child: Text(
-                                    entry.key.replaceAll('_', ' ').toUpperCase(),
-                                    style: const TextStyle(fontWeight: FontWeight.w500),
-                                  ),
-                                ),
-                                Text(
-                                  entry.value.toString(),
-                                  style: const TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
+                                    _generateReportDate != null
+                                        ? '${_generateReportDate!.day}/${_generateReportDate!.month}/${_generateReportDate!.year}'
+                                        : 'Select date to generate report...',
+                                    style: TextStyle(
+                                      color: _generateReportDate != null ? Colors.white : Colors.grey,
+                                    ),
                                   ),
                                 ),
                               ],
                             ),
-                          )).toList(),
+                          ),
                         ),
                       ),
-                    ),
-                    
-                    const SizedBox(height: 32),
-                    
-                    // Monthly Trends
-                    Text(
-                      'Monthly Trends',
-                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.primary,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          children: _stats!.monthlyStats.map((monthly) => Padding(
-                            padding: const EdgeInsets.only(bottom: 16),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  monthly.month,
-                                  style: const TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: _buildMiniStat(
-                                        'Total',
-                                        monthly.totalShifts.toString(),
-                                        Colors.blue,
-                                      ),
-                                    ),
-                                    Expanded(
-                                      child: _buildMiniStat(
-                                        'Day Tours',
-                                        monthly.dayTours.toString(),
-                                        Colors.orange,
-                                      ),
-                                    ),
-                                    Expanded(
-                                      child: _buildMiniStat(
-                                        'Northern Lights',
-                                        monthly.northernLights.toString(),
-                                        Colors.purple,
-                                      ),
-                                    ),
-                                    Expanded(
-                                      child: _buildMiniStat(
-                                        'Guides',
-                                        monthly.totalGuides.toString(),
-                                        Colors.green,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          )).toList(),
-                        ),
-                      ),
-                    ),
-                  ],
-                  
-                  const SizedBox(height: 32),
-                  
-                  // Search Reports Section
-                  _buildReportSearchSection(),
-                  
-                  // Tour Reports Section
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Generate Tour Report',
-                        style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.primary,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      
-                      // Date selector and generate button
-                      Row(
-                        children: [
-                          Expanded(
-                            child: InkWell(
-                              onTap: _isGeneratingReport ? null : _showGenerateReportDatePicker,
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF252540),
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(color: Colors.grey[700]!),
-                                ),
-                                child: Row(
-                                  children: [
-                                    const Icon(Icons.calendar_today, color: AppColors.primary),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Text(
-                                        _generateReportDate != null
-                                            ? '${_generateReportDate!.day}/${_generateReportDate!.month}/${_generateReportDate!.year}'
-                                            : 'Select date to generate report...',
-                                        style: TextStyle(
-                                          color: _generateReportDate != null ? Colors.white : Colors.grey[500],
-                                          fontSize: 16,
-                                        ),
-                                      ),
-                                    ),
-                                    if (_isGeneratingReport)
-                                      const SizedBox(
-                                        width: 20,
-                                        height: 20,
-                                        child: CircularProgressIndicator(strokeWidth: 2),
-                                      )
-                                    else
-                                      const Icon(Icons.arrow_drop_down, color: Colors.grey),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          ElevatedButton.icon(
-                            onPressed: (_isGeneratingReport || _generateReportDate == null) 
-                                ? null 
-                                : () => _generateReportForDate(_generateReportDate!),
-                            icon: _isGeneratingReport
-                                ? const SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                                  )
-                                : const Icon(Icons.play_arrow),
-                            label: Text(_isGeneratingReport ? 'Generating...' : 'Generate'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.green,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 20),
-                            ),
-                          ),
-                        ],
-                      ),
-                      
-                      const SizedBox(height: 8),
-                      
-                      // Quick date buttons
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          ActionChip(
-                            label: const Text('Today'),
-                            onPressed: _isGeneratingReport 
-                                ? null 
-                                : () {
-                                    setState(() {
-                                      _generateReportDate = DateTime.now();
-                                    });
-                                    _generateReportForDate(DateTime.now());
-                                  },
-                            backgroundColor: _generateReportDate != null &&
-                                    _generateReportDate!.year == DateTime.now().year &&
-                                    _generateReportDate!.month == DateTime.now().month &&
-                                    _generateReportDate!.day == DateTime.now().day
-                                ? AppColors.primary
-                                : const Color(0xFF252540),
-                            labelStyle: TextStyle(
-                              color: _generateReportDate != null &&
-                                      _generateReportDate!.year == DateTime.now().year &&
-                                      _generateReportDate!.month == DateTime.now().month &&
-                                      _generateReportDate!.day == DateTime.now().day
-                                  ? Colors.white
-                                  : Colors.grey[400],
-                              fontSize: 12,
-                            ),
-                          ),
-                          ActionChip(
-                            label: const Text('Yesterday'),
-                            onPressed: _isGeneratingReport 
-                                ? null 
-                                : () {
-                                    final yesterday = DateTime.now().subtract(const Duration(days: 1));
-                                    setState(() {
-                                      _generateReportDate = yesterday;
-                                    });
-                                    _generateReportForDate(yesterday);
-                                  },
-                            backgroundColor: const Color(0xFF252540),
-                            labelStyle: TextStyle(color: Colors.grey[400], fontSize: 12),
-                          ),
-                          ActionChip(
-                            label: const Text('2 days ago'),
-                            onPressed: _isGeneratingReport 
-                                ? null 
-                                : () {
-                                    final twoDaysAgo = DateTime.now().subtract(const Duration(days: 2));
-                                    setState(() {
-                                      _generateReportDate = twoDaysAgo;
-                                    });
-                                    _generateReportForDate(twoDaysAgo);
-                                  },
-                            backgroundColor: const Color(0xFF252540),
-                            labelStyle: TextStyle(color: Colors.grey[400], fontSize: 12),
-                          ),
-                        ],
-                      ),
-                      
-                      const SizedBox(height: 16),
-                      
-                      Text(
-                        'Recent Reports (Last 30 Days)',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.grey[400],
+                      const SizedBox(width: 12),
+                      ElevatedButton.icon(
+                        onPressed: (_isGeneratingReport || _generateReportDate == null) 
+                            ? null 
+                            : () => _generateReportForDate(_generateReportDate!),
+                        icon: _isGeneratingReport
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.play_arrow),
+                        label: Text(_isGeneratingReport ? 'Generating...' : 'Generate'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
                         ),
                       ),
                     ],
                   ),
+                  
+                  const SizedBox(height: 32),
+                  
+                  // ===== RECENT TOUR REPORTS =====
+                  Text(
+                    'Recent Tour Reports',
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.primary,
+                    ),
+                  ),
                   const SizedBox(height: 16),
+                  
                   if (_isLoadingTourReports)
                     const Center(child: CircularProgressIndicator())
                   else if (_tourReports.isEmpty)
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Text(
-                          'No tour reports available',
-                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: Colors.grey,
-                          ),
-                        ),
+                    Container(
+                      padding: const EdgeInsets.all(24),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Center(
+                        child: Text('No tour reports found'),
                       ),
                     )
                   else
-                    ..._tourReports.take(10).map((report) {
+                    ..._tourReports.take(30).map((report) {
                       final date = report['date'] as String? ?? 'Unknown';
                       final sheetUrl = report['sheetUrl'] as String?;
                       final totalGuides = report['totalGuides'] ?? 0;
@@ -1771,329 +1241,9 @@ class _AdminReportsScreenState extends State<AdminReportsScreen> {
                     }),
                   
                   const SizedBox(height: 32),
-                  
-                  // Shifts Analytics Section
-                  Text(
-                    'Shifts Analytics',
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.primary,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  if (_isLoadingShifts)
-                    const Center(child: CircularProgressIndicator())
-                  else if (_shiftsStats != null) ...[
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _buildReportCard(
-                            'Total Shifts',
-                            _shiftsStats!['totalShifts'].toString(),
-                            Icons.work,
-                            Colors.blue,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: _buildReportCard(
-                            'Day Tours',
-                            (_shiftsStats!['byType'] as Map?)?['dayTour']?.toString() ?? '0',
-                            Icons.wb_sunny,
-                            Colors.orange,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _buildReportCard(
-                            'Northern Lights',
-                            (_shiftsStats!['byType'] as Map?)?['northernLights']?.toString() ?? '0',
-                            Icons.nightlight,
-                            Colors.purple,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: _buildReportCard(
-                            'Accepted',
-                            (_shiftsStats!['byStatus'] as Map?)?['accepted']?.toString() ?? '0',
-                            Icons.check_circle,
-                            Colors.green,
-                          ),
-                        ),
-                      ],
-                    ),
-                    if ((_shiftsStats!['byGuide'] as Map?) != null && 
-                        (_shiftsStats!['byGuide'] as Map).isNotEmpty) ...[
-                      const SizedBox(height: 16),
-                      Text(
-                        'Top Guides by Shifts',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      ...(_shiftsStats!['byGuide'] as Map).entries.take(5).map((entry) {
-                        final guideData = entry.value as Map<String, dynamic>;
-                        final guideName = guideData['guideName'] ?? entry.key;
-                        final count = guideData['count'] ?? 0;
-                        return Card(
-                          margin: const EdgeInsets.only(bottom: 4),
-                          child: ListTile(
-                            dense: true,
-                            leading: const Icon(Icons.person, size: 20),
-                            title: Text(guideName),
-                            trailing: Text(
-                              '$count shifts',
-                              style: const TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                          ),
-                        );
-                      }),
-                    ],
-                  ],
-                  
-                  const SizedBox(height: 32),
-                  
-                  // Pickup Statistics Section
-                  Text(
-                    'Pickup Lists Statistics',
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.primary,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  if (_isLoadingPickups)
-                    const Center(child: CircularProgressIndicator())
-                  else if (_pickupStats != null) ...[
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _buildReportCard(
-                            'Total Assignments',
-                            _pickupStats!['totalAssignments'].toString(),
-                            Icons.assignment,
-                            Colors.blue,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: _buildReportCard(
-                            'Total Passengers',
-                            _pickupStats!['totalPassengers'].toString(),
-                            Icons.people,
-                            Colors.green,
-                          ),
-                        ),
-                      ],
-                    ),
-                    if ((_pickupStats!['byGuide'] as Map?) != null && 
-                        (_pickupStats!['byGuide'] as Map).isNotEmpty) ...[
-                      const SizedBox(height: 16),
-                      Text(
-                        'Guides by Pickup Assignments',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      ...(_pickupStats!['byGuide'] as Map).entries.take(5).map((entry) {
-                        final guideData = entry.value as Map<String, dynamic>;
-                        return Card(
-                          margin: const EdgeInsets.only(bottom: 4),
-                          child: ListTile(
-                            dense: true,
-                            leading: const Icon(Icons.directions_bus, size: 20),
-                            title: Text(guideData['guideName'] ?? entry.key),
-                            subtitle: Text(
-                              '${guideData['totalPassengers']} passengers • ${guideData['totalBookings']} bookings',
-                            ),
-                            trailing: Text(
-                              '${guideData['totalAssignments']}',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
-                              ),
-                            ),
-                          ),
-                        );
-                      }),
-                    ],
-                    if ((_pickupStats!['byDate'] as List?) != null && 
-                        (_pickupStats!['byDate'] as List).isNotEmpty) ...[
-                      const SizedBox(height: 16),
-                      Text(
-                        'Recent Dates',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      ...(_pickupStats!['byDate'] as List).take(5).map((dateData) {
-                        final data = dateData as Map<String, dynamic>;
-                        return Card(
-                          margin: const EdgeInsets.only(bottom: 4),
-                          child: ListTile(
-                            dense: true,
-                            leading: const Icon(Icons.calendar_today, size: 20),
-                            title: Text(data['date'] ?? 'Unknown'),
-                            subtitle: Text('${data['totalGuides']} guides'),
-                            trailing: Text(
-                              '${data['totalPassengers']} passengers',
-                              style: const TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                          ),
-                        );
-                      }),
-                    ],
-                  ],
-                  
-                  const SizedBox(height: 32),
-                  
-                  // Export Options
-                  Text(
-                    'Export Data',
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.primary,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: () async {
-                            try {
-                              final filename = await AdminService.exportData('shifts');
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('Exported to $filename')),
-                              );
-                            } catch (e) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('Export failed: $e')),
-                              );
-                            }
-                          },
-                          icon: const Icon(Icons.download),
-                          label: const Text('Export Shifts'),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: () async {
-                            try {
-                              final filename = await AdminService.exportData('guides');
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('Exported to $filename')),
-                              );
-                            } catch (e) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('Export failed: $e')),
-                              );
-                            }
-                          },
-                          icon: const Icon(Icons.download),
-                          label: const Text('Export Guides'),
-                        ),
-                      ),
-                    ],
-                  ),
                 ],
               ),
             ),
-    );
-  }
-
-  Widget _buildStatCard(String title, String value, IconData icon, Color color) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withOpacity(0.3)),
-      ),
-      child: Column(
-        children: [
-          Icon(icon, size: 32, color: color),
-          const SizedBox(height: 8),
-          Text(
-            value,
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.bold,
-              color: color,
-            ),
-          ),
-          Text(
-            title,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: color,
-              fontWeight: FontWeight.w500,
-            ),
-            textAlign: TextAlign.center,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildReportCard(String title, String value, IconData icon, Color color) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withOpacity(0.3)),
-      ),
-      child: Column(
-        children: [
-          Icon(icon, size: 24, color: color),
-          const SizedBox(height: 4),
-          Text(
-            value,
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.bold,
-              color: color,
-            ),
-          ),
-          Text(
-            title,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: color,
-              fontWeight: FontWeight.w500,
-            ),
-            textAlign: TextAlign.center,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildMiniStat(String label, String value, Color color) {
-    return Column(
-      children: [
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-            color: color,
-          ),
-        ),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            color: color,
-          ),
-        ),
-      ],
     );
   }
 
