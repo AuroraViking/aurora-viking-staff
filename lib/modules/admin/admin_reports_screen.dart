@@ -9,6 +9,7 @@ import '../../core/theme/colors.dart';
 import '../../core/services/firebase_service.dart';
 import 'admin_service.dart';
 import 'gps_trail_viewer.dart';
+import 'widgets/financial_analytics_widget.dart';
 
 class AdminReportsScreen extends StatefulWidget {
   const AdminReportsScreen({super.key});
@@ -38,6 +39,9 @@ class _AdminReportsScreenState extends State<AdminReportsScreen> {
   DateTime? _searchDate;
   Map<String, dynamic>? _searchedReport;
   bool _isSearching = false;
+  
+  // Date for generating reports
+  DateTime? _generateReportDate;
 
   @override
   void initState() {
@@ -648,6 +652,8 @@ class _AdminReportsScreenState extends State<AdminReportsScreen> {
                   ],
                 ),
               ),
+              // No-show summary
+              _buildNoShowSummary(report),
               const SizedBox(height: 16),
               const Divider(color: Colors.grey),
               // Guide list with bookings
@@ -898,45 +904,93 @@ class _AdminReportsScreenState extends State<AdminReportsScreen> {
     );
   }
 
-  Widget _buildBookingTile(Map<String, dynamic> booking) {
+  Widget _buildStatusBadge(Map<String, dynamic> booking) {
+    final isNoShow = booking['isNoShow'] == true;
     final isArrived = booking['isArrived'] == true;
     final isCompleted = booking['isCompleted'] == true;
+    
+    if (isNoShow) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.red.withOpacity(0.2),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.red.withOpacity(0.5)),
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.person_off, size: 14, color: Colors.red),
+            SizedBox(width: 4),
+            Text(
+              'NO SHOW',
+              style: TextStyle(
+                color: Colors.red,
+                fontSize: 10,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    
+    if (isCompleted) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.green.withOpacity(0.2),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: const Text(
+          '✅',
+          style: TextStyle(fontSize: 12),
+        ),
+      );
+    }
+    
+    if (isArrived) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.blue.withOpacity(0.2),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: const Text(
+          '📍',
+          style: TextStyle(fontSize: 12),
+        ),
+      );
+    }
+    
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.grey.withOpacity(0.2),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: const Text(
+        '⏳',
+        style: TextStyle(fontSize: 12),
+      ),
+    );
+  }
+
+  Widget _buildBookingTile(Map<String, dynamic> booking) {
+    final isNoShow = booking['isNoShow'] == true;
     
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
+        color: isNoShow ? Colors.red.withOpacity(0.05) : null,
         border: Border(
           top: BorderSide(color: Colors.grey[300]!, width: 0.5),
         ),
       ),
       child: Row(
         children: [
-          // Status icon
-          Container(
-            width: 32,
-            height: 32,
-            decoration: BoxDecoration(
-              color: isCompleted
-                  ? Colors.green.withOpacity(0.2)
-                  : isArrived
-                      ? Colors.orange.withOpacity(0.2)
-                      : Colors.grey.withOpacity(0.2),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              isCompleted
-                  ? Icons.check_circle
-                  : isArrived
-                      ? Icons.location_on
-                      : Icons.schedule,
-              color: isCompleted
-                  ? Colors.green
-                  : isArrived
-                      ? Colors.orange
-                      : Colors.grey,
-              size: 18,
-            ),
-          ),
+          // Status badge
+          _buildStatusBadge(booking),
           const SizedBox(width: 12),
           // Booking details
           Expanded(
@@ -945,15 +999,17 @@ class _AdminReportsScreenState extends State<AdminReportsScreen> {
               children: [
                 Text(
                   booking['customerName'] ?? 'Unknown',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontWeight: FontWeight.w500,
+                    decoration: isNoShow ? TextDecoration.lineThrough : null,
+                    color: isNoShow ? Colors.grey : null,
                   ),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   booking['pickupLocation'] ?? 'Unknown location',
                   style: TextStyle(
-                    color: Colors.grey[600],
+                    color: isNoShow ? Colors.grey[500] : Colors.grey[600],
                     fontSize: 12,
                   ),
                   maxLines: 1,
@@ -966,15 +1022,18 @@ class _AdminReportsScreenState extends State<AdminReportsScreen> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             decoration: BoxDecoration(
-              color: AppColors.primary.withOpacity(0.1),
+              color: isNoShow 
+                  ? Colors.grey.withOpacity(0.1) 
+                  : AppColors.primary.withOpacity(0.1),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Text(
               '${booking['participants'] ?? 0} pax',
-              style: const TextStyle(
-                color: AppColors.primary,
+              style: TextStyle(
+                color: isNoShow ? Colors.grey : AppColors.primary,
                 fontSize: 12,
                 fontWeight: FontWeight.bold,
+                decoration: isNoShow ? TextDecoration.lineThrough : null,
               ),
             ),
           ),
@@ -983,7 +1042,35 @@ class _AdminReportsScreenState extends State<AdminReportsScreen> {
     );
   }
 
-  Future<void> _generateTodayReport() async {
+  Future<void> _showGenerateReportDatePicker() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _generateReportDate ?? DateTime.now(),
+      firstDate: DateTime(2024, 1, 1),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.dark(
+              primary: AppColors.primary,
+              onPrimary: Colors.white,
+              surface: Color(0xFF1A1A2E),
+              onSurface: Colors.white,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (picked != null) {
+      setState(() {
+        _generateReportDate = picked;
+      });
+    }
+  }
+
+  Future<void> _generateReportForDate(DateTime date) async {
     // Check if user is authenticated
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
@@ -1003,9 +1090,8 @@ class _AdminReportsScreenState extends State<AdminReportsScreen> {
     });
 
     try {
-      // Get today's date in YYYY-MM-DD format
-      final today = DateTime.now();
-      final todayStr = '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+      // Format date in YYYY-MM-DD format
+      final dateStr = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
 
       // Call the Cloud Function
       // Use the explicit region (us-central1) which matches our function
@@ -1015,8 +1101,9 @@ class _AdminReportsScreenState extends State<AdminReportsScreen> {
       // Ensure we have a fresh auth token (this refreshes if needed)
       await user.getIdToken(true);
       print('🔑 Calling function as authenticated user: ${user.uid} (${user.email})');
+      print('📅 Generating report for date: $dateStr');
       
-      final result = await callable.call({'date': todayStr});
+      final result = await callable.call({'date': dateStr});
 
       final data = result.data as Map<String, dynamic>;
       
@@ -1040,7 +1127,7 @@ class _AdminReportsScreenState extends State<AdminReportsScreen> {
               builder: (context) => AlertDialog(
                 title: const Text('Report Generated'),
                 content: Text(
-                  'Tour report for $todayStr has been created.\n\n'
+                  'Tour report for $dateStr has been created.\n\n'
                   'Total Guides: ${data['totalGuides'] ?? 0}\n'
                   'Total Passengers: ${data['totalPassengers'] ?? 0}\n\n'
                   'Would you like to open the Google Sheet?',
@@ -1299,6 +1386,15 @@ class _AdminReportsScreenState extends State<AdminReportsScreen> {
                       ],
                     ),
                     
+                    const SizedBox(height: 32),
+                    
+                    // Financial Analytics Section
+                    FinancialAnalyticsWidget(
+                      totalPassengers: _monthlyReport!['totalPassengers'] ?? 0,
+                      totalTours: _monthlyReport!['totalShifts'] ?? 0,
+                      totalGuides: _monthlyReport!['totalGuides'] ?? 0,
+                    ),
+                    
                     const SizedBox(height: 24),
                     
                     // Top Guides
@@ -1457,30 +1553,148 @@ class _AdminReportsScreenState extends State<AdminReportsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Tour Reports (Last 30 Days)',
+                        'Generate Tour Report',
                         style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                           fontWeight: FontWeight.bold,
                           color: AppColors.primary,
                         ),
                       ),
                       const SizedBox(height: 12),
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          onPressed: _isGeneratingReport ? null : _generateTodayReport,
-                          icon: _isGeneratingReport
-                              ? const SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
-                                )
-                              : const Icon(Icons.play_arrow),
-                          label: Text(_isGeneratingReport ? 'Generating Report...' : 'Test: Generate Today\'s Report'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.green,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 12),
+                      
+                      // Date selector and generate button
+                      Row(
+                        children: [
+                          Expanded(
+                            child: InkWell(
+                              onTap: _isGeneratingReport ? null : _showGenerateReportDatePicker,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF252540),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: Colors.grey[700]!),
+                                ),
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.calendar_today, color: AppColors.primary),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Text(
+                                        _generateReportDate != null
+                                            ? '${_generateReportDate!.day}/${_generateReportDate!.month}/${_generateReportDate!.year}'
+                                            : 'Select date to generate report...',
+                                        style: TextStyle(
+                                          color: _generateReportDate != null ? Colors.white : Colors.grey[500],
+                                          fontSize: 16,
+                                        ),
+                                      ),
+                                    ),
+                                    if (_isGeneratingReport)
+                                      const SizedBox(
+                                        width: 20,
+                                        height: 20,
+                                        child: CircularProgressIndicator(strokeWidth: 2),
+                                      )
+                                    else
+                                      const Icon(Icons.arrow_drop_down, color: Colors.grey),
+                                  ],
+                                ),
+                              ),
+                            ),
                           ),
+                          const SizedBox(width: 12),
+                          ElevatedButton.icon(
+                            onPressed: (_isGeneratingReport || _generateReportDate == null) 
+                                ? null 
+                                : () => _generateReportForDate(_generateReportDate!),
+                            icon: _isGeneratingReport
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                  )
+                                : const Icon(Icons.play_arrow),
+                            label: Text(_isGeneratingReport ? 'Generating...' : 'Generate'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.green,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 20),
+                            ),
+                          ),
+                        ],
+                      ),
+                      
+                      const SizedBox(height: 8),
+                      
+                      // Quick date buttons
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          ActionChip(
+                            label: const Text('Today'),
+                            onPressed: _isGeneratingReport 
+                                ? null 
+                                : () {
+                                    setState(() {
+                                      _generateReportDate = DateTime.now();
+                                    });
+                                    _generateReportForDate(DateTime.now());
+                                  },
+                            backgroundColor: _generateReportDate != null &&
+                                    _generateReportDate!.year == DateTime.now().year &&
+                                    _generateReportDate!.month == DateTime.now().month &&
+                                    _generateReportDate!.day == DateTime.now().day
+                                ? AppColors.primary
+                                : const Color(0xFF252540),
+                            labelStyle: TextStyle(
+                              color: _generateReportDate != null &&
+                                      _generateReportDate!.year == DateTime.now().year &&
+                                      _generateReportDate!.month == DateTime.now().month &&
+                                      _generateReportDate!.day == DateTime.now().day
+                                  ? Colors.white
+                                  : Colors.grey[400],
+                              fontSize: 12,
+                            ),
+                          ),
+                          ActionChip(
+                            label: const Text('Yesterday'),
+                            onPressed: _isGeneratingReport 
+                                ? null 
+                                : () {
+                                    final yesterday = DateTime.now().subtract(const Duration(days: 1));
+                                    setState(() {
+                                      _generateReportDate = yesterday;
+                                    });
+                                    _generateReportForDate(yesterday);
+                                  },
+                            backgroundColor: const Color(0xFF252540),
+                            labelStyle: TextStyle(color: Colors.grey[400], fontSize: 12),
+                          ),
+                          ActionChip(
+                            label: const Text('2 days ago'),
+                            onPressed: _isGeneratingReport 
+                                ? null 
+                                : () {
+                                    final twoDaysAgo = DateTime.now().subtract(const Duration(days: 2));
+                                    setState(() {
+                                      _generateReportDate = twoDaysAgo;
+                                    });
+                                    _generateReportForDate(twoDaysAgo);
+                                  },
+                            backgroundColor: const Color(0xFF252540),
+                            labelStyle: TextStyle(color: Colors.grey[400], fontSize: 12),
+                          ),
+                        ],
+                      ),
+                      
+                      const SizedBox(height: 16),
+                      
+                      Text(
+                        'Recent Reports (Last 30 Days)',
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.grey[400],
                         ),
                       ),
                     ],
@@ -1862,6 +2076,62 @@ class _AdminReportsScreenState extends State<AdminReportsScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildNoShowSummary(Map<String, dynamic> report) {
+    // Count no-shows from all guides
+    int totalNoShows = 0;
+    int noShowPassengers = 0;
+    
+    final guides = report['guides'] as List? ?? [];
+    for (final guide in guides) {
+      final bookings = guide['bookings'] as List? ?? [];
+      for (final booking in bookings) {
+        if (booking['isNoShow'] == true) {
+          totalNoShows++;
+          noShowPassengers += (booking['participants'] as int?) ?? 0;
+        }
+      }
+    }
+    
+    // Also check unassigned bookings
+    if (report['unassigned'] != null) {
+      final unassignedBookings = report['unassigned']['bookings'] as List? ?? [];
+      for (final booking in unassignedBookings) {
+        if (booking['isNoShow'] == true) {
+          totalNoShows++;
+          noShowPassengers += (booking['participants'] as int?) ?? 0;
+        }
+      }
+    }
+    
+    if (totalNoShows == 0) {
+      return const SizedBox.shrink();
+    }
+    
+    return Container(
+      margin: const EdgeInsets.only(top: 8, left: 16, right: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.red.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.red.withOpacity(0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.person_off, color: Colors.red, size: 18),
+          const SizedBox(width: 8),
+          Text(
+            '$totalNoShows no-show${totalNoShows > 1 ? 's' : ''} ($noShowPassengers pax)',
+            style: const TextStyle(
+              color: Colors.red,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
     );
   }
 } 

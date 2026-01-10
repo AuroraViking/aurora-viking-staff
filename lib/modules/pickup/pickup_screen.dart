@@ -1084,46 +1084,89 @@ class _PickupScreenState extends State<PickupScreen> {
   Widget _buildEndShiftButton() {
     final controller = context.read<PickupController>();
     
-    // Only show for today's date
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
     final selectedDate = DateTime(
       controller.selectedDate.year,
       controller.selectedDate.month,
       controller.selectedDate.day,
     );
     
-    if (!selectedDate.isAtSameMomentAs(today)) {
+    // ⭐ FIX: Allow end-shift submission for:
+    // 1. Today's date (always)
+    // 2. Yesterday's date IF current time is before 18:00 (6pm) - allows submission throughout the next day
+    // 3. Any recent date where user has assignments but hasn't submitted (fallback)
+    
+    final isToday = selectedDate.isAtSameMomentAs(today);
+    final isYesterday = selectedDate.isAtSameMomentAs(yesterday);
+    final isBeforeSixPm = now.hour < 18;
+    
+    // Show button for today, OR yesterday before 6pm (allows submission throughout the next day)
+    final shouldShowButton = isToday || (isYesterday && isBeforeSixPm);
+    
+    // Also show if user has assignments but hasn't submitted (catch-all for edge cases)
+    final hasAssignments = controller.currentUserBookings.isNotEmpty;
+    final canStillSubmit = !_hasSubmittedEndOfShift && hasAssignments;
+    
+    if (!shouldShowButton && !canStillSubmit) {
       return const SizedBox.shrink();
     }
     
-    // Check if user has any assigned bookings
-    final hasAssignments = controller.currentUserBookings.isNotEmpty;
-    if (!hasAssignments) {
-      return const SizedBox.shrink();
-    }
+    // If showing for yesterday, add a note
+    final isSubmittingForYesterday = isYesterday && !isToday;
     
     return Padding(
       padding: const EdgeInsets.all(16),
-      child: ElevatedButton.icon(
-        onPressed: _hasSubmittedEndOfShift ? null : _showEndOfShiftDialog,
-        icon: Icon(
-          _hasSubmittedEndOfShift ? Icons.check_circle : Icons.nightlight_round,
-        ),
-        label: Text(
-          _hasSubmittedEndOfShift ? 'Shift Report Submitted' : 'End Shift',
-        ),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: _hasSubmittedEndOfShift 
-              ? Colors.green.withOpacity(0.3)
-              : AppColors.primary,
-          foregroundColor: Colors.white,
-          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+      child: Column(
+        children: [
+          if (isSubmittingForYesterday)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orange.withOpacity(0.5)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: const [
+                    Icon(Icons.info_outline, color: Colors.orange, size: 16),
+                    SizedBox(width: 8),
+                    Text(
+                      'Submitting for last night\'s tour',
+                      style: TextStyle(color: Colors.orange, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ElevatedButton.icon(
+            onPressed: _hasSubmittedEndOfShift ? null : _showEndOfShiftDialog,
+            icon: Icon(
+              _hasSubmittedEndOfShift ? Icons.check_circle : Icons.nightlight_round,
+            ),
+            label: Text(
+              _hasSubmittedEndOfShift 
+                  ? 'Shift Report Submitted' 
+                  : isSubmittingForYesterday 
+                      ? 'End Last Night\'s Shift'
+                      : 'End Shift',
+            ),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _hasSubmittedEndOfShift 
+                  ? Colors.grey 
+                  : AppColors.primary,
+              foregroundColor: Colors.white,
+              minimumSize: const Size(double.infinity, 48),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
           ),
-          minimumSize: const Size(double.infinity, 56),
-        ),
+        ],
       ),
     );
   }

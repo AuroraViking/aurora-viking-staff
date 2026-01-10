@@ -126,7 +126,7 @@ async function populateSheetWithReportData(auth, spreadsheetId, reportData) {
 
     // Bookings
     guide.bookings.forEach((booking) => {
-      const status = booking.isCompleted ? '✅' : booking.isArrived ? '📍' : '⏳';
+      const status = booking.isNoShow ? '❌ NO SHOW' : booking.isCompleted ? '✅' : booking.isArrived ? '📍' : '⏳';
       const time = booking.pickupTime ? (booking.pickupTime.split('T')[1] || '').substring(0, 5) : '';
       rows.push([
         booking.customerName,
@@ -197,16 +197,65 @@ async function generateReport(targetDate) {
     
     if (!cacheDoc.exists) {
       console.log('⚠️ No cached_bookings document found for this date.');
-      return {success: false, message: 'No cached bookings found', date: targetDate};
+      // Continue anyway - maybe we have assignments without cached bookings
+    } else {
+      const cachedData = cacheDoc.data();
+      bookings = cachedData.bookings || [];
+      console.log(`📋 Found ${bookings.length} bookings in cached_bookings`);
     }
-    
-    const cachedData = cacheDoc.data();
-    bookings = cachedData.bookings || [];
-    console.log(`📋 Found ${bookings.length} bookings in cached_bookings`);
   } catch (error) {
-    console.error('❌ Error fetching cached_bookings:', error);
-    return {success: false, message: 'Error fetching bookings: ' + error.message, date: targetDate};
+    console.log('⚠️ Could not fetch cached_bookings:', error.message);
+    // Continue - we'll try to use pickup_assignments
   }
+
+  // ========== STEP 1.5: Get pickup_assignments (SOURCE OF TRUTH!) ==========
+  // This is the fix - read assignments from the dedicated collection
+  // These persist even when cached_bookings gets refreshed
+  const pickupAssignments = {};
+  try {
+    const assignmentsSnapshot = await db.collection('pickup_assignments')
+      .where('date', '==', targetDate)
+      .get();
+    
+    assignmentsSnapshot.forEach((doc) => {
+      const data = doc.data();
+      if (data.bookingId && data.guideId) {
+        pickupAssignments[data.bookingId] = {
+          guideId: data.guideId,
+          guideName: data.guideName || 'Unknown Guide',
+        };
+      }
+    });
+    console.log(`📋 Found ${Object.keys(pickupAssignments).length} assignments in pickup_assignments collection`);
+  } catch (error) {
+    console.log('⚠️ Could not fetch pickup_assignments:', error.message);
+  }
+
+  // ========== STEP 1.6: Merge assignments into bookings ==========
+  // Apply pickup_assignments to bookings (this is the key fix!)
+  bookings = bookings.map((booking) => {
+    const bookingId = booking.id || booking.bookingId;
+    const assignment = pickupAssignments[bookingId];
+    
+    if (assignment) {
+      // Use assignment from pickup_assignments (source of truth)
+      return {
+        ...booking,
+        assignedGuideId: assignment.guideId,
+        assignedGuideName: assignment.guideName,
+      };
+    } else if (booking.assignedGuideId) {
+      // Keep existing assignment from cached_bookings
+      return booking;
+    } else {
+      // No assignment found
+      return booking;
+    }
+  });
+
+  // Log how many bookings now have assignments
+  const assignedCount = bookings.filter(b => b.assignedGuideId).length;
+  console.log(`✅ After merging: ${assignedCount}/${bookings.length} bookings have guide assignments`);
 
   if (bookings.length === 0) {
     console.log('⚠️ Bookings array is empty.');
@@ -327,6 +376,9 @@ async function generateReport(targetDate) {
     unassignedPassengers += b.totalParticipants || b.numberOfGuests || 0;
   });
 
+  // Count total no-shows
+  const totalNoShows = bookings.filter(b => b.isNoShow === true).length;
+
   // ========== STEP 6: Build report data ==========
   const reportData = {
     date: targetDate,
@@ -337,6 +389,7 @@ async function generateReport(targetDate) {
     guidesWithReports: guidesWithReports,
     totalPassengers: totalPassengers,
     totalBookings: bookings.length,
+    totalNoShows: totalNoShows,
     unassignedBookings: unassignedBookings.length,
     unassignedPassengers: unassignedPassengers,
     // Aurora (null if no reports yet)
@@ -366,6 +419,7 @@ async function generateReport(targetDate) {
         confirmationCode: b.confirmationCode || '',
         isArrived: b.isArrived || false,
         isCompleted: b.isCompleted || false,
+        isNoShow: b.isNoShow || false,
       })),
     })),
   };
@@ -382,6 +436,7 @@ async function generateReport(targetDate) {
         participants: b.totalParticipants || b.numberOfGuests || 0,
         pickupLocation: b.pickupPlaceName || b.pickupLocation || 'Unknown',
         pickupTime: b.pickupTime || null,
+        isNoShow: b.isNoShow || false,
       })),
     };
   }
@@ -642,6 +697,17 @@ exports.onPickupAssignmentsChanged = onDocumentWritten(
     // Check if this is just a timestamp update or actual assignment change
     const beforeBookings = beforeData?.bookings || [];
     const afterBookings = afterData?.bookings || [];
+
+    // SAFETY: Detect dangerous "fresh fetch" that lost all assignments
+    const beforeAssignedCount = beforeBookings.filter(b => b.assignedGuideId).length;
+    const afterAssignedCount = afterBookings.filter(b => b.assignedGuideId).length;
+    
+    if (beforeAssignedCount > 0 && afterAssignedCount === 0 && afterBookings.length > 0) {
+      console.log(`⚠️ DANGER: cached_bookings refresh lost all ${beforeAssignedCount} assignments!`);
+      console.log(`⚠️ This looks like a fresh API fetch - NOT regenerating report to preserve existing data`);
+      console.log(`⚠️ The pickup_assignments collection still has the real assignments`);
+      return null;
+    }
 
     // Quick check: did any assignments actually change?
     const assignmentChanged = hasAssignmentChanged(beforeBookings, afterBookings);
