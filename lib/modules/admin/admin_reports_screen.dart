@@ -140,6 +140,18 @@ class _AdminReportsScreenState extends State<AdminReportsScreen> {
     }
   }
 
+  bool _isInSelectedMonth(String? dateStr) {
+    if (dateStr == null) return false;
+    try {
+      final parts = dateStr.split('-');
+      return parts.length >= 2 &&
+             int.parse(parts[0]) == _selectedYear &&
+             int.parse(parts[1]) == _selectedMonth;
+    } catch (e) {
+      return false;
+    }
+  }
+
   Future<void> _loadShiftsStats() async {
     setState(() {
       _isLoadingShifts = true;
@@ -1390,9 +1402,15 @@ class _AdminReportsScreenState extends State<AdminReportsScreen> {
                     
                     // Financial Analytics Section
                     FinancialAnalyticsWidget(
-                      totalPassengers: _monthlyReport!['totalPassengers'] ?? 0,
-                      totalTours: _monthlyReport!['totalShifts'] ?? 0,
-                      totalGuides: _monthlyReport!['totalGuides'] ?? 0,
+                      totalPassengers: _tourReports
+                          .where((r) => _isInSelectedMonth(r['date'] as String?))
+                          .fold(0, (sum, r) => sum + ((r['totalPassengers'] as int?) ?? 0)),
+                      totalTours: _tourReports
+                          .where((r) => _isInSelectedMonth(r['date'] as String?))
+                          .length,
+                      totalGuidesWorked: _tourReports
+                          .where((r) => _isInSelectedMonth(r['date'] as String?))
+                          .fold(0, (sum, r) => sum + ((r['totalGuides'] as int?) ?? 0)),
                     ),
                     
                     const SizedBox(height: 24),
