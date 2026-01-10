@@ -118,17 +118,29 @@ class InboxController extends ChangeNotifier {
   void _subscribeToMessages(String conversationId) {
     _messagesSubscription?.cancel();
     _messages = [];
+    _error = null;
     notifyListeners();
 
+    print('📨 Subscribing to messages for: $conversationId');
+    
     _messagesSubscription = _messagingService
         .getMessagesStream(conversationId)
         .listen(
       (messages) {
+        print('📬 Received ${messages.length} messages');
         _messages = messages;
+        _error = null;
         notifyListeners();
       },
       onError: (error) {
         print('❌ Error in messages stream: $error');
+        _error = 'Error loading messages: $error';
+        notifyListeners();
+        
+        // If it's an index error, show the URL
+        if (error.toString().contains('index')) {
+          print('💡 You may need to create a Firestore index. Check the error URL above.');
+        }
       },
     );
   }

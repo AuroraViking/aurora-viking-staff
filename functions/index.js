@@ -2234,10 +2234,10 @@ exports.gmailOAuthCallback = onRequest(
  */
 exports.pollGmailInbox = onSchedule(
   {
-    schedule: 'every 2 minutes',
+    schedule: 'every 1 minutes',
     region: 'us-central1',
     secrets: ['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET'],
-    timeoutSeconds: 120,
+    timeoutSeconds: 60,
   },
   async () => {
     console.log('📬 Polling Gmail inbox...');
@@ -2344,23 +2344,66 @@ async function processGmailMessageData(gmailMessage) {
   const fromEmail = emailMatch ? emailMatch[1] : from;
   const fromName = emailMatch ? from.replace(/<[^>]+>/, '').trim() : null;
   
-  // Get message body
+  // Get message body - handle nested multipart structures
   let body = '';
-  if (gmailMessage.payload.body && gmailMessage.payload.body.data) {
-    body = Buffer.from(gmailMessage.payload.body.data, 'base64').toString('utf-8');
-  } else if (gmailMessage.payload.parts) {
-    // Find text/plain or text/html part
-    const textPart = gmailMessage.payload.parts.find(p => p.mimeType === 'text/plain');
-    const htmlPart = gmailMessage.payload.parts.find(p => p.mimeType === 'text/html');
+  
+  function extractBodyFromPart(part) {
+    if (!part) return '';
     
-    if (textPart && textPart.body && textPart.body.data) {
-      body = Buffer.from(textPart.body.data, 'base64').toString('utf-8');
-    } else if (htmlPart && htmlPart.body && htmlPart.body.data) {
-      // Strip HTML tags for plain text
-      const html = Buffer.from(htmlPart.body.data, 'base64').toString('utf-8');
-      body = html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+    // Direct body data
+    if (part.body && part.body.data) {
+      const decoded = Buffer.from(part.body.data, 'base64').toString('utf-8');
+      if (part.mimeType === 'text/html') {
+        // Strip HTML tags
+        return decoded.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+                      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+                      .replace(/<[^>]*>/g, ' ')
+                      .replace(/&nbsp;/g, ' ')
+                      .replace(/&amp;/g, '&')
+                      .replace(/&lt;/g, '<')
+                      .replace(/&gt;/g, '>')
+                      .replace(/&quot;/g, '"')
+                      .replace(/\s+/g, ' ')
+                      .trim();
+      }
+      return decoded;
     }
+    
+    // Nested parts - recursively search
+    if (part.parts) {
+      // Prefer text/plain over text/html
+      const textPart = part.parts.find(p => p.mimeType === 'text/plain');
+      if (textPart) {
+        const result = extractBodyFromPart(textPart);
+        if (result) return result;
+      }
+      
+      const htmlPart = part.parts.find(p => p.mimeType === 'text/html');
+      if (htmlPart) {
+        const result = extractBodyFromPart(htmlPart);
+        if (result) return result;
+      }
+      
+      // Try multipart/alternative or multipart/related
+      for (const subPart of part.parts) {
+        if (subPart.mimeType && subPart.mimeType.startsWith('multipart/')) {
+          const result = extractBodyFromPart(subPart);
+          if (result) return result;
+        }
+      }
+      
+      // Last resort - try any part
+      for (const subPart of part.parts) {
+        const result = extractBodyFromPart(subPart);
+        if (result) return result;
+      }
+    }
+    
+    return '';
   }
+  
+  body = extractBodyFromPart(gmailMessage.payload);
+  console.log(`📝 Extracted body length: ${body.length} chars`);
   
   // Truncate very long bodies
   if (body.length > 10000) {
@@ -2653,6 +2696,123 @@ exports.gmailStatus = onRequest(
       });
     } catch (error) {
       res.status(500).json({ error: error.message });
+    }
+  }
+);
+
+/**
+ * Firestore trigger: Auto-send email when outbound message is created
+ * This fires when staff replies from the app
+ */
+exports.onOutboundMessageCreated = onDocumentCreated(
+  {
+    document: 'messages/{messageId}',
+    region: 'us-central1',
+    secrets: ['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET'],
+  },
+  async (event) => {
+    const snapshot = event.data;
+    if (!snapshot) {
+      console.log('No data in message document');
+      return;
+    }
+    
+    const messageData = snapshot.data();
+    const messageId = event.params.messageId;
+    
+    // Only process outbound messages that haven't been sent yet
+    if (messageData.direction !== 'outbound') {
+      return;
+    }
+    
+    if (messageData.status === 'sent' || messageData.gmailMessageId) {
+      console.log(`Message ${messageId} already sent, skipping`);
+      return;
+    }
+    
+    console.log(`📤 Sending outbound message: ${messageId}`);
+    
+    try {
+      const clientId = process.env.GMAIL_CLIENT_ID;
+      const clientSecret = process.env.GMAIL_CLIENT_SECRET;
+      
+      // Get conversation for subject and thread info
+      const convDoc = await db.collection('conversations').doc(messageData.conversationId).get();
+      if (!convDoc.exists) {
+        console.error('Conversation not found:', messageData.conversationId);
+        return;
+      }
+      const conv = convDoc.data();
+      
+      // Get customer email
+      const customerDoc = await db.collection('customers').doc(messageData.customerId).get();
+      if (!customerDoc.exists) {
+        console.error('Customer not found:', messageData.customerId);
+        return;
+      }
+      const customer = customerDoc.data();
+      const toEmail = customer.channels?.gmail || customer.email;
+      
+      if (!toEmail) {
+        console.error('No email address for customer');
+        await snapshot.ref.update({ status: 'failed', error: 'No customer email' });
+        return;
+      }
+      
+      // Get Gmail client
+      const gmail = await getGmailClient(clientId, clientSecret);
+      const tokens = await getGmailTokens();
+      
+      // Build email
+      const subject = conv.subject?.startsWith('Re:') ? conv.subject : `Re: ${conv.subject || 'Your inquiry'}`;
+      const threadId = conv.channelMetadata?.gmail?.threadId;
+      
+      // Create RFC 2822 formatted email
+      const emailLines = [
+        `From: Aurora Viking <${tokens.email}>`,
+        `To: ${toEmail}`,
+        `Subject: ${subject}`,
+        'Content-Type: text/plain; charset=utf-8',
+        '',
+        messageData.content,
+      ];
+      
+      const rawMessage = Buffer.from(emailLines.join('\r\n'))
+        .toString('base64')
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '');
+      
+      // Send email
+      const sendResponse = await gmail.users.messages.send({
+        userId: 'me',
+        requestBody: {
+          raw: rawMessage,
+          threadId: threadId || undefined,
+        },
+      });
+      
+      console.log(`✅ Email sent via Gmail: ${sendResponse.data.id}`);
+      
+      // Update message with Gmail info
+      await snapshot.ref.update({
+        status: 'sent',
+        sentAt: admin.firestore.FieldValue.serverTimestamp(),
+        gmailMessageId: sendResponse.data.id,
+        'channelMetadata.gmail.messageId': sendResponse.data.id,
+        'channelMetadata.gmail.threadId': sendResponse.data.threadId,
+      });
+      
+      console.log(`📧 Message ${messageId} sent successfully to ${toEmail}`);
+    } catch (error) {
+      console.error(`❌ Error sending message ${messageId}:`, error);
+      
+      // Mark as failed
+      await snapshot.ref.update({
+        status: 'failed',
+        error: error.message,
+        failedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
     }
   }
 );

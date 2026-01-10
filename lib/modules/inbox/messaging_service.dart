@@ -89,13 +89,20 @@ class MessagingService {
 
   /// Get stream of messages for a conversation
   Stream<List<Message>> getMessagesStream(String conversationId) {
+    print('📨 Loading messages for conversation: $conversationId');
     return _firestore
         .collection('messages')
         .where('conversationId', isEqualTo: conversationId)
         .orderBy('timestamp', descending: false)
         .snapshots()
         .map((snapshot) {
-      return snapshot.docs.map((doc) => Message.fromFirestore(doc)).toList();
+      print('📬 Got ${snapshot.docs.length} messages');
+      final messages = snapshot.docs.map((doc) {
+        final msg = Message.fromFirestore(doc);
+        print('   - Message ${msg.id}: content length = ${msg.content.length}');
+        return msg;
+      }).toList();
+      return messages;
     });
   }
 
