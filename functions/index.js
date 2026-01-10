@@ -2034,3 +2034,626 @@ exports.createTestInboxMessage = onCall(
   }
 );
 
+// ============================================
+// GMAIL INTEGRATION
+// ============================================
+
+const GMAIL_REDIRECT_URI = 'https://us-central1-aurora-viking-staff.cloudfunctions.net/gmailOAuthCallback';
+const GMAIL_SCOPES = [
+  'https://www.googleapis.com/auth/gmail.readonly',
+  'https://www.googleapis.com/auth/gmail.send',
+  'https://www.googleapis.com/auth/gmail.modify',
+];
+
+/**
+ * Get Gmail OAuth2 client
+ */
+function getGmailOAuth2Client(clientId, clientSecret) {
+  return new google.auth.OAuth2(clientId, clientSecret, GMAIL_REDIRECT_URI);
+}
+
+/**
+ * Store Gmail tokens in Firestore
+ */
+async function storeGmailTokens(email, tokens) {
+  await db.collection('system').doc('gmail_tokens').set({
+    email,
+    accessToken: tokens.access_token,
+    refreshToken: tokens.refresh_token,
+    expiryDate: tokens.expiry_date,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  }, { merge: true });
+  console.log(`✅ Gmail tokens stored for ${email}`);
+}
+
+/**
+ * Get Gmail tokens from Firestore
+ */
+async function getGmailTokens() {
+  const doc = await db.collection('system').doc('gmail_tokens').get();
+  if (!doc.exists) {
+    return null;
+  }
+  return doc.data();
+}
+
+/**
+ * Get authenticated Gmail client
+ */
+async function getGmailClient(clientId, clientSecret) {
+  const tokens = await getGmailTokens();
+  if (!tokens) {
+    throw new Error('Gmail not authorized. Please complete OAuth flow first.');
+  }
+  
+  const oauth2Client = getGmailOAuth2Client(clientId, clientSecret);
+  oauth2Client.setCredentials({
+    access_token: tokens.accessToken,
+    refresh_token: tokens.refreshToken,
+    expiry_date: tokens.expiryDate,
+  });
+  
+  // Handle token refresh
+  oauth2Client.on('tokens', async (newTokens) => {
+    console.log('🔄 Gmail tokens refreshed');
+    await storeGmailTokens(tokens.email, {
+      access_token: newTokens.access_token || tokens.accessToken,
+      refresh_token: newTokens.refresh_token || tokens.refreshToken,
+      expiry_date: newTokens.expiry_date,
+    });
+  });
+  
+  return google.gmail({ version: 'v1', auth: oauth2Client });
+}
+
+/**
+ * Gmail OAuth - Step 1: Generate authorization URL
+ * Visit this URL to authorize the Gmail account
+ */
+exports.gmailOAuthStart = onRequest(
+  {
+    region: 'us-central1',
+    secrets: ['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET'],
+    invoker: 'public',
+  },
+  async (req, res) => {
+    const clientId = process.env.GMAIL_CLIENT_ID;
+    const clientSecret = process.env.GMAIL_CLIENT_SECRET;
+    
+    const oauth2Client = getGmailOAuth2Client(clientId, clientSecret);
+    
+    const authUrl = oauth2Client.generateAuthUrl({
+      access_type: 'offline',
+      scope: GMAIL_SCOPES,
+      prompt: 'consent', // Force to get refresh token
+    });
+    
+    res.send(`
+      <html>
+        <head>
+          <title>Aurora Viking - Gmail Authorization</title>
+          <style>
+            body { font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; }
+            .btn { display: inline-block; background: #4285f4; color: white; padding: 12px 24px; 
+                   text-decoration: none; border-radius: 4px; font-size: 16px; }
+            .btn:hover { background: #3367d6; }
+          </style>
+        </head>
+        <body>
+          <h1>🌌 Aurora Viking - Gmail Setup</h1>
+          <p>Click the button below to authorize Gmail access for the Unified Inbox.</p>
+          <p>This will allow the app to:</p>
+          <ul>
+            <li>Read incoming emails</li>
+            <li>Send replies on your behalf</li>
+            <li>Mark emails as read</li>
+          </ul>
+          <p><a href="${authUrl}" class="btn">Authorize Gmail Access</a></p>
+        </body>
+      </html>
+    `);
+  }
+);
+
+/**
+ * Gmail OAuth - Step 2: Handle callback and store tokens
+ */
+exports.gmailOAuthCallback = onRequest(
+  {
+    region: 'us-central1',
+    secrets: ['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET'],
+    invoker: 'public',
+  },
+  async (req, res) => {
+    const code = req.query.code;
+    
+    if (!code) {
+      res.status(400).send('Missing authorization code');
+      return;
+    }
+    
+    try {
+      const clientId = process.env.GMAIL_CLIENT_ID;
+      const clientSecret = process.env.GMAIL_CLIENT_SECRET;
+      
+      const oauth2Client = getGmailOAuth2Client(clientId, clientSecret);
+      const { tokens } = await oauth2Client.getToken(code);
+      
+      oauth2Client.setCredentials(tokens);
+      
+      // Get the email address
+      const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+      const profile = await gmail.users.getProfile({ userId: 'me' });
+      const email = profile.data.emailAddress;
+      
+      // Store tokens
+      await storeGmailTokens(email, tokens);
+      
+      // Initialize last check timestamp
+      await db.collection('system').doc('gmail_sync').set({
+        lastCheckTimestamp: Date.now(),
+        lastHistoryId: null,
+        email: email,
+        setupAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      
+      res.send(`
+        <html>
+          <head>
+            <title>Gmail Connected!</title>
+            <style>
+              body { font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; text-align: center; }
+              .success { color: #34a853; font-size: 48px; }
+            </style>
+          </head>
+          <body>
+            <div class="success">✅</div>
+            <h1>Gmail Connected Successfully!</h1>
+            <p>Email: <strong>${email}</strong></p>
+            <p>The Aurora Viking Staff app will now receive emails from this inbox.</p>
+            <p>You can close this window.</p>
+          </body>
+        </html>
+      `);
+    } catch (error) {
+      console.error('OAuth callback error:', error);
+      res.status(500).send(`
+        <html>
+          <body>
+            <h1>❌ Error</h1>
+            <p>${error.message}</p>
+          </body>
+        </html>
+      `);
+    }
+  }
+);
+
+/**
+ * Poll Gmail for new messages (runs every 2 minutes)
+ */
+exports.pollGmailInbox = onSchedule(
+  {
+    schedule: 'every 2 minutes',
+    region: 'us-central1',
+    secrets: ['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET'],
+    timeoutSeconds: 120,
+  },
+  async () => {
+    console.log('📬 Polling Gmail inbox...');
+    
+    try {
+      const clientId = process.env.GMAIL_CLIENT_ID;
+      const clientSecret = process.env.GMAIL_CLIENT_SECRET;
+      
+      // Check if Gmail is authorized
+      const tokens = await getGmailTokens();
+      if (!tokens) {
+        console.log('⚠️ Gmail not authorized yet. Skipping poll.');
+        return;
+      }
+      
+      const gmail = await getGmailClient(clientId, clientSecret);
+      
+      // Get sync state
+      const syncDoc = await db.collection('system').doc('gmail_sync').get();
+      const syncData = syncDoc.exists ? syncDoc.data() : { lastCheckTimestamp: Date.now() - 86400000 }; // Default to 24h ago
+      
+      // Calculate time window (last check to now)
+      const afterTimestamp = Math.floor(syncData.lastCheckTimestamp / 1000);
+      const query = `after:${afterTimestamp} in:inbox`;
+      
+      console.log(`🔍 Searching for emails: ${query}`);
+      
+      // List messages
+      const listResponse = await gmail.users.messages.list({
+        userId: 'me',
+        q: query,
+        maxResults: 50,
+      });
+      
+      const messages = listResponse.data.messages || [];
+      console.log(`📧 Found ${messages.length} new messages`);
+      
+      let processedCount = 0;
+      
+      for (const msg of messages) {
+        // Check if we already processed this message
+        const existingMsg = await db.collection('messages')
+          .where('channelMetadata.gmail.messageId', '==', msg.id)
+          .limit(1)
+          .get();
+        
+        if (!existingMsg.empty) {
+          console.log(`⏭️ Skipping already processed message: ${msg.id}`);
+          continue;
+        }
+        
+        // Get full message details
+        const fullMessage = await gmail.users.messages.get({
+          userId: 'me',
+          id: msg.id,
+          format: 'full',
+        });
+        
+        await processGmailMessageData(fullMessage.data);
+        processedCount++;
+      }
+      
+      // Update last check timestamp
+      await db.collection('system').doc('gmail_sync').update({
+        lastCheckTimestamp: Date.now(),
+        lastPollAt: admin.firestore.FieldValue.serverTimestamp(),
+        lastPollCount: messages.length,
+        lastProcessedCount: processedCount,
+      });
+      
+      console.log(`✅ Gmail poll complete. Processed ${processedCount} new messages.`);
+    } catch (error) {
+      console.error('❌ Gmail poll error:', error);
+      
+      // Log error but don't throw to prevent retries
+      await db.collection('system').doc('gmail_sync').update({
+        lastError: error.message,
+        lastErrorAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+  }
+);
+
+/**
+ * Process a Gmail message and create Firestore records
+ */
+async function processGmailMessageData(gmailMessage) {
+  const headers = gmailMessage.payload.headers;
+  
+  const getHeader = (name) => {
+    const header = headers.find(h => h.name.toLowerCase() === name.toLowerCase());
+    return header ? header.value : null;
+  };
+  
+  const from = getHeader('From');
+  const to = getHeader('To');
+  const subject = getHeader('Subject') || '(No Subject)';
+  const messageId = gmailMessage.id;
+  const threadId = gmailMessage.threadId;
+  const internalDate = parseInt(gmailMessage.internalDate);
+  
+  // Extract email address from "Name <email@example.com>" format
+  const emailMatch = from.match(/<([^>]+)>/);
+  const fromEmail = emailMatch ? emailMatch[1] : from;
+  const fromName = emailMatch ? from.replace(/<[^>]+>/, '').trim() : null;
+  
+  // Get message body
+  let body = '';
+  if (gmailMessage.payload.body && gmailMessage.payload.body.data) {
+    body = Buffer.from(gmailMessage.payload.body.data, 'base64').toString('utf-8');
+  } else if (gmailMessage.payload.parts) {
+    // Find text/plain or text/html part
+    const textPart = gmailMessage.payload.parts.find(p => p.mimeType === 'text/plain');
+    const htmlPart = gmailMessage.payload.parts.find(p => p.mimeType === 'text/html');
+    
+    if (textPart && textPart.body && textPart.body.data) {
+      body = Buffer.from(textPart.body.data, 'base64').toString('utf-8');
+    } else if (htmlPart && htmlPart.body && htmlPart.body.data) {
+      // Strip HTML tags for plain text
+      const html = Buffer.from(htmlPart.body.data, 'base64').toString('utf-8');
+      body = html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+    }
+  }
+  
+  // Truncate very long bodies
+  if (body.length > 10000) {
+    body = body.substring(0, 10000) + '... [truncated]';
+  }
+  
+  console.log(`📨 Processing email from: ${fromEmail}, subject: ${subject}`);
+  
+  // Extract booking references
+  const detectedBookingNumbers = extractBookingReferences(body + ' ' + subject);
+  
+  // Find or create customer
+  const customerId = await findOrCreateCustomer('gmail', fromEmail, fromName);
+  
+  // Find or create conversation
+  const conversationId = await findOrCreateConversation(
+    customerId,
+    'gmail',
+    threadId,
+    subject,
+    body.substring(0, 200)
+  );
+  
+  // Create message document
+  const messageData = {
+    conversationId,
+    customerId,
+    channel: 'gmail',
+    direction: 'inbound',
+    subject,
+    content: body,
+    timestamp: admin.firestore.Timestamp.fromMillis(internalDate),
+    channelMetadata: {
+      gmail: {
+        messageId,
+        threadId,
+        from: fromEmail,
+        fromName,
+        to: to ? to.split(',').map(e => e.trim()) : [],
+        labels: gmailMessage.labelIds || [],
+      },
+    },
+    bookingIds: [],
+    detectedBookingNumbers,
+    status: 'pending',
+    flaggedForReview: false,
+    priority: detectedBookingNumbers.length > 0 ? 'normal' : 'low',
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+  };
+  
+  const msgRef = await db.collection('messages').add(messageData);
+  console.log(`✅ Created message: ${msgRef.id} for conversation: ${conversationId}`);
+  
+  // Update conversation
+  await db.collection('conversations').doc(conversationId).update({
+    messageIds: admin.firestore.FieldValue.arrayUnion(msgRef.id),
+    lastMessageAt: admin.firestore.Timestamp.fromMillis(internalDate),
+    lastMessagePreview: body.substring(0, 100),
+    unreadCount: admin.firestore.FieldValue.increment(1),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+  
+  return msgRef.id;
+}
+
+/**
+ * Send email via Gmail (called when staff replies)
+ */
+exports.sendGmailReply = onCall(
+  {
+    region: 'us-central1',
+    secrets: ['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET'],
+  },
+  async (request) => {
+    const { conversationId, content, messageId } = request.data;
+    
+    if (!conversationId || !content) {
+      throw new Error('Missing required fields: conversationId, content');
+    }
+    
+    try {
+      const clientId = process.env.GMAIL_CLIENT_ID;
+      const clientSecret = process.env.GMAIL_CLIENT_SECRET;
+      
+      // Get conversation details
+      const convDoc = await db.collection('conversations').doc(conversationId).get();
+      if (!convDoc.exists) {
+        throw new Error('Conversation not found');
+      }
+      const conv = convDoc.data();
+      
+      // Get customer email
+      const customerDoc = await db.collection('customers').doc(conv.customerId).get();
+      const customer = customerDoc.data();
+      const toEmail = customer.channels?.gmail || customer.email;
+      
+      if (!toEmail) {
+        throw new Error('Customer email not found');
+      }
+      
+      const gmail = await getGmailClient(clientId, clientSecret);
+      const tokens = await getGmailTokens();
+      
+      // Build email
+      const subject = conv.subject.startsWith('Re:') ? conv.subject : `Re: ${conv.subject}`;
+      const threadId = conv.channelMetadata?.gmail?.threadId;
+      
+      // Get original message ID for threading
+      let inReplyTo = '';
+      let references = '';
+      if (messageId) {
+        const origMsg = await db.collection('messages').doc(messageId).get();
+        if (origMsg.exists) {
+          const origData = origMsg.data();
+          inReplyTo = origData.channelMetadata?.gmail?.messageId || '';
+          references = inReplyTo;
+        }
+      }
+      
+      // Create RFC 2822 formatted email
+      const emailLines = [
+        `From: ${tokens.email}`,
+        `To: ${toEmail}`,
+        `Subject: ${subject}`,
+        inReplyTo ? `In-Reply-To: <${inReplyTo}>` : '',
+        references ? `References: <${references}>` : '',
+        'Content-Type: text/plain; charset=utf-8',
+        '',
+        content,
+      ].filter(Boolean);
+      
+      const rawMessage = Buffer.from(emailLines.join('\r\n'))
+        .toString('base64')
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '');
+      
+      // Send email
+      const sendResponse = await gmail.users.messages.send({
+        userId: 'me',
+        requestBody: {
+          raw: rawMessage,
+          threadId: threadId,
+        },
+      });
+      
+      console.log(`📤 Email sent: ${sendResponse.data.id}`);
+      
+      // Create outbound message record
+      const outboundMsg = {
+        conversationId,
+        customerId: conv.customerId,
+        channel: 'gmail',
+        direction: 'outbound',
+        subject,
+        content,
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        channelMetadata: {
+          gmail: {
+            messageId: sendResponse.data.id,
+            threadId: sendResponse.data.threadId,
+            from: tokens.email,
+            to: [toEmail],
+          },
+        },
+        status: 'sent',
+        sentAt: admin.firestore.FieldValue.serverTimestamp(),
+        sentBy: request.auth?.uid || 'system',
+      };
+      
+      const outMsgRef = await db.collection('messages').add(outboundMsg);
+      
+      // Update conversation
+      await db.collection('conversations').doc(conversationId).update({
+        messageIds: admin.firestore.FieldValue.arrayUnion(outMsgRef.id),
+        lastMessageAt: admin.firestore.FieldValue.serverTimestamp(),
+        lastMessagePreview: content.substring(0, 100),
+        unreadCount: 0,
+        status: 'active',
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      
+      return {
+        success: true,
+        messageId: outMsgRef.id,
+        gmailMessageId: sendResponse.data.id,
+      };
+    } catch (error) {
+      console.error('❌ Error sending Gmail reply:', error);
+      throw new Error(`Failed to send email: ${error.message}`);
+    }
+  }
+);
+
+/**
+ * Manual trigger to poll Gmail (for testing)
+ */
+exports.triggerGmailPoll = onRequest(
+  {
+    region: 'us-central1',
+    secrets: ['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET'],
+    invoker: 'public',
+  },
+  async (req, res) => {
+    console.log('📬 Manual Gmail poll triggered...');
+    
+    try {
+      const clientId = process.env.GMAIL_CLIENT_ID;
+      const clientSecret = process.env.GMAIL_CLIENT_SECRET;
+      
+      const tokens = await getGmailTokens();
+      if (!tokens) {
+        res.status(400).send('Gmail not authorized. Visit /gmailOAuthStart first.');
+        return;
+      }
+      
+      const gmail = await getGmailClient(clientId, clientSecret);
+      
+      // Get last 10 messages from inbox
+      const listResponse = await gmail.users.messages.list({
+        userId: 'me',
+        q: 'in:inbox',
+        maxResults: 10,
+      });
+      
+      const messages = listResponse.data.messages || [];
+      const results = [];
+      
+      for (const msg of messages) {
+        const existingMsg = await db.collection('messages')
+          .where('channelMetadata.gmail.messageId', '==', msg.id)
+          .limit(1)
+          .get();
+        
+        if (!existingMsg.empty) {
+          results.push({ id: msg.id, status: 'skipped (already processed)' });
+          continue;
+        }
+        
+        const fullMessage = await gmail.users.messages.get({
+          userId: 'me',
+          id: msg.id,
+          format: 'full',
+        });
+        
+        const msgId = await processGmailMessageData(fullMessage.data);
+        results.push({ id: msg.id, status: 'processed', firestoreId: msgId });
+      }
+      
+      // Update sync timestamp
+      await db.collection('system').doc('gmail_sync').update({
+        lastCheckTimestamp: Date.now(),
+        lastManualPollAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      
+      res.json({
+        success: true,
+        email: tokens.email,
+        messagesFound: messages.length,
+        results,
+      });
+    } catch (error) {
+      console.error('❌ Manual poll error:', error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
+
+/**
+ * Check Gmail connection status
+ */
+exports.gmailStatus = onRequest(
+  {
+    region: 'us-central1',
+    invoker: 'public',
+  },
+  async (req, res) => {
+    try {
+      const tokens = await getGmailTokens();
+      const syncDoc = await db.collection('system').doc('gmail_sync').get();
+      const syncData = syncDoc.exists ? syncDoc.data() : null;
+      
+      res.json({
+        connected: !!tokens,
+        email: tokens?.email || null,
+        lastSync: syncData?.lastPollAt?.toDate() || null,
+        lastPollCount: syncData?.lastPollCount || 0,
+        lastError: syncData?.lastError || null,
+        setupUrl: tokens ? null : 'https://us-central1-aurora-viking-staff.cloudfunctions.net/gmailOAuthStart',
+      });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
+
