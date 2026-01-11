@@ -2344,70 +2344,63 @@ async function processGmailMessageData(gmailMessage) {
   const fromEmail = emailMatch ? emailMatch[1] : from;
   const fromName = emailMatch ? from.replace(/<[^>]+>/, '').trim() : null;
   
-  // Get message body - handle nested multipart structures
-  let body = '';
+  // Get message body - extract BOTH plain text and HTML for rich display
+  let bodyPlain = '';
+  let bodyHtml = '';
   
-  function extractBodyFromPart(part) {
-    if (!part) return '';
+  function extractBodiesFromPart(part, results = { plain: '', html: '' }) {
+    if (!part) return results;
     
     // Direct body data
     if (part.body && part.body.data) {
       const decoded = Buffer.from(part.body.data, 'base64').toString('utf-8');
-      if (part.mimeType === 'text/html') {
-        // Strip HTML tags
-        return decoded.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-                      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-                      .replace(/<[^>]*>/g, ' ')
-                      .replace(/&nbsp;/g, ' ')
-                      .replace(/&amp;/g, '&')
-                      .replace(/&lt;/g, '<')
-                      .replace(/&gt;/g, '>')
-                      .replace(/&quot;/g, '"')
-                      .replace(/\s+/g, ' ')
-                      .trim();
+      if (part.mimeType === 'text/plain' && !results.plain) {
+        results.plain = decoded;
+      } else if (part.mimeType === 'text/html' && !results.html) {
+        results.html = decoded;
       }
-      return decoded;
     }
     
     // Nested parts - recursively search
     if (part.parts) {
-      // Prefer text/plain over text/html
-      const textPart = part.parts.find(p => p.mimeType === 'text/plain');
-      if (textPart) {
-        const result = extractBodyFromPart(textPart);
-        if (result) return result;
-      }
-      
-      const htmlPart = part.parts.find(p => p.mimeType === 'text/html');
-      if (htmlPart) {
-        const result = extractBodyFromPart(htmlPart);
-        if (result) return result;
-      }
-      
-      // Try multipart/alternative or multipart/related
       for (const subPart of part.parts) {
-        if (subPart.mimeType && subPart.mimeType.startsWith('multipart/')) {
-          const result = extractBodyFromPart(subPart);
-          if (result) return result;
-        }
-      }
-      
-      // Last resort - try any part
-      for (const subPart of part.parts) {
-        const result = extractBodyFromPart(subPart);
-        if (result) return result;
+        extractBodiesFromPart(subPart, results);
       }
     }
     
-    return '';
+    return results;
   }
   
-  body = extractBodyFromPart(gmailMessage.payload);
-  console.log(`📝 Extracted body length: ${body.length} chars`);
+  const bodies = extractBodiesFromPart(gmailMessage.payload);
+  bodyHtml = bodies.html || '';
+  bodyPlain = bodies.plain || '';
+  
+  // If we only have HTML, create plain text version
+  if (!bodyPlain && bodyHtml) {
+    bodyPlain = bodyHtml
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+      .replace(/<[^>]*>/g, ' ')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+  
+  // Use plain text as the main body (for previews and search)
+  let body = bodyPlain || bodyHtml;
+  
+  console.log(`📝 Extracted body: plain=${bodyPlain.length} chars, html=${bodyHtml.length} chars`);
   
   // Truncate very long bodies
   if (body.length > 10000) {
     body = body.substring(0, 10000) + '... [truncated]';
+  }
+  if (bodyHtml.length > 50000) {
+    bodyHtml = bodyHtml.substring(0, 50000) + '... [truncated]';
   }
   
   console.log(`📨 Processing email from: ${fromEmail}, subject: ${subject}`);
@@ -2435,6 +2428,7 @@ async function processGmailMessageData(gmailMessage) {
     direction: 'inbound',
     subject,
     content: body,
+    contentHtml: bodyHtml || null,  // Store HTML for rich display
     timestamp: admin.firestore.Timestamp.fromMillis(internalDate),
     channelMetadata: {
       gmail: {

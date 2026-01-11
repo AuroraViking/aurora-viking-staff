@@ -4,6 +4,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
+import 'package:flutter_html/flutter_html.dart';
 import '../../core/models/messaging/messaging_models.dart';
 import '../../theme/colors.dart';
 import 'inbox_controller.dart';
@@ -315,11 +316,36 @@ class _ConversationScreenState extends State<ConversationScreen> {
                 const SizedBox(height: 8),
               ],
 
-              // Message content
-              Text(
-                message.content,
-                style: const TextStyle(color: AVColors.textHigh),
-              ),
+              // Message content - render HTML if available
+              if (message.contentHtml != null && message.contentHtml!.isNotEmpty)
+                Html(
+                  data: message.contentHtml!,
+                  style: {
+                    '*': Style(
+                      color: AVColors.textHigh,
+                      fontSize: FontSize(14),
+                      margin: Margins.zero,
+                      padding: HtmlPaddings.zero,
+                    ),
+                    'a': Style(
+                      color: AVColors.primaryTeal,
+                      textDecoration: TextDecoration.underline,
+                    ),
+                    'img': Style(
+                      display: Display.block,
+                      margin: Margins.only(top: 8, bottom: 8),
+                    ),
+                  },
+                  onLinkTap: (url, _, __) {
+                    // TODO: Handle link taps (open in browser)
+                    debugPrint('Link tapped: $url');
+                  },
+                )
+              else
+                Text(
+                  message.content,
+                  style: const TextStyle(color: AVColors.textHigh),
+                ),
 
               const SizedBox(height: 8),
 

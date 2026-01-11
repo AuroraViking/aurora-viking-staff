@@ -15,6 +15,7 @@ class Message {
   final MessageChannel channel;
   final MessageDirection direction;
   final String content;
+  final String? contentHtml;  // Rich HTML content for display
   final DateTime timestamp;
   final String? subject;
   final ChannelMetadata channelMetadata;
@@ -38,6 +39,7 @@ class Message {
     required this.channel,
     required this.direction,
     required this.content,
+    this.contentHtml,
     required this.timestamp,
     this.subject,
     required this.channelMetadata,
@@ -69,6 +71,7 @@ class Message {
         orElse: () => MessageDirection.inbound,
       ),
       content: json['content'] ?? '',
+      contentHtml: json['contentHtml'],
       timestamp: _parseDateTime(json['timestamp']) ?? DateTime.now(),
       subject: json['subject'],
       channelMetadata: ChannelMetadata.fromJson(json['channelMetadata'] ?? {}),
@@ -111,6 +114,7 @@ class Message {
       'channel': channel.name,
       'direction': direction.name,
       'content': content,
+      'contentHtml': contentHtml,
       'timestamp': Timestamp.fromDate(timestamp),
       'subject': subject,
       'channelMetadata': channelMetadata.toJson(),
@@ -136,6 +140,7 @@ class Message {
     MessageChannel? channel,
     MessageDirection? direction,
     String? content,
+    String? contentHtml,
     DateTime? timestamp,
     String? subject,
     ChannelMetadata? channelMetadata,
@@ -159,6 +164,7 @@ class Message {
       channel: channel ?? this.channel,
       direction: direction ?? this.direction,
       content: content ?? this.content,
+      contentHtml: contentHtml ?? this.contentHtml,
       timestamp: timestamp ?? this.timestamp,
       subject: subject ?? this.subject,
       channelMetadata: channelMetadata ?? this.channelMetadata,
