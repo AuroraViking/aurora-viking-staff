@@ -92,12 +92,14 @@ class _UnifiedInboxScreenState extends State<UnifiedInboxScreen> {
       child: Row(
         children: [
           _buildInboxTab(
-            label: 'All Inboxes',
-            count: controller.allCount,
+            label: 'Main',
+            count: controller.mainInboxCount,
             inbox: null,
             isSelected: controller.selectedInboxFilter == null,
             onTap: () => controller.setInboxFilter(null),
-            icon: Icons.all_inbox,
+            icon: Icons.inbox,
+            color: AVColors.auroraGreen,
+            showBadge: true,
           ),
           const SizedBox(width: 8),
           _buildInboxTab(
@@ -106,7 +108,7 @@ class _UnifiedInboxScreenState extends State<UnifiedInboxScreen> {
             inbox: 'info@auroraviking.is',
             isSelected: controller.selectedInboxFilter == 'info@auroraviking.is',
             onTap: () => controller.setInboxFilter('info@auroraviking.is'),
-            icon: Icons.info_outline,
+            icon: Icons.email_outlined,
             color: Colors.blue,
           ),
           const SizedBox(width: 8),
@@ -132,6 +134,7 @@ class _UnifiedInboxScreenState extends State<UnifiedInboxScreen> {
     required VoidCallback onTap,
     required IconData icon,
     Color? color,
+    bool showBadge = false,
   }) {
     final tabColor = color ?? AVColors.primaryTeal;
     
@@ -397,13 +400,60 @@ class _UnifiedInboxScreenState extends State<UnifiedInboxScreen> {
         itemCount: controller.conversations.length,
         itemBuilder: (context, index) {
           final conversation = controller.conversations[index];
-          return _ConversationTile(
+          return _SwipeableConversationTile(
             conversation: conversation,
             onTap: () => _openConversation(context, controller, conversation),
+            onMarkComplete: () => _markComplete(context, controller, conversation),
+            onAssignToMe: () => _assignToMe(context, controller, conversation),
+            onReopen: () => _reopenConversation(context, controller, conversation),
+            showInMain: controller.selectedInboxFilter == null,
           );
         },
       ),
     );
+  }
+
+  void _markComplete(BuildContext context, InboxController controller, Conversation conversation) async {
+    // TODO: Get actual user ID from auth
+    await controller.markAsComplete(conversation.id, 'current_user_id');
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Marked as complete'),
+          backgroundColor: AVColors.auroraGreen,
+          action: SnackBarAction(
+            label: 'Undo',
+            textColor: AVColors.obsidian,
+            onPressed: () => controller.reopenConversation(conversation.id),
+          ),
+        ),
+      );
+    }
+  }
+
+  void _assignToMe(BuildContext context, InboxController controller, Conversation conversation) async {
+    // TODO: Get actual user ID and name from auth
+    await controller.assignToMe(conversation.id, 'current_user_id', 'You');
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Assigned to you'),
+          backgroundColor: AVColors.primaryTeal,
+        ),
+      );
+    }
+  }
+
+  void _reopenConversation(BuildContext context, InboxController controller, Conversation conversation) async {
+    await controller.reopenConversation(conversation.id);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Moved back to Main inbox'),
+          backgroundColor: AVColors.primaryTeal,
+        ),
+      );
+    }
   }
 
   void _openConversation(
@@ -488,6 +538,109 @@ class _UnifiedInboxScreenState extends State<UnifiedInboxScreen> {
   }
 }
 
+class _SwipeableConversationTile extends StatelessWidget {
+  final Conversation conversation;
+  final VoidCallback onTap;
+  final VoidCallback onMarkComplete;
+  final VoidCallback onAssignToMe;
+  final VoidCallback onReopen;
+  final bool showInMain;
+
+  const _SwipeableConversationTile({
+    required this.conversation,
+    required this.onTap,
+    required this.onMarkComplete,
+    required this.onAssignToMe,
+    required this.onReopen,
+    required this.showInMain,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // In Main inbox: swipe right = complete, swipe left = assign
+    // In sub-inboxes: show reopen option if handled
+    
+    return Dismissible(
+      key: Key(conversation.id),
+      direction: showInMain 
+          ? DismissDirection.horizontal 
+          : (conversation.isHandled ? DismissDirection.startToEnd : DismissDirection.none),
+      confirmDismiss: (direction) async {
+        if (direction == DismissDirection.endToStart) {
+          // Swipe left = Assign to me (don't dismiss)
+          onAssignToMe();
+          return false;
+        } else if (direction == DismissDirection.startToEnd) {
+          if (showInMain) {
+            // Swipe right in Main = Mark complete
+            onMarkComplete();
+          } else if (conversation.isHandled) {
+            // Swipe right in sub-inbox = Reopen
+            onReopen();
+          }
+          return false;
+        }
+        return false;
+      },
+      background: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: showInMain ? AVColors.auroraGreen : AVColors.primaryTeal,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        alignment: Alignment.centerLeft,
+        padding: const EdgeInsets.only(left: 20),
+        child: Row(
+          children: [
+            Icon(
+              showInMain ? Icons.check_circle : Icons.replay,
+              color: Colors.white,
+            ),
+            const SizedBox(width: 8),
+            Text(
+              showInMain ? 'Complete' : 'Reopen',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+      ),
+      secondaryBackground: showInMain ? Container(
+        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: AVColors.primaryTeal,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 20),
+        child: const Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            Text(
+              'Assign to me',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            SizedBox(width: 8),
+            Icon(
+              Icons.person_add,
+              color: Colors.white,
+            ),
+          ],
+        ),
+      ) : null,
+      child: _ConversationTile(
+        conversation: conversation,
+        onTap: onTap,
+      ),
+    );
+  }
+}
+
 class _ConversationTile extends StatelessWidget {
   final Conversation conversation;
   final VoidCallback onTap;
@@ -560,11 +713,63 @@ class _ConversationTile extends StatelessWidget {
                           fontWeight: conversation.hasUnread 
                               ? FontWeight.bold 
                               : FontWeight.normal,
-                          color: AVColors.textHigh,
+                          color: conversation.isHandled 
+                              ? AVColors.textLow 
+                              : AVColors.textHigh,
                         ),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
+                    // Assignment badge
+                    if (conversation.isAssigned)
+                      Container(
+                        margin: const EdgeInsets.only(left: 8),
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.orange.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.person, size: 10, color: Colors.orange),
+                            const SizedBox(width: 2),
+                            Text(
+                              conversation.assignedToName ?? 'Assigned',
+                              style: const TextStyle(
+                                color: Colors.orange,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    // Handled badge
+                    if (conversation.isHandled)
+                      Container(
+                        margin: const EdgeInsets.only(left: 8),
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: AVColors.auroraGreen.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.check_circle, size: 10, color: AVColors.auroraGreen),
+                            SizedBox(width: 2),
+                            Text(
+                              'Done',
+                              style: TextStyle(
+                                color: AVColors.auroraGreen,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     if (conversation.bookingIds.isNotEmpty)
                       Container(
                         margin: const EdgeInsets.only(left: 8),

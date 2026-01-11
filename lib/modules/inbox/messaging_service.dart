@@ -83,6 +83,66 @@ class MessagingService {
     }
   }
 
+  /// Assign conversation to a user
+  Future<void> assignConversation(String conversationId, String userId, String userName) async {
+    try {
+      await _firestore.collection('conversations').doc(conversationId).update({
+        'assignedTo': userId,
+        'assignedToName': userName,
+        'assignedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      print('Error assigning conversation: $e');
+      rethrow;
+    }
+  }
+
+  /// Unassign conversation
+  Future<void> unassignConversation(String conversationId) async {
+    try {
+      await _firestore.collection('conversations').doc(conversationId).update({
+        'assignedTo': null,
+        'assignedToName': null,
+        'assignedAt': null,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      print('Error unassigning conversation: $e');
+      rethrow;
+    }
+  }
+
+  /// Mark conversation as complete (handled) - removes from Main inbox
+  Future<void> markConversationComplete(String conversationId, String userId) async {
+    try {
+      await _firestore.collection('conversations').doc(conversationId).update({
+        'isHandled': true,
+        'handledAt': FieldValue.serverTimestamp(),
+        'handledBy': userId,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      print('Error marking conversation complete: $e');
+      rethrow;
+    }
+  }
+
+  /// Reopen a handled conversation (move back to Main inbox)
+  Future<void> reopenConversation(String conversationId) async {
+    try {
+      await _firestore.collection('conversations').doc(conversationId).update({
+        'isHandled': false,
+        'handledAt': null,
+        'handledBy': null,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      print('Error reopening conversation: $e');
+      rethrow;
+    }
+  }
+
   // ============================================
   // MESSAGES
   // ============================================

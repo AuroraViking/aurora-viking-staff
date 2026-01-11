@@ -35,8 +35,13 @@ class InboxController extends ChangeNotifier {
   List<Conversation> get conversations {
     var filtered = _conversations;
     
-    // Filter by inbox first
-    if (_selectedInboxFilter != null) {
+    // "Main" inbox (null filter) shows only non-handled conversations
+    // Sub-category inboxes show ALL conversations for that inbox (including handled)
+    if (_selectedInboxFilter == null) {
+      // Main inbox - show only unhandled
+      filtered = filtered.where((c) => !c.isHandled).toList();
+    } else {
+      // Specific inbox - show all for that inbox
       filtered = filtered.where((c) => c.inboxEmail == _selectedInboxFilter).toList();
     }
     
@@ -70,7 +75,10 @@ class InboxController extends ChangeNotifier {
   int get wixCount => _filteredByInbox.where((c) => c.channel == 'wix').length;
   int get whatsappCount => _filteredByInbox.where((c) => c.channel == 'whatsapp').length;
   
-  // Inbox counts
+  // Main inbox count (unhandled only)
+  int get mainInboxCount => _conversations.where((c) => !c.isHandled).length;
+  
+  // Inbox counts (all conversations, including handled)
   int get infoInboxCount => _conversations.where((c) => 
       c.inboxEmail == 'info@auroraviking.is' || c.inboxEmail == null).length;
   int get photoInboxCount => _conversations.where((c) => 
@@ -320,6 +328,54 @@ class InboxController extends ChangeNotifier {
     } catch (e) {
       print('Error archiving conversation: $e');
       _error = 'Failed to archive conversation';
+      notifyListeners();
+    }
+  }
+
+  /// Assign conversation to current user
+  Future<void> assignToMe(String conversationId, String userId, String userName) async {
+    try {
+      await _messagingService.assignConversation(conversationId, userId, userName);
+      print('✅ Assigned conversation $conversationId to $userName');
+    } catch (e) {
+      print('Error assigning conversation: $e');
+      _error = 'Failed to assign conversation';
+      notifyListeners();
+    }
+  }
+
+  /// Unassign conversation
+  Future<void> unassign(String conversationId) async {
+    try {
+      await _messagingService.unassignConversation(conversationId);
+      print('✅ Unassigned conversation $conversationId');
+    } catch (e) {
+      print('Error unassigning conversation: $e');
+      _error = 'Failed to unassign conversation';
+      notifyListeners();
+    }
+  }
+
+  /// Mark conversation as complete (handled)
+  Future<void> markAsComplete(String conversationId, String userId) async {
+    try {
+      await _messagingService.markConversationComplete(conversationId, userId);
+      print('✅ Marked conversation $conversationId as complete');
+    } catch (e) {
+      print('Error marking conversation as complete: $e');
+      _error = 'Failed to mark as complete';
+      notifyListeners();
+    }
+  }
+
+  /// Reopen a handled conversation (move back to Main)
+  Future<void> reopenConversation(String conversationId) async {
+    try {
+      await _messagingService.reopenConversation(conversationId);
+      print('✅ Reopened conversation $conversationId');
+    } catch (e) {
+      print('Error reopening conversation: $e');
+      _error = 'Failed to reopen conversation';
       notifyListeners();
     }
   }

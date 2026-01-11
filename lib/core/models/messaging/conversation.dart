@@ -18,7 +18,11 @@ class Conversation {
   final String lastMessagePreview;
   final int unreadCount;
   final String? assignedTo;
+  final String? assignedToName;  // Display name of assigned admin
   final DateTime? assignedAt;
+  final bool isHandled;  // True when marked complete
+  final DateTime? handledAt;
+  final String? handledBy;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -35,7 +39,11 @@ class Conversation {
     required this.lastMessagePreview,
     this.unreadCount = 0,
     this.assignedTo,
+    this.assignedToName,
     this.assignedAt,
+    this.isHandled = false,
+    this.handledAt,
+    this.handledBy,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -63,7 +71,11 @@ class Conversation {
       lastMessagePreview: json['lastMessagePreview'] ?? '',
       unreadCount: json['unreadCount'] ?? 0,
       assignedTo: json['assignedTo'],
+      assignedToName: json['assignedToName'],
       assignedAt: _parseDateTime(json['assignedAt']),
+      isHandled: json['isHandled'] ?? false,
+      handledAt: _parseDateTime(json['handledAt']),
+      handledBy: json['handledBy'],
       createdAt: _parseDateTime(json['createdAt']) ?? DateTime.now(),
       updatedAt: _parseDateTime(json['updatedAt']) ?? DateTime.now(),
     );
@@ -91,7 +103,11 @@ class Conversation {
       'lastMessagePreview': lastMessagePreview,
       'unreadCount': unreadCount,
       'assignedTo': assignedTo,
+      'assignedToName': assignedToName,
       'assignedAt': assignedAt != null ? Timestamp.fromDate(assignedAt!) : null,
+      'isHandled': isHandled,
+      'handledAt': handledAt != null ? Timestamp.fromDate(handledAt!) : null,
+      'handledBy': handledBy,
       'createdAt': Timestamp.fromDate(createdAt),
       'updatedAt': Timestamp.fromDate(updatedAt),
     };
@@ -110,7 +126,11 @@ class Conversation {
     String? lastMessagePreview,
     int? unreadCount,
     String? assignedTo,
+    String? assignedToName,
     DateTime? assignedAt,
+    bool? isHandled,
+    DateTime? handledAt,
+    String? handledBy,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -127,7 +147,11 @@ class Conversation {
       lastMessagePreview: lastMessagePreview ?? this.lastMessagePreview,
       unreadCount: unreadCount ?? this.unreadCount,
       assignedTo: assignedTo ?? this.assignedTo,
+      assignedToName: assignedToName ?? this.assignedToName,
       assignedAt: assignedAt ?? this.assignedAt,
+      isHandled: isHandled ?? this.isHandled,
+      handledAt: handledAt ?? this.handledAt,
+      handledBy: handledBy ?? this.handledBy,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
@@ -135,6 +159,9 @@ class Conversation {
 
   /// Check if conversation has unread messages
   bool get hasUnread => unreadCount > 0;
+  
+  /// Check if conversation is assigned to someone
+  bool get isAssigned => assignedTo != null;
 
   /// Check if conversation is active
   bool get isActive => status == ConversationStatus.active;
