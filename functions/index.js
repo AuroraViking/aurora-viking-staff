@@ -1636,8 +1636,9 @@ async function findOrCreateCustomer(channel, identifier, name) {
 
 /**
  * Find or create conversation
+ * @param {string} inboxEmail - The inbox that received this message (e.g., info@, photo@)
  */
-async function findOrCreateConversation(customerId, channel, threadId, subject, messagePreview) {
+async function findOrCreateConversation(customerId, channel, threadId, subject, messagePreview, inboxEmail = null) {
   const conversationsRef = db.collection('conversations');
   
   // Try to find existing conversation by thread ID (for Gmail) or recent active conversation
@@ -1680,6 +1681,7 @@ async function findOrCreateConversation(customerId, channel, threadId, subject, 
   const newConversation = {
     customerId,
     channel,
+    inboxEmail: inboxEmail || null,  // Store which inbox this conversation belongs to
     subject: subject || null,
     bookingIds: [],
     messageIds: [],
@@ -1687,13 +1689,13 @@ async function findOrCreateConversation(customerId, channel, threadId, subject, 
     lastMessageAt: admin.firestore.FieldValue.serverTimestamp(),
     lastMessagePreview: messagePreview.substring(0, 100),
     unreadCount: 1,
-    channelMetadata: channel === 'gmail' && threadId ? { gmail: { threadId } } : {},
+    channelMetadata: channel === 'gmail' && threadId ? { gmail: { threadId, inbox: inboxEmail } } : {},
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   };
   
   const docRef = await conversationsRef.add(newConversation);
-  console.log(`💬 Created new conversation: ${docRef.id}`);
+  console.log(`💬 Created new conversation: ${docRef.id} (inbox: ${inboxEmail})`);
   return docRef.id;
 }
 
@@ -2053,37 +2055,121 @@ function getGmailOAuth2Client(clientId, clientSecret) {
 }
 
 /**
- * Store Gmail tokens in Firestore
+ * Store Gmail tokens in Firestore (supports multiple accounts)
+ * Each account is stored in system/gmail_accounts/{emailId}
  */
 async function storeGmailTokens(email, tokens) {
-  await db.collection('system').doc('gmail_tokens').set({
+  // Use email as document ID (replace special chars)
+  const emailId = email.replace(/[@.]/g, '_');
+  
+  await db.collection('system').doc('gmail_accounts').collection('accounts').doc(emailId).set({
     email,
     accessToken: tokens.access_token,
     refreshToken: tokens.refresh_token,
     expiryDate: tokens.expiry_date,
+    lastCheckTimestamp: Date.now(),
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   }, { merge: true });
   console.log(`✅ Gmail tokens stored for ${email}`);
 }
 
 /**
- * Get Gmail tokens from Firestore
+ * Get Gmail tokens for a specific email from Firestore
  */
-async function getGmailTokens() {
-  const doc = await db.collection('system').doc('gmail_tokens').get();
+async function getGmailTokens(email) {
+  const emailId = email.replace(/[@.]/g, '_');
+  const doc = await db.collection('system').doc('gmail_accounts').collection('accounts').doc(emailId).get();
   if (!doc.exists) {
     return null;
   }
-  return doc.data();
+  return { ...doc.data(), id: emailId };
 }
 
 /**
- * Get authenticated Gmail client
+ * Get all connected Gmail accounts
  */
-async function getGmailClient(clientId, clientSecret) {
-  const tokens = await getGmailTokens();
+async function getAllGmailAccounts() {
+  const snapshot = await db.collection('system').doc('gmail_accounts').collection('accounts').get();
+  if (snapshot.empty) {
+    return [];
+  }
+  return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+}
+
+/**
+ * Update sync state for a specific Gmail account
+ */
+async function updateGmailSyncState(email, updates) {
+  const emailId = email.replace(/[@.]/g, '_');
+  await db.collection('system').doc('gmail_accounts').collection('accounts').doc(emailId).update({
+    ...updates,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+}
+
+/**
+ * Auto-migrate legacy Gmail account to new multi-account structure
+ * Returns true if migration was successful
+ */
+async function autoMigrateLegacyGmailAccount() {
+  try {
+    // Check for old tokens in legacy location
+    const oldTokensDoc = await db.collection('system').doc('gmail_tokens').get();
+    if (!oldTokensDoc.exists) {
+      console.log('No legacy gmail_tokens found');
+      return false;
+    }
+    
+    const oldTokens = oldTokensDoc.data();
+    console.log(`📧 Found legacy account: ${oldTokens.email}`);
+    
+    // Get old sync state
+    const oldSyncDoc = await db.collection('system').doc('gmail_sync').get();
+    const oldSync = oldSyncDoc.exists ? oldSyncDoc.data() : {};
+    
+    // Create new document ID
+    const emailId = oldTokens.email.replace(/[@.]/g, '_');
+    
+    // Check if already migrated
+    const existingDoc = await db.collection('system').doc('gmail_accounts').collection('accounts').doc(emailId).get();
+    if (existingDoc.exists) {
+      console.log('Account already migrated');
+      return true;
+    }
+    
+    // Create new account document
+    const newAccountData = {
+      email: oldTokens.email,
+      accessToken: oldTokens.accessToken,
+      refreshToken: oldTokens.refreshToken,
+      expiryDate: oldTokens.expiryDate,
+      lastCheckTimestamp: oldSync.lastCheckTimestamp || Date.now(),
+      lastPollAt: oldSync.lastPollAt || null,
+      lastPollCount: oldSync.lastPollCount || 0,
+      lastProcessedCount: oldSync.lastProcessedCount || 0,
+      lastError: null,
+      migratedAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+    
+    // Save to new location
+    await db.collection('system').doc('gmail_accounts').collection('accounts').doc(emailId).set(newAccountData);
+    console.log(`✅ Auto-migrated ${oldTokens.email} to new structure`);
+    
+    return true;
+  } catch (error) {
+    console.error('❌ Auto-migration error:', error);
+    return false;
+  }
+}
+
+/**
+ * Get authenticated Gmail client for a specific email account
+ */
+async function getGmailClient(email, clientId, clientSecret) {
+  const tokens = await getGmailTokens(email);
   if (!tokens) {
-    throw new Error('Gmail not authorized. Please complete OAuth flow first.');
+    throw new Error(`Gmail account ${email} not authorized. Please complete OAuth flow first.`);
   }
   
   const oauth2Client = getGmailOAuth2Client(clientId, clientSecret);
@@ -2095,7 +2181,7 @@ async function getGmailClient(clientId, clientSecret) {
   
   // Handle token refresh
   oauth2Client.on('tokens', async (newTokens) => {
-    console.log('🔄 Gmail tokens refreshed');
+    console.log(`🔄 Gmail tokens refreshed for ${email}`);
     await storeGmailTokens(tokens.email, {
       access_token: newTokens.access_token || tokens.accessToken,
       refresh_token: newTokens.refresh_token || tokens.refreshToken,
@@ -2186,16 +2272,11 @@ exports.gmailOAuthCallback = onRequest(
       const profile = await gmail.users.getProfile({ userId: 'me' });
       const email = profile.data.emailAddress;
       
-      // Store tokens
+      // Store tokens (this also initializes sync state)
       await storeGmailTokens(email, tokens);
       
-      // Initialize last check timestamp
-      await db.collection('system').doc('gmail_sync').set({
-        lastCheckTimestamp: Date.now(),
-        lastHistoryId: null,
-        email: email,
-        setupAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
+      // Get count of connected accounts
+      const accounts = await getAllGmailAccounts();
       
       res.send(`
         <html>
@@ -2204,6 +2285,7 @@ exports.gmailOAuthCallback = onRequest(
             <style>
               body { font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; text-align: center; }
               .success { color: #34a853; font-size: 48px; }
+              .accounts { background: #f5f5f5; padding: 15px; border-radius: 8px; margin-top: 20px; }
             </style>
           </head>
           <body>
@@ -2211,7 +2293,11 @@ exports.gmailOAuthCallback = onRequest(
             <h1>Gmail Connected Successfully!</h1>
             <p>Email: <strong>${email}</strong></p>
             <p>The Aurora Viking Staff app will now receive emails from this inbox.</p>
-            <p>You can close this window.</p>
+            <div class="accounts">
+              <strong>Connected Accounts (${accounts.length}):</strong><br/>
+              ${accounts.map(a => a.email).join('<br/>')}
+            </div>
+            <p style="margin-top: 20px;">You can close this window.</p>
           </body>
         </html>
       `);
@@ -2240,91 +2326,124 @@ exports.pollGmailInbox = onSchedule(
     timeoutSeconds: 60,
   },
   async () => {
-    console.log('📬 Polling Gmail inbox...');
+    console.log('📬 Polling all Gmail inboxes...');
     
     try {
       const clientId = process.env.GMAIL_CLIENT_ID;
       const clientSecret = process.env.GMAIL_CLIENT_SECRET;
       
-      // Check if Gmail is authorized
-      const tokens = await getGmailTokens();
-      if (!tokens) {
-        console.log('⚠️ Gmail not authorized yet. Skipping poll.');
+      // Get all connected Gmail accounts
+      let accounts = await getAllGmailAccounts();
+      
+      // Auto-migrate from old structure if needed
+      if (accounts.length === 0) {
+        console.log('🔄 No accounts in new structure, checking for legacy accounts...');
+        const migrated = await autoMigrateLegacyGmailAccount();
+        if (migrated) {
+          accounts = await getAllGmailAccounts();
+        }
+      }
+      
+      if (accounts.length === 0) {
+        console.log('⚠️ No Gmail accounts authorized yet. Skipping poll.');
         return;
       }
       
-      const gmail = await getGmailClient(clientId, clientSecret);
+      console.log(`📫 Found ${accounts.length} connected Gmail account(s)`);
       
-      // Get sync state
-      const syncDoc = await db.collection('system').doc('gmail_sync').get();
-      const syncData = syncDoc.exists ? syncDoc.data() : { lastCheckTimestamp: Date.now() - 86400000 }; // Default to 24h ago
+      let totalProcessed = 0;
       
-      // Calculate time window (last check to now)
-      const afterTimestamp = Math.floor(syncData.lastCheckTimestamp / 1000);
-      const query = `after:${afterTimestamp} in:inbox`;
-      
-      console.log(`🔍 Searching for emails: ${query}`);
-      
-      // List messages
-      const listResponse = await gmail.users.messages.list({
-        userId: 'me',
-        q: query,
-        maxResults: 50,
-      });
-      
-      const messages = listResponse.data.messages || [];
-      console.log(`📧 Found ${messages.length} new messages`);
-      
-      let processedCount = 0;
-      
-      for (const msg of messages) {
-        // Check if we already processed this message
-        const existingMsg = await db.collection('messages')
-          .where('channelMetadata.gmail.messageId', '==', msg.id)
-          .limit(1)
-          .get();
-        
-        if (!existingMsg.empty) {
-          console.log(`⏭️ Skipping already processed message: ${msg.id}`);
-          continue;
+      // Poll each account
+      for (const account of accounts) {
+        try {
+          console.log(`\n📧 Polling: ${account.email}`);
+          const processedCount = await pollSingleGmailAccount(account, clientId, clientSecret);
+          totalProcessed += processedCount;
+        } catch (accountError) {
+          console.error(`❌ Error polling ${account.email}:`, accountError.message);
+          // Update error state for this account
+          await updateGmailSyncState(account.email, {
+            lastError: accountError.message,
+            lastErrorAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
         }
-        
-        // Get full message details
-        const fullMessage = await gmail.users.messages.get({
-          userId: 'me',
-          id: msg.id,
-          format: 'full',
-        });
-        
-        await processGmailMessageData(fullMessage.data);
-        processedCount++;
       }
       
-      // Update last check timestamp
-      await db.collection('system').doc('gmail_sync').update({
-        lastCheckTimestamp: Date.now(),
-        lastPollAt: admin.firestore.FieldValue.serverTimestamp(),
-        lastPollCount: messages.length,
-        lastProcessedCount: processedCount,
-      });
-      
-      console.log(`✅ Gmail poll complete. Processed ${processedCount} new messages.`);
+      console.log(`\n✅ Gmail poll complete. Processed ${totalProcessed} new messages across ${accounts.length} account(s).`);
     } catch (error) {
       console.error('❌ Gmail poll error:', error);
-      
-      // Log error but don't throw to prevent retries
-      await db.collection('system').doc('gmail_sync').update({
-        lastError: error.message,
-        lastErrorAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
     }
   }
 );
 
 /**
- * Process a Gmail message and create Firestore records
+ * Poll a single Gmail account for new messages
  */
-async function processGmailMessageData(gmailMessage) {
+async function pollSingleGmailAccount(account, clientId, clientSecret) {
+  const gmail = await getGmailClient(account.email, clientId, clientSecret);
+  
+  // Calculate time window (last check to now, default to 24h ago)
+  const lastCheck = account.lastCheckTimestamp || (Date.now() - 86400000);
+  const afterTimestamp = Math.floor(lastCheck / 1000);
+  const query = `after:${afterTimestamp} in:inbox`;
+  
+  console.log(`🔍 Searching: ${query}`);
+  
+  // List messages
+  const listResponse = await gmail.users.messages.list({
+    userId: 'me',
+    q: query,
+    maxResults: 50,
+  });
+  
+  const messages = listResponse.data.messages || [];
+  console.log(`📧 Found ${messages.length} new messages`);
+  
+  let processedCount = 0;
+  
+  for (const msg of messages) {
+    // Check if we already processed this message
+    const existingMsg = await db.collection('messages')
+      .where('channelMetadata.gmail.messageId', '==', msg.id)
+      .limit(1)
+      .get();
+    
+    if (!existingMsg.empty) {
+      console.log(`⏭️ Skipping already processed: ${msg.id}`);
+      continue;
+    }
+    
+    // Get full message details
+    const fullMessage = await gmail.users.messages.get({
+      userId: 'me',
+      id: msg.id,
+      format: 'full',
+    });
+    
+    // Pass the inbox email so we know which account received this
+    await processGmailMessageData(fullMessage.data, account.email);
+    processedCount++;
+  }
+  
+  // Update sync state for this account
+  await updateGmailSyncState(account.email, {
+    lastCheckTimestamp: Date.now(),
+    lastPollAt: admin.firestore.FieldValue.serverTimestamp(),
+    lastPollCount: messages.length,
+    lastProcessedCount: processedCount,
+    lastError: null,  // Clear any previous error
+  });
+  
+  console.log(`✅ Processed ${processedCount} from ${account.email}`);
+  return processedCount;
+}
+
+/**
+ * Process a Gmail message and create Firestore records
+ * @param {Object} gmailMessage - The Gmail message data
+ * @param {string} inboxEmail - The inbox email that received this message (e.g., info@, photo@)
+ */
+async function processGmailMessageData(gmailMessage, inboxEmail = 'info@auroraviking.is') {
   const headers = gmailMessage.payload.headers;
   
   const getHeader = (name) => {
@@ -2411,13 +2530,14 @@ async function processGmailMessageData(gmailMessage) {
   // Find or create customer
   const customerId = await findOrCreateCustomer('gmail', fromEmail, fromName);
   
-  // Find or create conversation
+  // Find or create conversation (pass inbox email for filtering)
   const conversationId = await findOrCreateConversation(
     customerId,
     'gmail',
     threadId,
     subject,
-    body.substring(0, 200)
+    body.substring(0, 200),
+    inboxEmail  // Which inbox received this message
   );
   
   // Create message document
@@ -2438,6 +2558,7 @@ async function processGmailMessageData(gmailMessage) {
         fromName,
         to: to ? to.split(',').map(e => e.trim()) : [],
         labels: gmailMessage.labelIds || [],
+        inbox: inboxEmail,  // Which inbox received this (info@, photo@, etc.)
       },
     },
     bookingIds: [],
@@ -2498,8 +2619,12 @@ exports.sendGmailReply = onCall(
         throw new Error('Customer email not found');
       }
       
-      const gmail = await getGmailClient(clientId, clientSecret);
-      const tokens = await getGmailTokens();
+      // Determine which inbox to send from (use original inbox or default)
+      const inboxEmail = conv.channelMetadata?.gmail?.inbox || 'info@auroraviking.is';
+      console.log(`📤 Sending reply from: ${inboxEmail}`);
+      
+      const gmail = await getGmailClient(inboxEmail, clientId, clientSecret);
+      const tokens = await getGmailTokens(inboxEmail);
       
       // Build email
       const subject = conv.subject.startsWith('Re:') ? conv.subject : `Re: ${conv.subject}`;
@@ -2594,6 +2719,7 @@ exports.sendGmailReply = onCall(
 
 /**
  * Manual trigger to poll Gmail (for testing)
+ * Polls all connected accounts
  */
 exports.triggerGmailPoll = onRequest(
   {
@@ -2608,56 +2734,72 @@ exports.triggerGmailPoll = onRequest(
       const clientId = process.env.GMAIL_CLIENT_ID;
       const clientSecret = process.env.GMAIL_CLIENT_SECRET;
       
-      const tokens = await getGmailTokens();
-      if (!tokens) {
-        res.status(400).send('Gmail not authorized. Visit /gmailOAuthStart first.');
+      const accounts = await getAllGmailAccounts();
+      if (accounts.length === 0) {
+        res.status(400).send('No Gmail accounts authorized. Visit /gmailOAuthStart first.');
         return;
       }
       
-      const gmail = await getGmailClient(clientId, clientSecret);
+      const allResults = [];
       
-      // Get last 10 messages from inbox
-      const listResponse = await gmail.users.messages.list({
-        userId: 'me',
-        q: 'in:inbox',
-        maxResults: 10,
-      });
-      
-      const messages = listResponse.data.messages || [];
-      const results = [];
-      
-      for (const msg of messages) {
-        const existingMsg = await db.collection('messages')
-          .where('channelMetadata.gmail.messageId', '==', msg.id)
-          .limit(1)
-          .get();
-        
-        if (!existingMsg.empty) {
-          results.push({ id: msg.id, status: 'skipped (already processed)' });
-          continue;
+      for (const account of accounts) {
+        try {
+          const gmail = await getGmailClient(account.email, clientId, clientSecret);
+          
+          // Get last 10 messages from inbox
+          const listResponse = await gmail.users.messages.list({
+            userId: 'me',
+            q: 'in:inbox',
+            maxResults: 10,
+          });
+          
+          const messages = listResponse.data.messages || [];
+          const results = [];
+          
+          for (const msg of messages) {
+            const existingMsg = await db.collection('messages')
+              .where('channelMetadata.gmail.messageId', '==', msg.id)
+              .limit(1)
+              .get();
+            
+            if (!existingMsg.empty) {
+              results.push({ id: msg.id, status: 'skipped (already processed)' });
+              continue;
+            }
+            
+            const fullMessage = await gmail.users.messages.get({
+              userId: 'me',
+              id: msg.id,
+              format: 'full',
+            });
+            
+            const msgId = await processGmailMessageData(fullMessage.data, account.email);
+            results.push({ id: msg.id, status: 'processed', firestoreId: msgId });
+          }
+          
+          // Update sync timestamp for this account
+          await updateGmailSyncState(account.email, {
+            lastCheckTimestamp: Date.now(),
+            lastManualPollAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+          
+          allResults.push({
+            email: account.email,
+            messagesFound: messages.length,
+            results,
+          });
+        } catch (accountError) {
+          allResults.push({
+            email: account.email,
+            error: accountError.message,
+          });
         }
-        
-        const fullMessage = await gmail.users.messages.get({
-          userId: 'me',
-          id: msg.id,
-          format: 'full',
-        });
-        
-        const msgId = await processGmailMessageData(fullMessage.data);
-        results.push({ id: msg.id, status: 'processed', firestoreId: msgId });
       }
-      
-      // Update sync timestamp
-      await db.collection('system').doc('gmail_sync').update({
-        lastCheckTimestamp: Date.now(),
-        lastManualPollAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
       
       res.json({
         success: true,
-        email: tokens.email,
-        messagesFound: messages.length,
-        results,
+        accountsPolled: accounts.length,
+        results: allResults,
       });
     } catch (error) {
       console.error('❌ Manual poll error:', error);
@@ -2676,17 +2818,18 @@ exports.gmailStatus = onRequest(
   },
   async (req, res) => {
     try {
-      const tokens = await getGmailTokens();
-      const syncDoc = await db.collection('system').doc('gmail_sync').get();
-      const syncData = syncDoc.exists ? syncDoc.data() : null;
+      const accounts = await getAllGmailAccounts();
       
       res.json({
-        connected: !!tokens,
-        email: tokens?.email || null,
-        lastSync: syncData?.lastPollAt?.toDate() || null,
-        lastPollCount: syncData?.lastPollCount || 0,
-        lastError: syncData?.lastError || null,
-        setupUrl: tokens ? null : 'https://us-central1-aurora-viking-staff.cloudfunctions.net/gmailOAuthStart',
+        connected: accounts.length > 0,
+        accountCount: accounts.length,
+        accounts: accounts.map(a => ({
+          email: a.email,
+          lastSync: a.lastPollAt?.toDate() || null,
+          lastPollCount: a.lastPollCount || 0,
+          lastError: a.lastError || null,
+        })),
+        addAccountUrl: 'https://us-central1-aurora-viking-staff.cloudfunctions.net/gmailOAuthStart',
       });
     } catch (error) {
       res.status(500).json({ error: error.message });
@@ -2807,6 +2950,79 @@ exports.onOutboundMessageCreated = onDocumentCreated(
         error: error.message,
         failedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
+    }
+  }
+);
+
+/**
+ * One-time migration: Move existing Gmail account to new multi-account structure
+ * Visit this URL once to migrate: /migrateGmailToMultiAccount
+ */
+exports.migrateGmailToMultiAccount = onRequest(
+  {
+    region: 'us-central1',
+  },
+  async (req, res) => {
+    console.log('🔄 Migrating Gmail account to new structure...');
+    
+    try {
+      // Get old tokens from the legacy location
+      const oldTokensDoc = await db.collection('system').doc('gmail_tokens').get();
+      if (!oldTokensDoc.exists) {
+        res.send('No old gmail_tokens document found. Nothing to migrate.');
+        return;
+      }
+      const oldTokens = oldTokensDoc.data();
+      console.log(`📧 Found account: ${oldTokens.email}`);
+      
+      // Get old sync state
+      const oldSyncDoc = await db.collection('system').doc('gmail_sync').get();
+      const oldSync = oldSyncDoc.exists ? oldSyncDoc.data() : {};
+      
+      // Create new document ID
+      const emailId = oldTokens.email.replace(/[@.]/g, '_');
+      
+      // Check if already migrated
+      const existingDoc = await db.collection('system').doc('gmail_accounts').collection('accounts').doc(emailId).get();
+      if (existingDoc.exists) {
+        res.send(`Account ${oldTokens.email} already migrated.`);
+        return;
+      }
+      
+      // Create new account document
+      const newAccountData = {
+        email: oldTokens.email,
+        accessToken: oldTokens.accessToken,
+        refreshToken: oldTokens.refreshToken,
+        expiryDate: oldTokens.expiryDate,
+        lastCheckTimestamp: oldSync.lastCheckTimestamp || Date.now(),
+        lastPollAt: oldSync.lastPollAt || null,
+        lastPollCount: oldSync.lastPollCount || 0,
+        lastProcessedCount: oldSync.lastProcessedCount || 0,
+        lastError: null,
+        migratedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      };
+      
+      // Save to new location
+      await db.collection('system').doc('gmail_accounts').collection('accounts').doc(emailId).set(newAccountData);
+      
+      res.send(`
+        <html>
+          <head><title>Migration Complete</title></head>
+          <body style="font-family: Arial; max-width: 600px; margin: 50px auto; text-align: center;">
+            <h1>✅ Migration Complete!</h1>
+            <p>Account <strong>${oldTokens.email}</strong> migrated to new structure.</p>
+            <p>New path: <code>system/gmail_accounts/accounts/${emailId}</code></p>
+            <hr/>
+            <p style="color: #666;">You can now add more accounts by visiting <a href="/gmailOAuthStart">/gmailOAuthStart</a></p>
+          </body>
+        </html>
+      `);
+      
+    } catch (error) {
+      console.error('❌ Migration error:', error);
+      res.status(500).send(`Migration error: ${error.message}`);
     }
   }
 );

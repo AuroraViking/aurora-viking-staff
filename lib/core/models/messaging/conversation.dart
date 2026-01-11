@@ -9,6 +9,7 @@ class Conversation {
   final String id;
   final String customerId;
   final String channel;
+  final String? inboxEmail;  // Which inbox this belongs to (info@, photo@, etc.)
   final String? subject;
   final List<String> bookingIds;
   final List<String> messageIds;
@@ -25,6 +26,7 @@ class Conversation {
     required this.id,
     required this.customerId,
     required this.channel,
+    this.inboxEmail,
     this.subject,
     this.bookingIds = const [],
     this.messageIds = const [],
@@ -39,10 +41,17 @@ class Conversation {
   });
 
   factory Conversation.fromJson(Map<String, dynamic> json) {
+    // Extract inbox from channelMetadata if available
+    String? inboxEmail = json['inboxEmail'];
+    if (inboxEmail == null && json['channelMetadata'] != null) {
+      inboxEmail = json['channelMetadata']?['gmail']?['inbox'];
+    }
+    
     return Conversation(
       id: json['id'] ?? '',
       customerId: json['customerId'] ?? '',
       channel: json['channel'] ?? 'gmail',
+      inboxEmail: inboxEmail,
       subject: json['subject'],
       bookingIds: List<String>.from(json['bookingIds'] ?? []),
       messageIds: List<String>.from(json['messageIds'] ?? []),
@@ -73,6 +82,7 @@ class Conversation {
       'id': id,
       'customerId': customerId,
       'channel': channel,
+      'inboxEmail': inboxEmail,
       'subject': subject,
       'bookingIds': bookingIds,
       'messageIds': messageIds,
@@ -91,6 +101,7 @@ class Conversation {
     String? id,
     String? customerId,
     String? channel,
+    String? inboxEmail,
     String? subject,
     List<String>? bookingIds,
     List<String>? messageIds,
@@ -107,6 +118,7 @@ class Conversation {
       id: id ?? this.id,
       customerId: customerId ?? this.customerId,
       channel: channel ?? this.channel,
+      inboxEmail: inboxEmail ?? this.inboxEmail,
       subject: subject ?? this.subject,
       bookingIds: bookingIds ?? this.bookingIds,
       messageIds: messageIds ?? this.messageIds,

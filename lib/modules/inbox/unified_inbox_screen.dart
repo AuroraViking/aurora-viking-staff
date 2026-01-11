@@ -70,13 +70,125 @@ class _UnifiedInboxScreenState extends State<UnifiedInboxScreen> {
               ),
             ],
             bottom: PreferredSize(
-              preferredSize: const Size.fromHeight(48),
-              child: _buildChannelTabs(controller),
+              preferredSize: const Size.fromHeight(120),
+              child: Column(
+                children: [
+                  _buildInboxTabs(controller),
+                  _buildChannelTabs(controller),
+                ],
+              ),
             ),
           ),
           body: _buildBody(controller),
         );
       },
+    );
+  }
+
+  Widget _buildInboxTabs(InboxController controller) {
+    return Container(
+      color: AVColors.obsidian,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      child: Row(
+        children: [
+          _buildInboxTab(
+            label: 'All Inboxes',
+            count: controller.allCount,
+            inbox: null,
+            isSelected: controller.selectedInboxFilter == null,
+            onTap: () => controller.setInboxFilter(null),
+            icon: Icons.all_inbox,
+          ),
+          const SizedBox(width: 8),
+          _buildInboxTab(
+            label: 'Info',
+            count: controller.infoInboxCount,
+            inbox: 'info@auroraviking.is',
+            isSelected: controller.selectedInboxFilter == 'info@auroraviking.is',
+            onTap: () => controller.setInboxFilter('info@auroraviking.is'),
+            icon: Icons.info_outline,
+            color: Colors.blue,
+          ),
+          const SizedBox(width: 8),
+          _buildInboxTab(
+            label: 'Photo',
+            count: controller.photoInboxCount,
+            inbox: 'photo@auroraviking.com',
+            isSelected: controller.selectedInboxFilter == 'photo@auroraviking.com',
+            onTap: () => controller.setInboxFilter('photo@auroraviking.com'),
+            icon: Icons.photo_camera_outlined,
+            color: Colors.purple,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInboxTab({
+    required String label,
+    required int count,
+    required String? inbox,
+    required bool isSelected,
+    required VoidCallback onTap,
+    required IconData icon,
+    Color? color,
+  }) {
+    final tabColor = color ?? AVColors.primaryTeal;
+    
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+          decoration: BoxDecoration(
+            color: isSelected 
+                ? tabColor.withOpacity(0.15)
+                : AVColors.slateElev,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: isSelected ? tabColor : Colors.transparent,
+              width: 1.5,
+            ),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                icon,
+                size: 20,
+                color: isSelected ? tabColor : AVColors.textLow,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                  color: isSelected ? tabColor : AVColors.textLow,
+                ),
+              ),
+              if (count > 0) ...[
+                const SizedBox(height: 2),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: isSelected ? tabColor.withOpacity(0.3) : AVColors.slate,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    '$count',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: isSelected ? tabColor : AVColors.textLow,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
     );
   }
 

@@ -18,6 +18,7 @@ class InboxController extends ChangeNotifier {
   List<Message> _messages = [];
   Customer? _selectedCustomer;
   String? _selectedChannelFilter;
+  String? _selectedInboxFilter;  // Filter by inbox (info@, photo@, etc.)
   int _unreadCount = 0;
   bool _isLoading = false;
   bool _isSending = false;
@@ -31,13 +32,27 @@ class InboxController extends ChangeNotifier {
   StreamSubscription<int>? _unreadSubscription;
 
   // Getters
-  List<Conversation> get conversations => _selectedChannelFilter == null
-      ? _conversations
-      : _conversations.where((c) => c.channel == _selectedChannelFilter).toList();
+  List<Conversation> get conversations {
+    var filtered = _conversations;
+    
+    // Filter by inbox first
+    if (_selectedInboxFilter != null) {
+      filtered = filtered.where((c) => c.inboxEmail == _selectedInboxFilter).toList();
+    }
+    
+    // Then filter by channel
+    if (_selectedChannelFilter != null) {
+      filtered = filtered.where((c) => c.channel == _selectedChannelFilter).toList();
+    }
+    
+    return filtered;
+  }
+  
   Conversation? get selectedConversation => _selectedConversation;
   List<Message> get messages => _messages;
   Customer? get selectedCustomer => _selectedCustomer;
   String? get selectedChannelFilter => _selectedChannelFilter;
+  String? get selectedInboxFilter => _selectedInboxFilter;
   int get unreadCount => _unreadCount;
   bool get isLoading => _isLoading;
   bool get isSending => _isSending;
@@ -45,11 +60,33 @@ class InboxController extends ChangeNotifier {
   bool get hasError => _error != null;
   bool get isInitialized => _isInitialized;
 
-  // Channel counts
-  int get allCount => _conversations.length;
-  int get gmailCount => _conversations.where((c) => c.channel == 'gmail').length;
-  int get wixCount => _conversations.where((c) => c.channel == 'wix').length;
-  int get whatsappCount => _conversations.where((c) => c.channel == 'whatsapp').length;
+  // Channel counts (respect inbox filter)
+  List<Conversation> get _filteredByInbox => _selectedInboxFilter == null
+      ? _conversations
+      : _conversations.where((c) => c.inboxEmail == _selectedInboxFilter).toList();
+  
+  int get allCount => _filteredByInbox.length;
+  int get gmailCount => _filteredByInbox.where((c) => c.channel == 'gmail').length;
+  int get wixCount => _filteredByInbox.where((c) => c.channel == 'wix').length;
+  int get whatsappCount => _filteredByInbox.where((c) => c.channel == 'whatsapp').length;
+  
+  // Inbox counts
+  int get infoInboxCount => _conversations.where((c) => 
+      c.inboxEmail == 'info@auroraviking.is' || c.inboxEmail == null).length;
+  int get photoInboxCount => _conversations.where((c) => 
+      c.inboxEmail == 'photo@auroraviking.com').length;
+  
+  // Get unique inbox emails for dynamic tabs
+  List<String> get availableInboxes {
+    final inboxes = _conversations
+        .map((c) => c.inboxEmail)
+        .where((e) => e != null)
+        .cast<String>()
+        .toSet()
+        .toList();
+    inboxes.sort();
+    return inboxes;
+  }
 
   // ============================================
   // INITIALIZATION
@@ -169,6 +206,13 @@ class InboxController extends ChangeNotifier {
   /// Set channel filter
   void setChannelFilter(String? channel) {
     _selectedChannelFilter = channel;
+    notifyListeners();
+  }
+  
+  /// Set inbox filter (info@, photo@, etc.)
+  void setInboxFilter(String? inbox) {
+    _selectedInboxFilter = inbox;
+    _selectedChannelFilter = null;  // Reset channel filter when changing inbox
     notifyListeners();
   }
 
