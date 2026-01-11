@@ -392,24 +392,50 @@ class _UnifiedInboxScreenState extends State<UnifiedInboxScreen> {
       );
     }
 
-    return RefreshIndicator(
-      onRefresh: () async => controller.refresh(),
-      color: AVColors.primaryTeal,
-      backgroundColor: AVColors.slateElev,
-      child: ListView.builder(
-        itemCount: controller.conversations.length,
-        itemBuilder: (context, index) {
-          final conversation = controller.conversations[index];
-          return _SwipeableConversationTile(
-            conversation: conversation,
-            onTap: () => _openConversation(context, controller, conversation),
-            onMarkComplete: () => _markComplete(context, controller, conversation),
-            onAssignToMe: () => _assignToMe(context, controller, conversation),
-            onReopen: () => _reopenConversation(context, controller, conversation),
-            showInMain: controller.selectedInboxFilter == null,
-          );
-        },
-      ),
+    return Column(
+      children: [
+        // Swipe hint for Main inbox
+        if (controller.selectedInboxFilter == null && controller.conversations.isNotEmpty)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            color: AVColors.obsidian,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.swipe, size: 14, color: AVColors.textLow),
+                const SizedBox(width: 8),
+                Text(
+                  '← Assign  •  Complete →',
+                  style: TextStyle(
+                    color: AVColors.textLow,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: () async => controller.refresh(),
+            color: AVColors.primaryTeal,
+            backgroundColor: AVColors.slateElev,
+            child: ListView.builder(
+              itemCount: controller.conversations.length,
+              itemBuilder: (context, index) {
+                final conversation = controller.conversations[index];
+                return _SwipeableConversationTile(
+                  conversation: conversation,
+                  onTap: () => _openConversation(context, controller, conversation),
+                  onMarkComplete: () => _markComplete(context, controller, conversation),
+                  onAssignToMe: () => _assignToMe(context, controller, conversation),
+                  onReopen: () => _reopenConversation(context, controller, conversation),
+                  showInMain: controller.selectedInboxFilter == null,
+                );
+              },
+            ),
+          ),
+        ),
+      ],
     );
   }
 

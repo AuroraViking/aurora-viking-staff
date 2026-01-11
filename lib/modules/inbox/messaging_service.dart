@@ -35,9 +35,31 @@ class MessagingService {
     });
   }
 
-  /// Get active conversations stream
+  /// Get active conversations stream (excludes archived only)
   Stream<List<Conversation>> getActiveConversationsStream({int limit = 50}) {
-    return getConversationsStream(status: ConversationStatus.active, limit: limit);
+    // Get all conversations except archived
+    // The UI will filter by isHandled for Main vs sub-inboxes
+    return _firestore
+        .collection('conversations')
+        .where('status', whereIn: ['active', 'resolved'])  // Include resolved!
+        .orderBy('lastMessageAt', descending: true)
+        .limit(limit)
+        .snapshots()
+        .map((snapshot) {
+      return snapshot.docs.map((doc) => Conversation.fromFirestore(doc)).toList();
+    });
+  }
+  
+  /// Get ALL conversations (including resolved, for sub-inbox views)
+  Stream<List<Conversation>> getAllConversationsStream({int limit = 100}) {
+    return _firestore
+        .collection('conversations')
+        .orderBy('lastMessageAt', descending: true)
+        .limit(limit)
+        .snapshots()
+        .map((snapshot) {
+      return snapshot.docs.map((doc) => Conversation.fromFirestore(doc)).toList();
+    });
   }
 
   /// Get single conversation
@@ -72,12 +94,21 @@ class MessagingService {
   }
 
   /// Update conversation status (direct Firestore)
+  /// When marking as resolved, also set isHandled so it moves out of Main inbox
   Future<void> updateConversationStatus(String conversationId, ConversationStatus status) async {
     try {
-      await _firestore.collection('conversations').doc(conversationId).update({
+      final updates = <String, dynamic>{
         'status': status.name,
         'updatedAt': FieldValue.serverTimestamp(),
-      });
+      };
+      
+      // If resolving, also mark as handled (same as "complete")
+      if (status == ConversationStatus.resolved) {
+        updates['isHandled'] = true;
+        updates['handledAt'] = FieldValue.serverTimestamp();
+      }
+      
+      await _firestore.collection('conversations').doc(conversationId).update(updates);
     } catch (e) {
       print('Error updating conversation status: $e');
     }
