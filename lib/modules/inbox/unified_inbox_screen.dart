@@ -83,40 +83,76 @@ class _UnifiedInboxScreenState extends State<UnifiedInboxScreen> {
   Widget _buildInboxTabs(InboxController controller) {
     return Container(
       color: AVColors.obsidian,
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-      child: Row(
-        children: [
-          _buildInboxTab(
-            label: 'Main',
-            count: controller.mainInboxCount,
-            inbox: null,
-            isSelected: controller.selectedInboxFilter == null,
-            onTap: () => controller.setInboxFilter(null),
-            icon: Icons.inbox,
-            color: AVColors.auroraGreen,
-            showBadge: true,
-          ),
-          const SizedBox(width: 8),
-          _buildInboxTab(
-            label: 'Info',
-            count: controller.infoInboxCount,
-            inbox: 'info@auroraviking.is',
-            isSelected: controller.selectedInboxFilter == 'info@auroraviking.is',
-            onTap: () => controller.setInboxFilter('info@auroraviking.is'),
-            icon: Icons.email_outlined,
-            color: Colors.blue,
-          ),
-          const SizedBox(width: 8),
-          _buildInboxTab(
-            label: 'Photo',
-            count: controller.photoInboxCount,
-            inbox: 'photo@auroraviking.com',
-            isSelected: controller.selectedInboxFilter == 'photo@auroraviking.com',
-            onTap: () => controller.setInboxFilter('photo@auroraviking.com'),
-            icon: Icons.photo_camera_outlined,
-            color: Colors.purple,
-          ),
-        ],
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        child: Row(
+          children: [
+            _buildInboxTab(
+              label: 'Main',
+              count: controller.mainInboxCount,
+              inbox: null,
+              isSelected: controller.selectedInboxFilter == null,
+              onTap: () => controller.setInboxFilter(null),
+              icon: Icons.inbox,
+              color: AVColors.auroraGreen,
+              showBadge: true,
+            ),
+            const SizedBox(width: 8),
+            _buildInboxTab(
+              label: 'Info',
+              count: controller.infoInboxCount,
+              inbox: 'info@auroraviking.is',
+              isSelected: controller.selectedInboxFilter == 'info@auroraviking.is',
+              onTap: () => controller.setInboxFilter('info@auroraviking.is'),
+              icon: Icons.email_outlined,
+              color: Colors.blue,
+            ),
+            const SizedBox(width: 8),
+            _buildInboxTab(
+              label: 'Photo',
+              count: controller.photoInboxCount,
+              inbox: 'photo@auroraviking.com',
+              isSelected: controller.selectedInboxFilter == 'photo@auroraviking.com',
+              onTap: () => controller.setInboxFilter('photo@auroraviking.com'),
+              icon: Icons.photo_camera_outlined,
+              color: Colors.purple,
+            ),
+            const SizedBox(width: 8),
+            _buildInboxTab(
+              label: 'Website',
+              count: controller.websiteCount,
+              inbox: 'website',
+              isSelected: controller.selectedInboxFilter == 'website',
+              onTap: () => _showComingSoon(context, 'Website Chat'),
+              icon: Icons.language,
+              color: Colors.orange,
+              isPlaceholder: true,
+            ),
+            const SizedBox(width: 8),
+            _buildInboxTab(
+              label: 'WhatsApp',
+              count: controller.whatsappCount,
+              inbox: 'whatsapp',
+              isSelected: controller.selectedInboxFilter == 'whatsapp',
+              onTap: () => _showComingSoon(context, 'WhatsApp'),
+              icon: Icons.chat,
+              color: Colors.green,
+              isPlaceholder: true,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+  
+  void _showComingSoon(BuildContext context, String feature) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('$feature integration coming soon!'),
+        backgroundColor: AVColors.slate,
+        behavior: SnackBarBehavior.floating,
       ),
     );
   }
@@ -130,61 +166,89 @@ class _UnifiedInboxScreenState extends State<UnifiedInboxScreen> {
     required IconData icon,
     Color? color,
     bool showBadge = false,
+    bool isPlaceholder = false,
   }) {
     final tabColor = color ?? AVColors.primaryTeal;
     
-    return Expanded(
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
-          decoration: BoxDecoration(
-            color: isSelected 
-                ? tabColor.withOpacity(0.15)
-                : AVColors.slateElev,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: isSelected ? tabColor : Colors.transparent,
-              width: 1.5,
-            ),
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 70,
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+        decoration: BoxDecoration(
+          color: isSelected 
+              ? tabColor.withOpacity(0.15)
+              : (isPlaceholder ? AVColors.slate.withOpacity(0.5) : AVColors.slateElev),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: isSelected ? tabColor : (isPlaceholder ? AVColors.textLow.withOpacity(0.3) : Colors.transparent),
+            width: 1.5,
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                icon,
-                size: 20,
-                color: isSelected ? tabColor : AVColors.textLow,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                  color: isSelected ? tabColor : AVColors.textLow,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Stack(
+              children: [
+                Icon(
+                  icon,
+                  size: 20,
+                  color: isSelected ? tabColor : (isPlaceholder ? AVColors.textLow.withOpacity(0.5) : AVColors.textLow),
                 ),
-              ),
-              if (count > 0) ...[
-                const SizedBox(height: 2),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                  decoration: BoxDecoration(
-                    color: isSelected ? tabColor.withOpacity(0.3) : AVColors.slate,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    '$count',
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                      color: isSelected ? tabColor : AVColors.textLow,
+                if (isPlaceholder)
+                  Positioned(
+                    right: -2,
+                    top: -2,
+                    child: Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: AVColors.slate,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: AVColors.textLow, width: 1),
+                      ),
                     ),
                   ),
-                ),
               ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                color: isSelected ? tabColor : (isPlaceholder ? AVColors.textLow.withOpacity(0.5) : AVColors.textLow),
+              ),
+            ),
+            if (count > 0 && !isPlaceholder) ...[
+              const SizedBox(height: 2),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                decoration: BoxDecoration(
+                  color: isSelected ? tabColor.withOpacity(0.3) : AVColors.slate,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  '$count',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    color: isSelected ? tabColor : AVColors.textLow,
+                  ),
+                ),
+              ),
             ],
-          ),
+            if (isPlaceholder) ...[
+              const SizedBox(height: 2),
+              Text(
+                'Soon',
+                style: TextStyle(
+                  fontSize: 8,
+                  color: AVColors.textLow.withOpacity(0.5),
+                ),
+              ),
+            ],
+          ],
         ),
       ),
     );

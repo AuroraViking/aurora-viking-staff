@@ -40,8 +40,12 @@ class InboxController extends ChangeNotifier {
     if (_selectedInboxFilter == null) {
       // Main inbox - show only unhandled
       filtered = filtered.where((c) => !c.isHandled).toList();
+    } else if (_selectedInboxFilter == 'info@auroraviking.is') {
+      // Info inbox - include legacy data (null inboxEmail) and explicit info@
+      filtered = filtered.where((c) => 
+          c.inboxEmail == 'info@auroraviking.is' || c.inboxEmail == null).toList();
     } else {
-      // Specific inbox - show all for that inbox
+      // Other inboxes (photo@, etc.) - exact match only
       filtered = filtered.where((c) => c.inboxEmail == _selectedInboxFilter).toList();
     }
     
@@ -83,6 +87,10 @@ class InboxController extends ChangeNotifier {
       c.inboxEmail == 'info@auroraviking.is' || c.inboxEmail == null).length;
   int get photoInboxCount => _conversations.where((c) => 
       c.inboxEmail == 'photo@auroraviking.com').length;
+  
+  // Placeholder counts for future integrations
+  int get websiteCount => _conversations.where((c) => c.channel == 'website').length;
+  int get whatsappInboxCount => _conversations.where((c) => c.channel == 'whatsapp').length;
   
   // Get unique inbox emails for dynamic tabs
   List<String> get availableInboxes {
