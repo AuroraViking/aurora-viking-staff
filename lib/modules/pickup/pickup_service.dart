@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:crypto/crypto.dart';
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import '../../core/models/pickup_models.dart';
+import '../../core/models/tour_group.dart';
 import '../../core/models/user_model.dart';
 import '../../core/services/firebase_service.dart';
 
@@ -226,6 +227,49 @@ class PickupService {
            lowerValue.contains('contact supplier') ||
            lowerValue == 'meet on location' ||
            lowerValue == 'pickup arranged';
+  }
+
+  /// Detect if this is a private tour based on product title and booking data
+  bool _isPrivateTour(String? productTitle, Map<String, dynamic> productBooking, Map<String, dynamic> booking) {
+    // Use the helper from TourGroup
+    if (PrivateTourDetector.isPrivateTour(productTitle)) {
+      return true;
+    }
+    
+    // Check labels/tags in booking
+    final labels = booking['labels'] as List<dynamic>?;
+    if (labels != null) {
+      for (final label in labels) {
+        if (PrivateTourDetector.isPrivateTour(label.toString())) {
+          return true;
+        }
+      }
+    }
+    
+    // Check product labels
+    final product = productBooking['product'] as Map<String, dynamic>?;
+    final productLabels = product?['labels'] as List<dynamic>?;
+    if (productLabels != null) {
+      for (final label in productLabels) {
+        if (PrivateTourDetector.isPrivateTour(label.toString())) {
+          return true;
+        }
+      }
+    }
+    
+    // Check booking type
+    final bookingType = booking['bookingType']?.toString();
+    if (PrivateTourDetector.isPrivateTour(bookingType)) {
+      return true;
+    }
+    
+    // Check product type
+    final productType = product?['type']?.toString();
+    if (PrivateTourDetector.isPrivateTour(productType)) {
+      return true;
+    }
+    
+    return false;
   }
 
   /// Main method to extract pickup location from all possible sources
@@ -998,6 +1042,50 @@ class PickupService {
         booking: booking,
       );
       
+      // ===== TOUR GROUPING: Extract product/tour info =====
+      final product = productBooking['product'] as Map<String, dynamic>?;
+      final productId = product?['id']?.toString();
+      final productTitle = product?['title']?.toString() ?? 
+                          product?['name']?.toString() ??
+                          'Northern Lights Tour';
+      
+      // Extract departure time (startTime in HH:mm format)
+      String? departureTime;
+      final startTimeValue = productBooking['startTime'];
+      if (startTimeValue != null) {
+        if (startTimeValue is String) {
+          // Already in HH:mm format
+          departureTime = startTimeValue;
+        } else if (startTimeValue is int) {
+          // Convert minutes since midnight to HH:mm
+          final hours = startTimeValue ~/ 60;
+          final minutes = startTimeValue % 60;
+          departureTime = '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}';
+        }
+      }
+      // Fallback: Extract from fields if not in productBooking
+      if (departureTime == null && fields['startHour'] != null && fields['startMinute'] != null) {
+        final startHour = fields['startHour'];
+        final startMinute = fields['startMinute'];
+        if (startHour is int && startMinute is int) {
+          departureTime = '${startHour.toString().padLeft(2, '0')}:${startMinute.toString().padLeft(2, '0')}';
+        }
+      }
+      
+      // Get startTimeId for unique departure identification
+      final startTimeId = productBooking['startTimeId']?.toString() ??
+                         productBooking['activityId']?.toString();
+      
+      // Detect if this is a private tour
+      final isPrivateTour = _isPrivateTour(productTitle, productBooking, booking);
+      
+      print('🔍 === TOUR INFO ===');
+      print('🔍 Product ID: $productId');
+      print('🔍 Product Title: $productTitle');
+      print('🔍 Departure Time: $departureTime');
+      print('🔍 Is Private Tour: $isPrivateTour');
+      print('🔍 ==================');
+      
       print('🔍 === FINAL PICKUP RESULT ===');
       print('🔍 Customer: $customerFullName');
       print('🔍 Pickup Location: $pickupPlaceName');
@@ -1318,9 +1406,14 @@ class PickupService {
         confirmationCode: confirmationCode,
         isUnpaid: isUnpaid,
         amountToPayOnArrival: amountToPayOnArrival,
+        productId: productId,
+        productTitle: productTitle,
+        departureTime: departureTime,
+        startTimeId: startTimeId,
+        isPrivateTour: isPrivateTour,
       );
       
-      print('✅ Successfully parsed booking: ${pickupBooking.customerFullName} - ${pickupBooking.pickupPlaceName} - ${pickupBooking.numberOfGuests} guests - ${pickupBooking.pickupTime}');
+      print('✅ Successfully parsed booking: ${pickupBooking.customerFullName} - ${pickupBooking.pickupPlaceName} - ${pickupBooking.numberOfGuests} guests - ${pickupBooking.pickupTime} (Tour: $productTitle @ $departureTime)');
       return pickupBooking;
     } catch (e) {
       print('❌ Error parsing Bokun booking: $e');

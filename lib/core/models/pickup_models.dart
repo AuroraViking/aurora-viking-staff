@@ -16,6 +16,13 @@ class PickupBooking {
   final bool isUnpaid; // Whether booking is unpaid
   final double? amountToPayOnArrival; // Amount to pay on arrival (if applicable)
   final bool paidOnArrival; // Whether guest has paid on arrival (marked by guide)
+  
+  // Tour grouping fields
+  final String? productId;        // Bokun product ID
+  final String? productTitle;     // Tour name (e.g., "Northern Lights Tour")
+  final String? departureTime;    // Tour departure time (e.g., "18:00")
+  final String? startTimeId;      // Bokun's unique departure ID
+  final bool isPrivateTour;       // Flag for private tours
 
   PickupBooking({
     required this.id,
@@ -35,7 +42,30 @@ class PickupBooking {
     this.isUnpaid = false,
     this.amountToPayOnArrival,
     this.paidOnArrival = false,
+    this.productId,
+    this.productTitle,
+    this.departureTime,
+    this.startTimeId,
+    this.isPrivateTour = false,
   });
+
+  /// Computed grouping key for tour grouping
+  String get tourGroupKey {
+    final product = productId ?? 'unknown';
+    final time = departureTime ?? 'unknown';
+    final isPrivate = isPrivateTour ? 'private' : 'group';
+    return '${product}_${time}_$isPrivate';
+  }
+
+  /// Display-friendly departure label
+  String get departureLabel {
+    final time = departureTime ?? 'TBD';
+    final tour = productTitle ?? 'Tour';
+    if (isPrivateTour) {
+      return '⭐ Private: $tour - $time';
+    }
+    return '🚌 $tour - $time Departure';
+  }
 
   factory PickupBooking.fromJson(Map<String, dynamic> json) {
     return PickupBooking(
@@ -60,6 +90,11 @@ class PickupBooking {
               : double.tryParse(json['amountToPayOnArrival'].toString()))
           : null,
       paidOnArrival: json['paidOnArrival'] ?? false,
+      productId: json['productId'],
+      productTitle: json['productTitle'],
+      departureTime: json['departureTime'],
+      startTimeId: json['startTimeId'],
+      isPrivateTour: json['isPrivateTour'] ?? false,
     );
   }
 
@@ -82,6 +117,11 @@ class PickupBooking {
       'isUnpaid': isUnpaid,
       'amountToPayOnArrival': amountToPayOnArrival,
       'paidOnArrival': paidOnArrival,
+      'productId': productId,
+      'productTitle': productTitle,
+      'departureTime': departureTime,
+      'startTimeId': startTimeId,
+      'isPrivateTour': isPrivateTour,
     };
   }
 
@@ -103,6 +143,11 @@ class PickupBooking {
     bool? isUnpaid,
     double? amountToPayOnArrival,
     bool? paidOnArrival,
+    String? productId,
+    String? productTitle,
+    String? departureTime,
+    String? startTimeId,
+    bool? isPrivateTour,
   }) {
     return PickupBooking(
       id: id ?? this.id,
@@ -122,6 +167,11 @@ class PickupBooking {
       isUnpaid: isUnpaid ?? this.isUnpaid,
       amountToPayOnArrival: amountToPayOnArrival ?? this.amountToPayOnArrival,
       paidOnArrival: paidOnArrival ?? this.paidOnArrival,
+      productId: productId ?? this.productId,
+      productTitle: productTitle ?? this.productTitle,
+      departureTime: departureTime ?? this.departureTime,
+      startTimeId: startTimeId ?? this.startTimeId,
+      isPrivateTour: isPrivateTour ?? this.isPrivateTour,
     );
   }
 }

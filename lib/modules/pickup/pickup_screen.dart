@@ -5,6 +5,7 @@ import 'dart:async';
 import '../../core/theme/colors.dart';
 import '../../core/auth/auth_controller.dart';
 import '../../core/models/pickup_models.dart';
+import '../../core/models/tour_group.dart';
 import '../../core/services/firebase_service.dart';
 import '../../widgets/common/loading_widget.dart';
 import '../../widgets/common/error_widget.dart';
@@ -262,7 +263,7 @@ class _PickupScreenState extends State<PickupScreen> {
                 ),
               ),
 
-              // FIX: Better empty state handling
+              // FIX: Better empty state handling - now with tour grouping!
               Expanded(
                 child: bookings.isEmpty
                     ? _buildEmptyState()
@@ -273,235 +274,7 @@ class _PickupScreenState extends State<PickupScreen> {
                   child: Column(
                     children: [
                       Expanded(
-                        child: ReorderableListView.builder(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    itemCount: bookings.length,
-                    onReorder: (oldIndex, newIndex) {
-                      // Adjust newIndex for the removal
-                      if (oldIndex < newIndex) {
-                        newIndex -= 1;
-                      }
-
-                      final reorderedBookings = List<PickupBooking>.from(bookings);
-                      final item = reorderedBookings.removeAt(oldIndex);
-                      reorderedBookings.insert(newIndex, item);
-
-                      controller.updateCurrentUserBookingsOrder(reorderedBookings);
-                    },
-                    itemBuilder: (context, index) {
-                      final booking = bookings[index];
-                      return Card(
-                        key: ValueKey(booking.id),
-                        margin: const EdgeInsets.only(bottom: 4),
-                        color: const Color(0xFF2D3748),
-                        child: Padding(
-                          padding: const EdgeInsets.all(8),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              // Pickup place and customer name in one row
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          booking.pickupPlaceName,
-                                          style: const TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 14,
-                                            color: Colors.white,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 2),
-                                        Text(
-                                          booking.customerFullName,
-                                          style: TextStyle(
-                                            fontSize: 13,
-                                            decoration: booking.isNoShow ? TextDecoration.lineThrough : null,
-                                            color: booking.isNoShow ? AppColors.error : Colors.white70,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  // Arrived checkbox (compact)
-                                  Checkbox(
-                                    value: booking.isArrived,
-                                    onChanged: (value) => _markAsArrived(booking.id, value ?? false),
-                                    activeColor: AppColors.success,
-                                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                    visualDensity: VisualDensity.compact,
-                                  ),
-                                ],
-                              ),
-
-                              const SizedBox(height: 4),
-
-                              // Guest count and contact buttons in one row
-                              Row(
-                                children: [
-                                  Icon(Icons.group, size: 14, color: Colors.white54),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    '${booking.numberOfGuests}',
-                                    style: const TextStyle(color: Colors.white70, fontSize: 11),
-                                  ),
-                                  if (booking.isUnpaid && booking.amountToPayOnArrival != null) ...[
-                                    const SizedBox(width: 12),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                      decoration: BoxDecoration(
-                                        color: booking.paidOnArrival 
-                                            ? AppColors.success.withOpacity(0.2)
-                                            : AppColors.warning.withOpacity(0.2),
-                                        borderRadius: BorderRadius.circular(4),
-                                        border: Border.all(
-                                          color: booking.paidOnArrival ? AppColors.success : AppColors.warning,
-                                          width: 1,
-                                        ),
-                                      ),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Checkbox(
-                                            value: booking.paidOnArrival,
-                                            onChanged: (value) => _markAsPaidOnArrival(booking.id, value ?? false),
-                                            activeColor: AppColors.success,
-                                            checkColor: Colors.white,
-                                            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                            visualDensity: VisualDensity.compact,
-                                            side: BorderSide(
-                                              color: Colors.white.withOpacity(0.6),
-                                              width: 1.5,
-                                            ),
-                                          ),
-                                          Icon(
-                                            booking.paidOnArrival ? Icons.check_circle : Icons.payment,
-                                            size: 12,
-                                            color: booking.paidOnArrival ? AppColors.success : AppColors.warning,
-                                          ),
-                                          const SizedBox(width: 4),
-                                          Text(
-                                            '${booking.amountToPayOnArrival!.toStringAsFixed(0)} ISK',
-                                            style: TextStyle(
-                                              color: booking.paidOnArrival ? AppColors.success : AppColors.warning,
-                                              fontSize: 11,
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ] else if (booking.isUnpaid) ...[
-                                    const SizedBox(width: 12),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                      decoration: BoxDecoration(
-                                        color: booking.paidOnArrival 
-                                            ? AppColors.success.withOpacity(0.2)
-                                            : AppColors.warning.withOpacity(0.2),
-                                        borderRadius: BorderRadius.circular(4),
-                                        border: Border.all(
-                                          color: booking.paidOnArrival ? AppColors.success : AppColors.warning,
-                                          width: 1,
-                                        ),
-                                      ),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Checkbox(
-                                            value: booking.paidOnArrival,
-                                            onChanged: (value) => _markAsPaidOnArrival(booking.id, value ?? false),
-                                            activeColor: AppColors.success,
-                                            checkColor: Colors.white,
-                                            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                            visualDensity: VisualDensity.compact,
-                                            side: BorderSide(
-                                              color: Colors.white.withOpacity(0.6),
-                                              width: 1.5,
-                                            ),
-                                          ),
-                                          Icon(
-                                            booking.paidOnArrival ? Icons.check_circle : Icons.payment,
-                                            size: 12,
-                                            color: booking.paidOnArrival ? AppColors.success : AppColors.warning,
-                                          ),
-                                          const SizedBox(width: 4),
-                                          Text(
-                                            booking.paidOnArrival ? 'Paid' : 'Unpaid',
-                                            style: TextStyle(
-                                              color: booking.paidOnArrival ? AppColors.success : AppColors.warning,
-                                              fontSize: 11,
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                  const Spacer(),
-                                  // Phone button
-                                  if (booking.phoneNumber.isNotEmpty)
-                                    IconButton(
-                                      icon: const Icon(Icons.phone, size: 16),
-                                      color: AppColors.success,
-                                      onPressed: () => _makePhoneCall(booking.phoneNumber),
-                                      tooltip: 'Call',
-                                      padding: EdgeInsets.zero,
-                                      constraints: const BoxConstraints(),
-                                      visualDensity: VisualDensity.compact,
-                                    ),
-                                  // Email button
-                                  if (booking.email.isNotEmpty)
-                                    IconButton(
-                                      icon: const Icon(Icons.email, size: 16),
-                                      color: AppColors.info,
-                                      onPressed: () => _sendArrivalEmail(booking),
-                                      tooltip: 'Email',
-                                      padding: EdgeInsets.zero,
-                                      constraints: const BoxConstraints(),
-                                      visualDensity: VisualDensity.compact,
-                                    ),
-                                ],
-                              ),
-
-                              // No-show button (compact)
-                              if (booking.isNoShow && _noShowTimeRemaining.containsKey(booking.id))
-                                _buildNoShowTimer(booking)
-                              else if (booking.isNoShow)
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 4),
-                                  child: TextButton(
-                                    onPressed: () => _unmarkNoShow(booking.id),
-                                    style: TextButton.styleFrom(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                      minimumSize: const Size(0, 24),
-                                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                    ),
-                                    child: const Text('Undo No-Show', style: TextStyle(color: Colors.orange, fontSize: 11)),
-                                  ),
-                                )
-                              else
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 4),
-                                  child: TextButton(
-                                    onPressed: () => _showNoShowDialog(booking),
-                                    style: TextButton.styleFrom(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                      minimumSize: const Size(0, 24),
-                                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                    ),
-                                    child: const Text('No-Show', style: TextStyle(color: AppColors.error, fontSize: 11)),
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
+                        child: _buildGroupedBookingsList(bookings, controller),
                       ),
                       // End Shift Button
                       _buildEndShiftButton(),
@@ -630,6 +403,431 @@ class _PickupScreenState extends State<PickupScreen> {
         ),
       ),
     );
+  }
+
+  /// Build the grouped bookings list view
+  /// Groups bookings by tour type and departure time
+  Widget _buildGroupedBookingsList(List<PickupBooking> bookings, PickupController controller) {
+    final tourGroups = TourGroup.groupBookings(bookings);
+    
+    // If only one group, show a flat list (cleaner for simple cases)
+    if (tourGroups.length == 1) {
+      return _buildSingleGroupList(tourGroups.first, controller);
+    }
+    
+    // Multiple groups - show grouped view
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      itemCount: tourGroups.length,
+      itemBuilder: (context, index) {
+        final group = tourGroups[index];
+        return _buildTourGroupCard(group, controller);
+      },
+    );
+  }
+
+  /// Build a single group as a flat reorderable list (when there's only one tour)
+  Widget _buildSingleGroupList(TourGroup group, PickupController controller) {
+    // Show a subtle header even for single group
+    return Column(
+      children: [
+        // Group header (subtle for single group)
+        Container(
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: group.isPrivateTour 
+                ? Colors.amber.withOpacity(0.15) 
+                : AppColors.primary.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: group.isPrivateTour 
+                  ? Colors.amber.withOpacity(0.3) 
+                  : AppColors.primary.withOpacity(0.2),
+            ),
+          ),
+          child: Row(
+            children: [
+              Text(
+                group.icon,
+                style: const TextStyle(fontSize: 16),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  group.displayLabel,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: group.isPrivateTour ? Colors.amber : Colors.white,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: group.isPrivateTour 
+                      ? Colors.amber.withOpacity(0.2) 
+                      : AppColors.success.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  '${group.totalPassengers} pax',
+                  style: TextStyle(
+                    color: group.isPrivateTour ? Colors.amber : AppColors.success,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        // Bookings list
+        Expanded(
+          child: ReorderableListView.builder(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            itemCount: group.sortedBookings.length,
+            onReorder: (oldIndex, newIndex) {
+              if (oldIndex < newIndex) newIndex -= 1;
+              final reorderedBookings = List<PickupBooking>.from(group.sortedBookings);
+              final item = reorderedBookings.removeAt(oldIndex);
+              reorderedBookings.insert(newIndex, item);
+              controller.updateCurrentUserBookingsOrder(reorderedBookings);
+            },
+            itemBuilder: (context, index) {
+              final booking = group.sortedBookings[index];
+              return _buildBookingTile(booking, key: ValueKey(booking.id));
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Build a tour group card with header and bookings
+  Widget _buildTourGroupCard(TourGroup group, PickupController controller) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      color: group.isPrivateTour 
+          ? Colors.amber.withOpacity(0.08) 
+          : const Color(0xFF1E293B),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(
+          color: group.isPrivateTour 
+              ? Colors.amber.withOpacity(0.4) 
+              : AppColors.primary.withOpacity(0.2),
+          width: group.isPrivateTour ? 2 : 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Group Header
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: group.isPrivateTour
+                  ? Colors.amber.withOpacity(0.2)
+                  : AppColors.primary.withOpacity(0.15),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(11)),
+            ),
+            child: Row(
+              children: [
+                // Tour icon
+                Text(
+                  group.icon,
+                  style: const TextStyle(fontSize: 20),
+                ),
+                const SizedBox(width: 10),
+                // Tour name and time
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        group.productTitle,
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                          color: group.isPrivateTour ? Colors.amber : Colors.white,
+                        ),
+                      ),
+                      Text(
+                        '${group.departureTime ?? "TBD"} Departure',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: group.isPrivateTour 
+                              ? Colors.amber.withOpacity(0.8) 
+                              : Colors.white70,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                // Passenger count badge
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: group.isPrivateTour 
+                        ? Colors.amber 
+                        : AppColors.success,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Text(
+                    '${group.totalPassengers} pax',
+                    style: const TextStyle(
+                      color: Colors.black87,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          
+          // Bookings List
+          ...group.sortedBookings.map((booking) => _buildBookingTile(booking)),
+          
+          // Group Footer with stats
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(
+              children: [
+                Text(
+                  '${group.bookingCount} bookings',
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.5),
+                    fontSize: 11,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                if (group.completedCount > 0)
+                  Text(
+                    '• ${group.completedCount} arrived',
+                    style: TextStyle(
+                      color: AppColors.success.withOpacity(0.7),
+                      fontSize: 11,
+                    ),
+                  ),
+                if (group.noShowCount > 0) ...[
+                  const SizedBox(width: 8),
+                  Text(
+                    '• ${group.noShowCount} no-show',
+                    style: TextStyle(
+                      color: AppColors.error.withOpacity(0.7),
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Build a single booking tile (used in both grouped and flat views)
+  Widget _buildBookingTile(PickupBooking booking, {Key? key}) {
+    return Container(
+      key: key,
+      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: const Color(0xFF2D3748),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Pickup place and customer name in one row
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      booking.pickupPlaceName,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            booking.customerFullName,
+                            style: TextStyle(
+                              fontSize: 13,
+                              decoration: booking.isNoShow ? TextDecoration.lineThrough : null,
+                              color: booking.isNoShow ? AppColors.error : Colors.white70,
+                            ),
+                          ),
+                        ),
+                        // Show pickup time
+                        const SizedBox(width: 8),
+                        Text(
+                          _formatPickupTime(booking.pickupTime),
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.white.withOpacity(0.5),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              // Arrived checkbox (compact)
+              Checkbox(
+                value: booking.isArrived,
+                onChanged: (value) => _markAsArrived(booking.id, value ?? false),
+                activeColor: AppColors.success,
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                visualDensity: VisualDensity.compact,
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 4),
+
+          // Guest count and contact buttons in one row
+          Row(
+            children: [
+              const Icon(Icons.group, size: 14, color: Colors.white54),
+              const SizedBox(width: 4),
+              Text(
+                '${booking.numberOfGuests}',
+                style: const TextStyle(color: Colors.white70, fontSize: 11),
+              ),
+              if (booking.isUnpaid && booking.amountToPayOnArrival != null) ...[
+                const SizedBox(width: 12),
+                _buildPaymentBadge(booking),
+              ] else if (booking.isUnpaid) ...[
+                const SizedBox(width: 12),
+                _buildPaymentBadge(booking),
+              ],
+              const Spacer(),
+              // Phone button
+              if (booking.phoneNumber.isNotEmpty)
+                IconButton(
+                  icon: const Icon(Icons.phone, size: 16),
+                  color: AppColors.success,
+                  onPressed: () => _makePhoneCall(booking.phoneNumber),
+                  tooltip: 'Call',
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  visualDensity: VisualDensity.compact,
+                ),
+              // Email button
+              if (booking.email.isNotEmpty)
+                IconButton(
+                  icon: const Icon(Icons.email, size: 16),
+                  color: AppColors.info,
+                  onPressed: () => _sendArrivalEmail(booking),
+                  tooltip: 'Email',
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  visualDensity: VisualDensity.compact,
+                ),
+            ],
+          ),
+
+          // No-show button (compact)
+          if (booking.isNoShow && _noShowTimeRemaining.containsKey(booking.id))
+            _buildNoShowTimer(booking)
+          else if (booking.isNoShow)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: TextButton(
+                onPressed: () => _unmarkNoShow(booking.id),
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  minimumSize: const Size(0, 24),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: const Text('Undo No-Show', style: TextStyle(color: Colors.orange, fontSize: 11)),
+              ),
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: TextButton(
+                onPressed: () => _showNoShowDialog(booking),
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  minimumSize: const Size(0, 24),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: const Text('No-Show', style: TextStyle(color: AppColors.error, fontSize: 11)),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// Build payment badge for unpaid bookings
+  Widget _buildPaymentBadge(PickupBooking booking) {
+    final hasAmount = booking.amountToPayOnArrival != null;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: booking.paidOnArrival 
+            ? AppColors.success.withOpacity(0.2)
+            : AppColors.warning.withOpacity(0.2),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(
+          color: booking.paidOnArrival ? AppColors.success : AppColors.warning,
+          width: 1,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Checkbox(
+            value: booking.paidOnArrival,
+            onChanged: (value) => _markAsPaidOnArrival(booking.id, value ?? false),
+            activeColor: AppColors.success,
+            checkColor: Colors.white,
+            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            visualDensity: VisualDensity.compact,
+            side: BorderSide(
+              color: Colors.white.withOpacity(0.6),
+              width: 1.5,
+            ),
+          ),
+          Icon(
+            booking.paidOnArrival ? Icons.check_circle : Icons.payment,
+            size: 12,
+            color: booking.paidOnArrival ? AppColors.success : AppColors.warning,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            hasAmount 
+                ? '${booking.amountToPayOnArrival!.toStringAsFixed(0)} ISK'
+                : (booking.paidOnArrival ? 'Paid' : 'Unpaid'),
+            style: TextStyle(
+              color: booking.paidOnArrival ? AppColors.success : AppColors.warning,
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Format pickup time as HH:mm
+  String _formatPickupTime(DateTime time) {
+    return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
   }
 
   Widget _buildNoShowTimer(PickupBooking booking) {

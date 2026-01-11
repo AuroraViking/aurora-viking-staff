@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/models/pickup_models.dart';
+import '../../core/models/tour_group.dart';
 import '../../core/models/user_model.dart';
 import '../../core/theme/colors.dart';
 import '../../widgets/common/loading_widget.dart';
@@ -552,15 +553,9 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
   Widget _buildUnassignedTab(PickupController controller) {
     final unassignedBookings = controller.unassignedBookings;
     
-    // Group bookings by pickup place
-    final bookingsByPlace = <String, List<PickupBooking>>{};
-    for (final booking in unassignedBookings) {
-      final place = booking.pickupPlaceName;
-      bookingsByPlace.putIfAbsent(place, () => []).add(booking);
-    }
-    
-    // Sort pickup places alphabetically
-    final sortedPlaces = bookingsByPlace.keys.toList()..sort();
+    // Group bookings by TOUR TYPE and DEPARTURE TIME first!
+    // This prevents mixing up private tours with group tours
+    final tourGroups = TourGroup.groupBookings(unassignedBookings);
     
     return RefreshIndicator(
       onRefresh: () async {
@@ -583,65 +578,240 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
             )
           : ListView.builder(
               padding: const EdgeInsets.all(16),
-              itemCount: sortedPlaces.length,
+              itemCount: tourGroups.length,
               itemBuilder: (context, index) {
-                final place = sortedPlaces[index];
-                final bookings = bookingsByPlace[place]!;
-                return _buildPickupPlaceGroup(place, bookings, controller);
+                final tourGroup = tourGroups[index];
+                return _buildTourGroupSection(tourGroup, controller);
               },
             ),
     );
   }
 
-  Widget _buildPickupPlaceGroup(String place, List<PickupBooking> bookings, PickupController controller) {
-    // Calculate total guests for this pickup place
-    final totalGuests = bookings.fold<int>(0, (sum, booking) => sum + booking.numberOfGuests);
-    
-    // Truncate pickup place name to 12 characters
-    final truncatedPlace = place.length > 12 ? '${place.substring(0, 12)}...' : place;
+  /// Build a tour group section in the unassigned tab
+  Widget _buildTourGroupSection(TourGroup tourGroup, PickupController controller) {
+    // Within each tour group, group by pickup place
+    final bookingsByPlace = <String, List<PickupBooking>>{};
+    for (final booking in tourGroup.bookings) {
+      final place = booking.pickupPlaceName;
+      bookingsByPlace.putIfAbsent(place, () => []).add(booking);
+    }
+    final sortedPlaces = bookingsByPlace.keys.toList()..sort();
     
     return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      color: const Color(0xFF1A1A2E),
-      child: ExpansionTile(
-        tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        childrenPadding: const EdgeInsets.only(bottom: 8),
-        title: Row(
-          children: [
-            Icon(Icons.location_on, color: AppColors.primary, size: 18),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                truncatedPlace,
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                  fontSize: 14,
-                ),
-              ),
-            ),
-            Text(
-              '${bookings.length}B • ${totalGuests}G',
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 13,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ],
+      margin: const EdgeInsets.only(bottom: 16),
+      color: tourGroup.isPrivateTour 
+          ? Colors.amber.withOpacity(0.08)
+          : const Color(0xFF1A1A2E),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(
+          color: tourGroup.isPrivateTour 
+              ? Colors.amber.withOpacity(0.5)
+              : AppColors.primary.withOpacity(0.3),
+          width: tourGroup.isPrivateTour ? 2 : 1,
         ),
-        children: bookings.map((booking) => _buildCompactBookingCard(booking, controller)).toList(),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Tour Group Header
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: tourGroup.isPrivateTour
+                  ? Colors.amber.withOpacity(0.2)
+                  : AppColors.primary.withOpacity(0.15),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(11)),
+            ),
+            child: Row(
+              children: [
+                // Tour icon
+                Text(
+                  tourGroup.icon,
+                  style: const TextStyle(fontSize: 22),
+                ),
+                const SizedBox(width: 10),
+                // Tour name and departure time
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        tourGroup.productTitle,
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: tourGroup.isPrivateTour ? Colors.amber : Colors.white,
+                        ),
+                      ),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.schedule,
+                            size: 14,
+                            color: tourGroup.isPrivateTour 
+                                ? Colors.amber.withOpacity(0.8) 
+                                : Colors.white70,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            '${tourGroup.departureTime ?? "TBD"} Departure',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: tourGroup.isPrivateTour 
+                                  ? Colors.amber.withOpacity(0.8) 
+                                  : Colors.white70,
+                            ),
+                          ),
+                          if (tourGroup.isPrivateTour) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.amber,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Text(
+                                'PRIVATE',
+                                style: TextStyle(
+                                  color: Colors.black87,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                // Booking and passenger count
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: tourGroup.isPrivateTour 
+                            ? Colors.amber 
+                            : AppColors.success,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        '${tourGroup.totalPassengers} pax',
+                        style: const TextStyle(
+                          color: Colors.black87,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${tourGroup.bookingCount} bookings',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: tourGroup.isPrivateTour 
+                            ? Colors.amber.withOpacity(0.7) 
+                            : Colors.white54,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          
+          // Bookings grouped by pickup place within this tour group
+          ...sortedPlaces.map((place) {
+            final bookings = bookingsByPlace[place]!;
+            return _buildPickupPlaceGroup(place, bookings, controller, 
+                isPrivateTour: tourGroup.isPrivateTour);
+          }).toList(),
+        ],
       ),
     );
   }
 
-  Widget _buildCompactBookingCard(PickupBooking booking, PickupController controller) {
+  Widget _buildPickupPlaceGroup(String place, List<PickupBooking> bookings, PickupController controller, {bool isPrivateTour = false}) {
+    // Calculate total guests for this pickup place
+    final totalGuests = bookings.fold<int>(0, (sum, booking) => sum + booking.numberOfGuests);
+    
+    // Truncate pickup place name to 20 characters (increased from 12)
+    final truncatedPlace = place.length > 20 ? '${place.substring(0, 20)}...' : place;
+    
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: const Color(0xFF2A2A3E),
+        color: isPrivateTour 
+            ? Colors.amber.withOpacity(0.05)
+            : const Color(0xFF2A2A3E),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white.withOpacity(0.1)),
+        border: Border.all(
+          color: isPrivateTour 
+              ? Colors.amber.withOpacity(0.3)
+              : Colors.white.withOpacity(0.1),
+        ),
+      ),
+      child: ExpansionTile(
+        tilePadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        childrenPadding: const EdgeInsets.only(bottom: 8),
+        title: Row(
+          children: [
+            Icon(
+              Icons.location_on, 
+              color: isPrivateTour ? Colors.amber : AppColors.primary, 
+              size: 18,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                truncatedPlace,
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: isPrivateTour ? Colors.amber : Colors.white,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: isPrivateTour 
+                    ? Colors.amber.withOpacity(0.2)
+                    : AppColors.primary.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                '${bookings.length}B • ${totalGuests}G',
+                style: TextStyle(
+                  color: isPrivateTour ? Colors.amber : Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        ),
+        children: bookings.map((booking) => _buildCompactBookingCard(booking, controller, isPrivateTour: isPrivateTour)).toList(),
+      ),
+    );
+  }
+
+  Widget _buildCompactBookingCard(PickupBooking booking, PickupController controller, {bool isPrivateTour = false}) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: isPrivateTour 
+            ? Colors.amber.withOpacity(0.05)
+            : const Color(0xFF2A2A3E),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: isPrivateTour 
+              ? Colors.amber.withOpacity(0.2)
+              : Colors.white.withOpacity(0.1),
+        ),
       ),
       child: ListTile(
         dense: true,
@@ -1376,85 +1546,155 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
   }
 
   Widget _buildAssignedBookingTile(PickupBooking booking, GuidePickupList guideList, PickupController controller, {Key? key}) {
-    return ListTile(
+    final isPrivate = booking.isPrivateTour;
+    
+    return Container(
       key: key,
-      title: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            booking.pickupPlaceName,
-            style: const TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 16,
-              color: AppColors.primary,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Row(
-            children: [
-              Checkbox(
-                value: booking.isArrived,
-                onChanged: (value) {
-                  controller.markBookingAsArrived(booking.id, value ?? false);
-                },
-                activeColor: AppColors.primary,
-                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                visualDensity: VisualDensity.compact,
-              ),
-              Expanded(
+      decoration: BoxDecoration(
+        border: isPrivate ? Border(
+          left: BorderSide(color: Colors.amber, width: 3),
+        ) : null,
+        color: isPrivate ? Colors.amber.withOpacity(0.05) : null,
+      ),
+      child: ListTile(
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Tour info row (new!)
+            if (booking.productTitle != null || isPrivate)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
                 child: Row(
                   children: [
+                    Text(
+                      isPrivate ? '⭐' : '🚌',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    const SizedBox(width: 4),
                     Expanded(
                       child: Text(
-                        booking.customerFullName,
+                        booking.productTitle ?? 'Tour',
                         style: TextStyle(
-                          fontSize: 14,
-                          decoration: booking.isNoShow ? TextDecoration.lineThrough : null,
-                          color: booking.isNoShow 
-                              ? AppColors.error 
-                              : booking.isArrived 
-                                  ? Colors.green 
-                                  : Colors.white,
-                          fontWeight: booking.isArrived ? FontWeight.w600 : FontWeight.normal,
+                          fontSize: 11,
+                          color: isPrivate ? Colors.amber : Colors.white54,
+                          fontWeight: isPrivate ? FontWeight.w600 : FontWeight.normal,
                         ),
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
-                    if (booking.isUnpaid) ...[
-                      const SizedBox(width: 8),
+                    if (booking.departureTime != null)
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
-                          color: booking.paidOnArrival ? AppColors.success : AppColors.error,
-                          borderRadius: BorderRadius.circular(8),
+                          color: isPrivate 
+                              ? Colors.amber.withOpacity(0.2)
+                              : AppColors.primary.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(4),
                         ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              booking.paidOnArrival ? Icons.check_circle : Icons.payment,
-                              size: 12,
-                              color: Colors.white,
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              booking.paidOnArrival ? 'Paid on Arrival' : 'Not Paid',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
+                        child: Text(
+                          '${booking.departureTime}',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: isPrivate ? Colors.amber : Colors.white70,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    if (isPrivate) ...[
+                      const SizedBox(width: 4),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.amber,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Text(
+                          'PRIVATE',
+                          style: TextStyle(
+                            fontSize: 9,
+                            color: Colors.black87,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
                     ],
                   ],
                 ),
               ),
-            ],
-          ),
-        ],
-      ),
+            Text(
+              booking.pickupPlaceName,
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+                color: isPrivate ? Colors.amber : AppColors.primary,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Checkbox(
+                  value: booking.isArrived,
+                  onChanged: (value) {
+                    controller.markBookingAsArrived(booking.id, value ?? false);
+                  },
+                  activeColor: isPrivate ? Colors.amber : AppColors.primary,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  visualDensity: VisualDensity.compact,
+                ),
+                Expanded(
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          booking.customerFullName,
+                          style: TextStyle(
+                            fontSize: 14,
+                            decoration: booking.isNoShow ? TextDecoration.lineThrough : null,
+                            color: booking.isNoShow 
+                                ? AppColors.error 
+                                : booking.isArrived 
+                                    ? Colors.green 
+                                    : Colors.white,
+                            fontWeight: booking.isArrived ? FontWeight.w600 : FontWeight.normal,
+                          ),
+                        ),
+                      ),
+                      if (booking.isUnpaid) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: booking.paidOnArrival ? AppColors.success : AppColors.error,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                booking.paidOnArrival ? Icons.check_circle : Icons.payment,
+                                size: 12,
+                                color: Colors.white,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                booking.paidOnArrival ? 'Paid on Arrival' : 'Not Paid',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       subtitle: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1586,6 +1826,7 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
             ],
           ),
         ],
+      ),
       ),
     );
   }
