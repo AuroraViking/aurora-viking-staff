@@ -70,13 +70,8 @@ class _UnifiedInboxScreenState extends State<UnifiedInboxScreen> {
               ),
             ],
             bottom: PreferredSize(
-              preferredSize: const Size.fromHeight(120),
-              child: Column(
-                children: [
-                  _buildInboxTabs(controller),
-                  _buildChannelTabs(controller),
-                ],
-              ),
+              preferredSize: const Size.fromHeight(60),
+              child: _buildInboxTabs(controller),
             ),
           ),
           body: _buildBody(controller),
@@ -184,116 +179,6 @@ class _UnifiedInboxScreenState extends State<UnifiedInboxScreen> {
                       fontSize: 10,
                       fontWeight: FontWeight.bold,
                       color: isSelected ? tabColor : AVColors.textLow,
-                    ),
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildChannelTabs(InboxController controller) {
-    return Container(
-      color: AVColors.slate,
-      child: Row(
-        children: [
-          _buildChannelTab(
-            label: 'All',
-            count: controller.allCount,
-            channel: null,
-            isSelected: controller.selectedChannelFilter == null,
-            onTap: () => controller.setChannelFilter(null),
-          ),
-          _buildChannelTab(
-            label: 'Gmail',
-            count: controller.gmailCount,
-            channel: 'gmail',
-            isSelected: controller.selectedChannelFilter == 'gmail',
-            onTap: () => controller.setChannelFilter('gmail'),
-            icon: Icons.email_outlined,
-            iconColor: Colors.red[400]!,
-          ),
-          _buildChannelTab(
-            label: 'Wix',
-            count: controller.wixCount,
-            channel: 'wix',
-            isSelected: controller.selectedChannelFilter == 'wix',
-            onTap: () => controller.setChannelFilter('wix'),
-            icon: Icons.chat_bubble_outline,
-            iconColor: Colors.blue[400]!,
-          ),
-          _buildChannelTab(
-            label: 'WhatsApp',
-            count: controller.whatsappCount,
-            channel: 'whatsapp',
-            isSelected: controller.selectedChannelFilter == 'whatsapp',
-            onTap: () => controller.setChannelFilter('whatsapp'),
-            icon: Icons.phone_outlined,
-            iconColor: Colors.green[400]!,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildChannelTab({
-    required String label,
-    required int count,
-    required String? channel,
-    required bool isSelected,
-    required VoidCallback onTap,
-    IconData? icon,
-    Color? iconColor,
-  }) {
-    return Expanded(
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          decoration: BoxDecoration(
-            border: Border(
-              bottom: BorderSide(
-                color: isSelected ? AVColors.primaryTeal : Colors.transparent,
-                width: 2,
-              ),
-            ),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              if (icon != null) ...[
-                Icon(
-                  icon,
-                  size: 14,
-                  color: isSelected ? iconColor : AVColors.textLow,
-                ),
-                const SizedBox(width: 4),
-              ],
-              Text(
-                label,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                  color: isSelected ? AVColors.textHigh : AVColors.textLow,
-                ),
-              ),
-              if (count > 0) ...[
-                const SizedBox(width: 4),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                  decoration: BoxDecoration(
-                    color: isSelected ? AVColors.primaryTeal.withOpacity(0.2) : AVColors.slateElev,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    '$count',
-                    style: TextStyle(
-                      fontSize: 10,
-                      color: isSelected ? AVColors.primaryTeal : AVColors.textLow,
                     ),
                   ),
                 ),
