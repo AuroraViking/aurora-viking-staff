@@ -451,5 +451,112 @@ class MessagingService {
       rethrow;
     }
   }
+
+  // ============================================
+  // AI LEARNING DATA
+  // ============================================
+
+  /// Log AI draft action (used, dismissed) for learning
+  Future<void> logAiDraftAction({
+    required String messageId,
+    required String action,
+    required String draftContent,
+    required double confidence,
+  }) async {
+    try {
+      await _firestore.collection('ai_learning').add({
+        'type': 'draft_action',
+        'messageId': messageId,
+        'action': action, // 'used', 'dismissed'
+        'draftContent': draftContent,
+        'confidence': confidence,
+        'timestamp': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      print('❌ Error logging AI draft action: $e');
+      rethrow;
+    }
+  }
+
+  /// Log AI draft edit (original vs edited content) for learning
+  Future<void> logAiDraftEdit({
+    required String messageId,
+    required String originalDraft,
+    required String editedContent,
+  }) async {
+    try {
+      // Calculate edit distance / similarity
+      final originalLength = originalDraft.length;
+      final editedLength = editedContent.length;
+      final lengthDiff = (originalLength - editedLength).abs();
+      final similarity = originalDraft == editedContent 
+          ? 1.0 
+          : 1.0 - (lengthDiff / (originalLength > 0 ? originalLength : 1)).clamp(0.0, 1.0);
+
+      await _firestore.collection('ai_learning').add({
+        'type': 'draft_edit',
+        'messageId': messageId,
+        'originalDraft': originalDraft,
+        'editedContent': editedContent,
+        'editSimilarity': similarity,
+        'originalLength': originalLength,
+        'editedLength': editedLength,
+        'timestamp': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      print('❌ Error logging AI draft edit: $e');
+      rethrow;
+    }
+  }
+
+  /// Get AI learning stats
+  Future<Map<String, dynamic>> getAiLearningStats() async {
+    try {
+      final actionsSnapshot = await _firestore
+          .collection('ai_learning')
+          .where('type', isEqualTo: 'draft_action')
+          .get();
+
+      int usedCount = 0;
+      int dismissedCount = 0;
+      double totalConfidenceUsed = 0;
+
+      for (final doc in actionsSnapshot.docs) {
+        final data = doc.data();
+        if (data['action'] == 'used') {
+          usedCount++;
+          totalConfidenceUsed += (data['confidence'] ?? 0.0);
+        } else if (data['action'] == 'dismissed') {
+          dismissedCount++;
+        }
+      }
+
+      final editsSnapshot = await _firestore
+          .collection('ai_learning')
+          .where('type', isEqualTo: 'draft_edit')
+          .get();
+
+      double totalSimilarity = 0;
+      for (final doc in editsSnapshot.docs) {
+        totalSimilarity += (doc.data()['editSimilarity'] ?? 0.0);
+      }
+
+      final total = usedCount + dismissedCount;
+      return {
+        'totalDrafts': total,
+        'usedCount': usedCount,
+        'dismissedCount': dismissedCount,
+        'acceptanceRate': total > 0 ? usedCount / total : 0.0,
+        'averageConfidenceUsed': usedCount > 0 ? totalConfidenceUsed / usedCount : 0.0,
+        'editsCount': editsSnapshot.docs.length,
+        'averageSimilarity': editsSnapshot.docs.isNotEmpty 
+            ? totalSimilarity / editsSnapshot.docs.length 
+            : 0.0,
+      };
+    } catch (e) {
+      print('❌ Error getting AI learning stats: $e');
+      return {};
+    }
+  }
 }
 

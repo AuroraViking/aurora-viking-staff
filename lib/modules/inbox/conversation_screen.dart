@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter_html/flutter_html.dart';
 import '../../core/models/messaging/messaging_models.dart';
+import '../../core/models/messaging/message.dart';
 import '../../theme/colors.dart';
 import 'inbox_controller.dart';
 
@@ -20,6 +21,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final FocusNode _focusNode = FocusNode();
+  String? _dismissedDraftMessageId;  // Track which draft was dismissed
+  String? _usedDraftMessageId;  // Track which draft was used (for learning)
+  String? _usedDraftContent;  // Original draft content (to compare with sent)
 
   @override
   void dispose() {
@@ -154,6 +158,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
                         },
                       ),
               ),
+
+              // AI Draft suggestion panel
+              _buildAiDraftPanel(controller),
 
               // Message input
               _buildMessageInput(controller),
@@ -633,11 +640,191 @@ class _ConversationScreenState extends State<ConversationScreen> {
     );
   }
 
+  Widget _buildAiDraftPanel(InboxController controller) {
+    // Find the latest inbound message with an AI draft
+    final messages = controller.messages;
+    Message? messageWithDraft;
+    
+    for (int i = messages.length - 1; i >= 0; i--) {
+      final msg = messages[i];
+      if (msg.direction == MessageDirection.inbound && 
+          msg.aiDraft != null && 
+          msg.aiDraft!.content.isNotEmpty &&
+          msg.id != _dismissedDraftMessageId) {
+        messageWithDraft = msg;
+        break;
+      }
+    }
+    
+    if (messageWithDraft == null || messageWithDraft.aiDraft == null) {
+      return const SizedBox.shrink();
+    }
+    
+    // Capture to non-nullable locals for closures
+    final message = messageWithDraft;
+    final draft = message.aiDraft!;
+    
+    return Container(
+      margin: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            AVColors.primaryTeal.withOpacity(0.1),
+            AVColors.auroraGreen.withOpacity(0.05),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AVColors.primaryTeal.withOpacity(0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header row
+          Row(
+            children: [
+              const Icon(Icons.auto_awesome, color: AVColors.auroraGreen, size: 18),
+              const SizedBox(width: 8),
+              const Text(
+                'AI Suggestion',
+                style: TextStyle(
+                  color: AVColors.textHigh,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: _getConfidenceColor(draft.confidence),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  '${(draft.confidence * 100).toInt()}%',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          
+          // Draft content
+          Container(
+            constraints: const BoxConstraints(maxHeight: 150),
+            child: SingleChildScrollView(
+              child: Text(
+                draft.content,
+                style: const TextStyle(
+                  color: AVColors.textHigh,
+                  fontSize: 14,
+                  height: 1.4,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          
+          // Action buttons
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    setState(() {
+                      _messageController.text = draft.content;
+                      _usedDraftMessageId = message.id;
+                      _usedDraftContent = draft.content;
+                    });
+                    // Log draft usage
+                    _logDraftAction(controller, message.id, 'used', draft);
+                  },
+                  icon: const Icon(Icons.edit, size: 16),
+                  label: const Text('Use Draft'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AVColors.auroraGreen,
+                    foregroundColor: AVColors.obsidian,
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              OutlinedButton(
+                onPressed: () {
+                  // Log draft dismissal
+                  _logDraftAction(controller, message.id, 'dismissed', draft);
+                  setState(() {
+                    _dismissedDraftMessageId = message.id;
+                  });
+                },
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AVColors.textLow,
+                  side: BorderSide(color: AVColors.textLow.withOpacity(0.3)),
+                  padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
+                ),
+                child: const Text('Dismiss'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+  
+  Color _getConfidenceColor(double confidence) {
+    if (confidence >= 0.85) return AVColors.auroraGreen;
+    if (confidence >= 0.7) return Colors.orange;
+    return AVColors.forgeRed;
+  }
+
+  // Log AI draft actions for learning
+  Future<void> _logDraftAction(
+    InboxController controller,
+    String messageId,
+    String action,
+    AiDraft draft,
+  ) async {
+    try {
+      await controller.logAiDraftAction(
+        messageId: messageId,
+        action: action,
+        draftContent: draft.content,
+        confidence: draft.confidence,
+      );
+    } catch (e) {
+      debugPrint('Failed to log draft action: $e');
+    }
+  }
+
   Future<void> _sendMessage(InboxController controller) async {
     final content = _messageController.text.trim();
     if (content.isEmpty) return;
 
+    // Check if this was from a draft and if it was edited
+    String? draftAction;
+    if (_usedDraftMessageId != null && _usedDraftContent != null) {
+      if (content == _usedDraftContent) {
+        draftAction = 'sent_unchanged';
+      } else {
+        draftAction = 'sent_edited';
+        // Log the edited version for learning
+        await controller.logAiDraftEdit(
+          messageId: _usedDraftMessageId!,
+          originalDraft: _usedDraftContent!,
+          editedContent: content,
+        );
+      }
+    }
+
     _messageController.clear();
+    // Reset draft tracking
+    _usedDraftMessageId = null;
+    _usedDraftContent = null;
     
     final success = await controller.sendMessage(content);
     

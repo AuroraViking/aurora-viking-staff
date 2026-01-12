@@ -69,6 +69,11 @@ service cloud.firestore {
       allow read, write: if isStaff();
     }
     
+    // AI Learning: Staff read/write (for tracking draft usage)
+    match /ai_learning/{learningId} {
+      allow read, write: if isStaff();
+    }
+    
     // Staff Activity: Write for authenticated staff, read for all staff
     match /staffActivity/{activityId} {
       allow create: if isStaff() && request.auth.uid == request.resource.data.staffId;

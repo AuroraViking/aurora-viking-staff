@@ -3487,3 +3487,205 @@ exports.onWebsiteChatMessage = onDocumentCreated(
   }
 );
 
+// ============================================
+// PHASE 2: AI DRAFT RESPONSES
+// ============================================
+
+const Anthropic = require('@anthropic-ai/sdk');
+
+/**
+ * Generate AI draft response when new inbound message is created
+ */
+exports.generateAiDraft = onDocumentCreated(
+  {
+    document: 'messages/{messageId}',
+    region: 'us-central1',
+    secrets: ['ANTHROPIC_API_KEY'],
+  },
+  async (event) => {
+    const snapshot = event.data;
+    if (!snapshot) {
+      console.log('No data in snapshot');
+      return null;
+    }
+
+    const messageData = snapshot.data();
+    const messageId = event.params.messageId;
+
+    // Only generate drafts for inbound messages
+    if (messageData.direction !== 'inbound') {
+      console.log('⏭️ Skipping AI draft - not inbound message');
+      return null;
+    }
+
+    console.log('🧠 Generating AI draft for message:', messageId);
+
+    try {
+      // Get conversation history
+      const conversationId = messageData.conversationId;
+      const messagesSnapshot = await db.collection('messages')
+        .where('conversationId', '==', conversationId)
+        .orderBy('timestamp', 'asc')
+        .limit(10) // Last 10 messages for context
+        .get();
+
+      const conversationHistory = messagesSnapshot.docs.map(doc => ({
+        direction: doc.data().direction,
+        content: doc.data().content,
+        subject: doc.data().subject,
+      }));
+
+      // Get customer info
+      const customerDoc = await db.collection('customers').doc(messageData.customerId).get();
+      const customer = customerDoc.exists ? customerDoc.data() : {};
+
+      // Look up booking if detected
+      const bookingContext = await getBookingContextForAi(messageData.detectedBookingNumbers);
+
+      // Generate draft with Claude
+      const draft = await generateDraftWithClaude({
+        message: messageData,
+        customer,
+        bookingContext,
+        conversationHistory,
+      });
+
+      // Save draft to message
+      await db.collection('messages').doc(messageId).update({
+        aiDraft: {
+          content: draft.content,
+          confidence: draft.confidence,
+          suggestedTone: draft.tone,
+          generatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          reasoning: draft.reasoning,
+        },
+        status: 'draftReady',
+      });
+
+      console.log('✅ AI draft saved for message:', messageId);
+      return { success: true };
+    } catch (error) {
+      console.error('❌ Error generating AI draft:', error);
+      // Don't fail the whole thing - just log and continue
+      return { success: false, error: error.message };
+    }
+  }
+);
+
+// Helper: Get booking context for AI prompt
+async function getBookingContextForAi(bookingNumbers) {
+  if (!bookingNumbers || bookingNumbers.length === 0) {
+    return 'No booking numbers detected in the message.';
+  }
+
+  // For now, just return the detected booking numbers
+  // TODO: Later, query Bokun API for full booking details
+  return `Customer mentioned booking(s): ${bookingNumbers.join(', ')}`;
+}
+
+// Helper: Generate draft with Claude
+async function generateDraftWithClaude({ message, customer, bookingContext, conversationHistory }) {
+  const anthropic = new Anthropic({
+    apiKey: process.env.ANTHROPIC_API_KEY,
+  });
+
+  const systemPrompt = `You are a helpful customer service agent for Aurora Viking, 
+a Northern Lights and aurora borealis tour company based in Reykjavik, Iceland.
+
+COMPANY INFO:
+- We run Northern Lights tours every night (weather permitting)
+- Tours depart from Reykjavik, pickup from hotels/bus stops
+- Standard tour is 4-5 hours
+- Booking reference format: AV-XXXXX
+
+NORTHERN LIGHTS POLICY (VERY IMPORTANT):
+- If tour operates and NO Northern Lights are seen with naked eye: guests get UNLIMITED FREE RETRIES for 2 years
+- NO REFUNDS if no lights are seen - only free retry option
+- A faint naked-eye arc counts as a sighting
+- Aurora visible only through camera does NOT count as sighting
+- Guests MUST attend their original booked tour to qualify for retry
+- No-shows, cancellations, or late arrivals forfeit the retry
+- Free retry bookings must be made BEFORE 12:00 noon on the day of tour
+- Retry seats are subject to availability
+
+CANCELLATION & RESCHEDULING POLICY:
+- Rescheduling within 24 hours of departure = treated as cancellation = NON-REFUNDABLE
+- Once we grant a courtesy reschedule, it becomes FINAL (non-refundable, no further changes)
+- If AURORA VIKING cancels the tour (weather, safety): guests may choose free rebooking OR full refund
+
+IMPORTANT - WHAT TO NEVER SAY:
+- NEVER offer percentage refunds (we don't do 50% refunds, etc.)
+- NEVER promise refunds for no Northern Lights
+- NEVER guarantee seats for retry on specific nights
+- For complex refund/cancellation requests, say you'll escalate to the team
+
+CUSTOMER CONTEXT:
+- Name: ${customer.name || 'Unknown'}
+- Email: ${customer.email || message.channelMetadata?.gmail?.from || 'Unknown'}
+- Past interactions: ${customer.pastInteractions || 0}
+- VIP: ${customer.vipStatus ? 'Yes' : 'No'}
+
+BOOKING CONTEXT:
+${bookingContext}
+
+TONE GUIDELINES:
+- Be warm, friendly, and professional
+- Use the customer's name if known
+- Be helpful and solution-oriented
+- For weather questions, be optimistic but honest
+- For reschedule requests within terms, be accommodating
+- For requests outside policy, be empathetic but explain the terms clearly
+- Keep responses concise (2-3 short paragraphs max)
+- Include relevant emojis sparingly (🌌 ❄️ 📸)
+
+Generate a helpful, professional response to the customer's inquiry.
+Output ONLY the response text, no labels or prefixes.`;
+
+  // Build message history
+  const messages = conversationHistory.map(msg => ({
+    role: msg.direction === 'inbound' ? 'user' : 'assistant',
+    content: msg.subject ? `Subject: ${msg.subject}\n\n${msg.content}` : msg.content,
+  }));
+
+  // Ensure the last message is the current one
+  if (messages.length === 0 || messages[messages.length - 1].content !== message.content) {
+    const currentContent = message.subject
+      ? `Subject: ${message.subject}\n\n${message.content}`
+      : message.content;
+    messages.push({
+      role: 'user',
+      content: currentContent,
+    });
+  }
+
+  const response = await anthropic.messages.create({
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: 1024,
+    system: systemPrompt,
+    messages: messages,
+  });
+
+  const draftContent = response.content[0].text;
+
+  // Classify confidence based on message type
+  let confidence = 0.85;
+  const contentLower = message.content.toLowerCase();
+
+  if (contentLower.includes('cancel') || contentLower.includes('refund')) {
+    confidence = 0.6; // Lower confidence for sensitive topics
+  } else if (contentLower.includes('weather') || contentLower.includes('aurora')) {
+    confidence = 0.9; // High confidence for common questions
+  } else if (contentLower.includes('pickup') || contentLower.includes('hotel')) {
+    confidence = 0.88;
+  } else if (contentLower.includes('photo') || contentLower.includes('picture')) {
+    confidence = 0.92; // Very common request
+  }
+
+  return {
+    content: draftContent,
+    confidence,
+    tone: 'friendly',
+    reasoning: 'Generated based on conversation context and company guidelines',
+  };
+}
+

@@ -435,5 +435,47 @@ class InboxController extends ChangeNotifier {
       notifyListeners();
     }
   }
+
+  // ============================================
+  // AI LEARNING
+  // ============================================
+
+  /// Log AI draft action (used, dismissed)
+  Future<void> logAiDraftAction({
+    required String messageId,
+    required String action,
+    required String draftContent,
+    required double confidence,
+  }) async {
+    try {
+      await _messagingService.logAiDraftAction(
+        messageId: messageId,
+        action: action,
+        draftContent: draftContent,
+        confidence: confidence,
+      );
+      print('📊 AI draft action logged: $action for $messageId');
+    } catch (e) {
+      print('❌ Failed to log AI draft action: $e');
+    }
+  }
+
+  /// Log AI draft edit (when staff modifies draft before sending)
+  Future<void> logAiDraftEdit({
+    required String messageId,
+    required String originalDraft,
+    required String editedContent,
+  }) async {
+    try {
+      await _messagingService.logAiDraftEdit(
+        messageId: messageId,
+        originalDraft: originalDraft,
+        editedContent: editedContent,
+      );
+      print('📊 AI draft edit logged for $messageId');
+    } catch (e) {
+      print('❌ Failed to log AI draft edit: $e');
+    }
+  }
 }
 
