@@ -3,6 +3,7 @@
 
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
 
@@ -85,6 +86,7 @@ class BookingService {
   }
 
   /// Reschedule a booking to a new date
+  /// Uses Firebase Callable function to avoid IAM issues
   Future<bool> rescheduleBooking({
     required String bookingId,
     required String confirmationCode,
@@ -95,38 +97,33 @@ class BookingService {
       final user = _auth.currentUser;
       if (user == null) throw Exception('Not authenticated');
       
-      final token = await user.getIdToken();
+      // Use Firebase Callable function
+      final callable = FirebaseFunctions.instance
+          .httpsCallable('rescheduleBooking');
       
-      final response = await http.post(
-        Uri.parse('$_functionsBaseUrl/rescheduleBooking'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode({
-          'bookingId': bookingId,
-          'confirmationCode': confirmationCode,
-          'newDate': _formatDate(newDate),
-          'reason': reason,
-        }),
-      );
+      final result = await callable.call({
+        'bookingId': bookingId,
+        'confirmationCode': confirmationCode,
+        'newDate': _formatDate(newDate),
+        'reason': reason,
+      });
       
-      if (response.statusCode != 200) {
-        final error = jsonDecode(response.body);
-        throw Exception(error['error'] ?? 'Failed to reschedule booking');
+      final data = result.data as Map<String, dynamic>;
+      if (data['success'] == true) {
+        // Log the action to Firestore
+        await _logBookingAction(
+          bookingId: bookingId,
+          confirmationCode: confirmationCode,
+          action: 'reschedule',
+          reason: reason,
+          newData: {'date': _formatDate(newDate)},
+          success: true,
+        );
+        
+        return true;
+      } else {
+        throw Exception(data['error'] ?? 'Failed to reschedule booking');
       }
-      
-      // Log the action to Firestore
-      await _logBookingAction(
-        bookingId: bookingId,
-        confirmationCode: confirmationCode,
-        action: 'reschedule',
-        reason: reason,
-        newData: {'date': _formatDate(newDate)},
-        success: true,
-      );
-      
-      return true;
     } catch (e) {
       print('❌ Error rescheduling booking: $e');
       

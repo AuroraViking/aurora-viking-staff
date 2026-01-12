@@ -518,7 +518,7 @@ exports.getBookings = onRequest(
   {
     cors: true,  // Enable CORS for all origins
     secrets: ['BOKUN_ACCESS_KEY', 'BOKUN_SECRET_KEY'],
-    invoker: 'public',  // Allow public invocation (still requires Bearer token auth)
+    
   },
   async (req, res) => {
     // Only allow POST
@@ -919,7 +919,7 @@ exports.generateTourReport = onSchedule(
 exports.generateTourReportManual = onCall(
   {
     region: 'us-central1',
-    invoker: 'public',
+    
   },
   async (request) => {
     console.log('📝 Manual report generation requested');
@@ -1749,7 +1749,7 @@ async function findOrCreateConversation(customerId, channel, threadId, subject, 
 exports.processGmailMessage = onCall(
   {
     region: 'us-central1',
-    invoker: 'public',
+    
   },
   async (request) => {
     console.log('📧 Processing Gmail message');
@@ -1831,7 +1831,7 @@ exports.processGmailMessage = onCall(
 exports.sendInboxMessage = onCall(
   {
     region: 'us-central1',
-    invoker: 'public',
+    
   },
   async (request) => {
     console.log('📤 Sending inbox message');
@@ -1925,7 +1925,7 @@ exports.sendInboxMessage = onCall(
 exports.markConversationRead = onCall(
   {
     region: 'us-central1',
-    invoker: 'public',
+    
   },
   async (request) => {
     if (!request.auth) {
@@ -1958,7 +1958,7 @@ exports.markConversationRead = onCall(
 exports.updateConversationStatus = onCall(
   {
     region: 'us-central1',
-    invoker: 'public',
+    
   },
   async (request) => {
     if (!request.auth) {
@@ -1996,7 +1996,7 @@ exports.updateConversationStatus = onCall(
 exports.createTestInboxMessage = onCall(
   {
     region: 'us-central1',
-    invoker: 'public',  // Required for Flutter SDK to call this function
+    
   },
   async (request) => {
     // Log auth status for debugging
@@ -2259,7 +2259,7 @@ exports.gmailOAuthStart = onRequest(
   {
     region: 'us-central1',
     secrets: ['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET'],
-    invoker: 'public',
+    
   },
   async (req, res) => {
     const clientId = process.env.GMAIL_CLIENT_ID;
@@ -2307,7 +2307,7 @@ exports.gmailOAuthCallback = onRequest(
   {
     region: 'us-central1',
     secrets: ['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET'],
-    invoker: 'public',
+    
   },
   async (req, res) => {
     const code = req.query.code;
@@ -2784,7 +2784,7 @@ exports.triggerGmailPoll = onRequest(
   {
     region: 'us-central1',
     secrets: ['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET'],
-    invoker: 'public',
+    
   },
   async (req, res) => {
     console.log('📬 Manual Gmail poll triggered...');
@@ -2873,7 +2873,7 @@ exports.triggerGmailPoll = onRequest(
 exports.gmailStatus = onRequest(
   {
     region: 'us-central1',
-    invoker: 'public',
+    
   },
   async (req, res) => {
     try {
@@ -3135,7 +3135,7 @@ exports.createWebsiteSession = onRequest(
   {
     region: 'us-central1',
     cors: true,
-    invoker: 'public',  // Required for CORS, we verify auth in function body
+    
   },
   async (req, res) => {
     console.log('🌐 Creating website chat session...');
@@ -3769,7 +3769,7 @@ exports.getBookingDetails = onRequest(
   {
     cors: true,
     secrets: ['BOKUN_ACCESS_KEY', 'BOKUN_SECRET_KEY'],
-    invoker: 'public',
+    
   },
   async (req, res) => {
     if (req.method !== 'POST') {
@@ -3822,118 +3822,98 @@ exports.getBookingDetails = onRequest(
 /**
  * Reschedule a booking to a new date
  * Note: Bokun may handle this as cancel + rebook internally
+ * Using onCall instead of onRequest to bypass Cloud Run IAM issues
  */
-exports.rescheduleBooking = onRequest(
+exports.rescheduleBooking = onCall(
   {
-    cors: true,
+    region: 'us-central1',
     secrets: ['BOKUN_ACCESS_KEY', 'BOKUN_SECRET_KEY'],
-    invoker: 'public',
   },
-  async (req, res) => {
-    if (req.method !== 'POST') {
-      res.status(405).json({ error: 'Method not allowed' });
-      return;
+  async (request) => {
+    // Verify user is authenticated
+    if (!request.auth) {
+      throw new Error('Unauthorized - must be logged in');
+    }
+    const uid = request.auth.uid;
+
+    const { bookingId, confirmationCode, newDate, reason } = request.data;
+
+    if (!bookingId || !newDate) {
+      throw new Error('bookingId and newDate are required');
     }
 
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      res.status(401).json({ error: 'Unauthorized - missing token' });
-      return;
+    const accessKey = process.env.BOKUN_ACCESS_KEY;
+    const secretKey = process.env.BOKUN_SECRET_KEY;
+
+    if (!accessKey || !secretKey) {
+      throw new Error('Bokun API keys not configured');
     }
+
+    // First, get the current booking details
+    const currentBooking = await makeBokunRequest(
+      'GET',
+      `/booking.json/${bookingId}`,
+      null,
+      accessKey,
+      secretKey
+    );
+
+    // Try to amend the booking with new date
+    // Note: Bokun's amend API structure may vary - this is a best-effort implementation
+    const amendRequest = {
+      bookingId: bookingId,
+      newStartDate: newDate,
+      // Additional fields may be required depending on Bokun's API
+    };
 
     try {
-      const token = authHeader.split('Bearer ')[1];
-      const decodedToken = await admin.auth().verifyIdToken(token);
-      const uid = decodedToken.uid;
-
-      const requestData = req.body.data || req.body;
-      const { bookingId, confirmationCode, newDate, reason } = requestData;
-
-      if (!bookingId || !newDate) {
-        res.status(400).json({ error: 'bookingId and newDate are required' });
-        return;
-      }
-
-      const accessKey = process.env.BOKUN_ACCESS_KEY;
-      const secretKey = process.env.BOKUN_SECRET_KEY;
-
-      if (!accessKey || !secretKey) {
-        res.status(500).json({ error: 'Bokun API keys not configured' });
-        return;
-      }
-
-      // First, get the current booking details
-      const currentBooking = await makeBokunRequest(
-        'GET',
-        `/booking.json/${bookingId}`,
-        null,
+      const result = await makeBokunRequest(
+        'POST',
+        `/booking.json/${bookingId}/reschedule`,
+        amendRequest,
         accessKey,
         secretKey
       );
 
-      // Try to amend the booking with new date
-      // Note: Bokun's amend API structure may vary - this is a best-effort implementation
-      const amendRequest = {
-        bookingId: bookingId,
-        newStartDate: newDate,
-        // Additional fields may be required depending on Bokun's API
-      };
+      // Log the action to Firestore
+      await admin.firestore().collection('booking_actions').add({
+        bookingId,
+        confirmationCode: confirmationCode || '',
+        action: 'reschedule',
+        performedBy: uid,
+        performedAt: admin.firestore.FieldValue.serverTimestamp(),
+        reason: reason || 'Rescheduled via admin app',
+        originalData: {
+          date: currentBooking.startDate || 'unknown',
+        },
+        newData: {
+          date: newDate,
+        },
+        success: true,
+        source: 'cloud_function',
+      });
 
-      try {
-        const result = await makeBokunRequest(
-          'POST',
-          `/booking.json/${bookingId}/reschedule`,
-          amendRequest,
-          accessKey,
-          secretKey
-        );
+      return { result, success: true };
+    } catch (amendError) {
+      // If amend fails, log the error
+      console.error('Bokun amend failed:', amendError.message);
 
-        // Log the action to Firestore
-        await admin.firestore().collection('booking_actions').add({
-          bookingId,
-          confirmationCode: confirmationCode || '',
-          action: 'reschedule',
-          performedBy: uid,
-          performedAt: admin.firestore.FieldValue.serverTimestamp(),
-          reason: reason || 'Rescheduled via admin app',
-          originalData: {
-            date: currentBooking.startDate || 'unknown',
-          },
-          newData: {
-            date: newDate,
-          },
-          success: true,
-          source: 'cloud_function',
-        });
+      // Log failed attempt
+      await admin.firestore().collection('booking_actions').add({
+        bookingId,
+        confirmationCode: confirmationCode || '',
+        action: 'reschedule',
+        performedBy: uid,
+        performedAt: admin.firestore.FieldValue.serverTimestamp(),
+        reason: reason || 'Attempted reschedule',
+        newData: { date: newDate },
+        success: false,
+        errorMessage: amendError.message,
+        source: 'cloud_function',
+      });
 
-        res.status(200).json({ result, success: true });
-      } catch (amendError) {
-        // If amend fails, log the error
-        console.error('Bokun amend failed:', amendError.message);
-
-        // Log failed attempt
-        await admin.firestore().collection('booking_actions').add({
-          bookingId,
-          confirmationCode: confirmationCode || '',
-          action: 'reschedule',
-          performedBy: uid,
-          performedAt: admin.firestore.FieldValue.serverTimestamp(),
-          reason: reason || 'Attempted reschedule',
-          newData: { date: newDate },
-          success: false,
-          errorMessage: amendError.message,
-          source: 'cloud_function',
-        });
-
-        // Return error with suggestion
-        res.status(400).json({
-          error: `Reschedule failed: ${amendError.message}. You may need to cancel and rebook manually.`,
-          needsManualRebook: true,
-        });
-      }
-    } catch (error) {
-      console.error('Error in rescheduleBooking:', error);
-      res.status(500).json({ error: error.message });
+      // Return error with suggestion
+      throw new Error(`Reschedule failed: ${amendError.message}. You may need to cancel and rebook manually.`);
     }
   }
 );
@@ -3945,7 +3925,7 @@ exports.cancelBooking = onRequest(
   {
     cors: true,
     secrets: ['BOKUN_ACCESS_KEY', 'BOKUN_SECRET_KEY'],
-    invoker: 'public',
+    
   },
   async (req, res) => {
     if (req.method !== 'POST') {
