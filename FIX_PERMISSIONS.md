@@ -44,3 +44,4 @@ gcloud projects add-iam-policy-binding aurora-viking-staff --member="serviceAcco
 
 But the web console method above is easier and doesn't require command-line authentication.
 
+

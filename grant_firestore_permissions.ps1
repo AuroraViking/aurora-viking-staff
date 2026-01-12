@@ -20,3 +20,4 @@ gcloud projects add-iam-policy-binding aurora-viking-staff `
 Write-Host ""
 Write-Host "✅ Permissions granted! Wait 1-2 minutes for propagation, then test notifications." -ForegroundColor Green
 
+

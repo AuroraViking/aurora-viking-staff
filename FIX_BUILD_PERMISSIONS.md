@@ -48,3 +48,4 @@ gcloud projects add-iam-policy-binding aurora-viking-staff --member="serviceAcco
 
 But the web console method is easier.
 
+

@@ -19,3 +19,4 @@ echo Length: %TEST_KEY:~0,20%...
 
 pause
 
+

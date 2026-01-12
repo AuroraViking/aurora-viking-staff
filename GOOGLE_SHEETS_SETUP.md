@@ -129,3 +129,4 @@ Firebase Cloud Functions automatically use one of these service accounts:
 ✅ **Least Privilege**: Service account only has access to the specific folder you shared  
 ✅ **Automatic**: Tokens refresh automatically - no manual maintenance needed
 
+

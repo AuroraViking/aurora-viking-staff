@@ -8,6 +8,8 @@ enum ConversationStatus { active, resolved, archived }
 class Conversation {
   final String id;
   final String customerId;
+  final String? customerName;  // Customer/visitor name
+  final String? customerEmail; // Customer/visitor email
   final String channel;
   final String? inboxEmail;  // Which inbox this belongs to (info@, photo@, etc.)
   final String? subject;
@@ -29,6 +31,8 @@ class Conversation {
   Conversation({
     required this.id,
     required this.customerId,
+    this.customerName,
+    this.customerEmail,
     required this.channel,
     this.inboxEmail,
     this.subject,
@@ -58,6 +62,8 @@ class Conversation {
     return Conversation(
       id: json['id'] ?? '',
       customerId: json['customerId'] ?? '',
+      customerName: json['customerName'],
+      customerEmail: json['customerEmail'],
       channel: json['channel'] ?? 'gmail',
       inboxEmail: inboxEmail,
       subject: json['subject'],
@@ -93,6 +99,8 @@ class Conversation {
     return {
       'id': id,
       'customerId': customerId,
+      'customerName': customerName,
+      'customerEmail': customerEmail,
       'channel': channel,
       'inboxEmail': inboxEmail,
       'subject': subject,

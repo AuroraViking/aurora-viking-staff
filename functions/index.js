@@ -1,12 +1,12 @@
-const {onRequest} = require('firebase-functions/v2/https');
-const {onSchedule} = require('firebase-functions/v2/scheduler');
-const {onCall} = require('firebase-functions/v2/https');
-const {onDocumentWritten, onDocumentCreated} = require('firebase-functions/v2/firestore');
+const { onRequest } = require('firebase-functions/v2/https');
+const { onSchedule } = require('firebase-functions/v2/scheduler');
+const { onCall } = require('firebase-functions/v2/https');
+const { onDocumentWritten, onDocumentCreated } = require('firebase-functions/v2/firestore');
 const admin = require('firebase-admin');
-const {getFirestore} = require('firebase-admin/firestore');
+const { getFirestore } = require('firebase-admin/firestore');
 const crypto = require('crypto');
 const https = require('https');
-const {google} = require('googleapis');
+const { google } = require('googleapis');
 
 admin.initializeApp();
 
@@ -39,9 +39,9 @@ async function getGoogleAuth() {
 // CREATE GOOGLE SHEET IN DRIVE FOLDER
 // ============================================
 async function createSheetInFolder(auth, title, folderId) {
-  const drive = google.drive({version: 'v3', auth});
-  const sheets = google.sheets({version: 'v4', auth});
-  
+  const drive = google.drive({ version: 'v3', auth });
+  const sheets = google.sheets({ version: 'v4', auth });
+
   // Create a new spreadsheet
   const spreadsheet = await sheets.spreadsheets.create({
     requestBody: {
@@ -50,21 +50,21 @@ async function createSheetInFolder(auth, title, folderId) {
       },
     },
   });
-  
+
   const spreadsheetId = spreadsheet.data.spreadsheetId;
   const fileId = spreadsheetId;
-  
+
   console.log(`📄 Created spreadsheet: ${title} (${spreadsheetId})`);
-  
+
   // Move the spreadsheet to the target folder
   // First, get the current parent(s)
   const file = await drive.files.get({
     fileId: fileId,
     fields: 'parents',
   });
-  
+
   const previousParents = file.data.parents ? file.data.parents.join(',') : '';
-  
+
   // Move to new folder
   await drive.files.update({
     fileId: fileId,
@@ -72,21 +72,21 @@ async function createSheetInFolder(auth, title, folderId) {
     removeParents: previousParents,
     fields: 'id, parents',
   });
-  
+
   console.log(`📁 Moved spreadsheet to folder: ${folderId}`);
-  
+
   return spreadsheetId;
 }
 
 // ========== HELPER: Populate sheet with report data ==========
 async function populateSheetWithReportData(auth, spreadsheetId, reportData) {
-  const sheets = google.sheets({version: 'v4', auth});
+  const sheets = google.sheets({ version: 'v4', auth });
 
   const rows = [];
 
   // Header
   rows.push([`Aurora Viking Tour Report - ${reportData.date}`]);
-  rows.push([`Generated: ${new Date().toLocaleString('en-GB', {timeZone: 'Atlantic/Reykjavik'})}`]);
+  rows.push([`Generated: ${new Date().toLocaleString('en-GB', { timeZone: 'Atlantic/Reykjavik' })}`]);
   rows.push([
     `Guides: ${reportData.totalGuides}`,
     `Passengers: ${reportData.totalPassengers}`,
@@ -146,7 +146,7 @@ async function populateSheetWithReportData(auth, spreadsheetId, reportData) {
     spreadsheetId,
     range: 'Sheet1!A1',
     valueInputOption: 'USER_ENTERED',
-    requestBody: {values: rows},
+    requestBody: { values: rows },
   });
 
   console.log('✨ Sheet populated');
@@ -194,7 +194,7 @@ async function generateReport(targetDate) {
   let bookings = [];
   try {
     const cacheDoc = await db.collection('cached_bookings').doc(targetDate).get();
-    
+
     if (!cacheDoc.exists) {
       console.log('⚠️ No cached_bookings document found for this date.');
       // Continue anyway - maybe we have assignments without cached bookings
@@ -216,7 +216,7 @@ async function generateReport(targetDate) {
     const assignmentsSnapshot = await db.collection('pickup_assignments')
       .where('date', '==', targetDate)
       .get();
-    
+
     assignmentsSnapshot.forEach((doc) => {
       const data = doc.data();
       if (data.bookingId && data.guideId) {
@@ -236,7 +236,7 @@ async function generateReport(targetDate) {
   bookings = bookings.map((booking) => {
     const bookingId = booking.id || booking.bookingId;
     const assignment = pickupAssignments[bookingId];
-    
+
     if (assignment) {
       // Use assignment from pickup_assignments (source of truth)
       return {
@@ -259,7 +259,7 @@ async function generateReport(targetDate) {
 
   if (bookings.length === 0) {
     console.log('⚠️ Bookings array is empty.');
-    return {success: false, message: 'No bookings in cache', date: targetDate};
+    return { success: false, message: 'No bookings in cache', date: targetDate };
   }
 
   // ========== STEP 2: Get bus-guide assignments (optional) ==========
@@ -356,7 +356,7 @@ async function generateReport(targetDate) {
   // ========== STEP 5: Calculate totals ==========
   let totalPassengers = 0;
   let guidesWithReports = 0;
-  
+
   Object.values(guideData).forEach((guide) => {
     totalPassengers += guide.totalPassengers;
     if (guide.hasSubmittedReport) guidesWithReports++;
@@ -443,11 +443,11 @@ async function generateReport(targetDate) {
 
   // ========== STEP 7: Save to Firestore ==========
   try {
-    await db.collection('tour_reports').doc(targetDate).set(reportData, {merge: true});
+    await db.collection('tour_reports').doc(targetDate).set(reportData, { merge: true });
     console.log(`✅ Report saved to Firestore: tour_reports/${targetDate}`);
   } catch (error) {
     console.error('❌ Error saving to Firestore:', error);
-    return {success: false, message: 'Error saving report: ' + error.message, date: targetDate};
+    return { success: false, message: 'Error saving report: ' + error.message, date: targetDate };
   }
 
   // ========== STEP 8: Create/Update Google Sheet ==========
@@ -465,9 +465,9 @@ async function generateReport(targetDate) {
       // Update existing sheet
       console.log(`📊 Updating existing sheet: ${existingSheetId}`);
       spreadsheetId = existingSheetId;
-      
+
       // Clear and repopulate
-      const sheets = google.sheets({version: 'v4', auth});
+      const sheets = google.sheets({ version: 'v4', auth });
       try {
         await sheets.spreadsheets.values.clear({
           spreadsheetId,
@@ -476,7 +476,7 @@ async function generateReport(targetDate) {
       } catch (clearError) {
         console.log('⚠️ Could not clear sheet (might be new):', clearError.message);
       }
-      
+
       await populateSheetWithReportData(auth, spreadsheetId, reportData);
     } else {
       // Create new sheet
@@ -486,7 +486,7 @@ async function generateReport(targetDate) {
     }
 
     sheetUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}`;
-    
+
     await db.collection('tour_reports').doc(targetDate).update({
       sheetUrl: sheetUrl,
       spreadsheetId: spreadsheetId,
@@ -684,7 +684,7 @@ exports.onPickupAssignmentsChanged = onDocumentWritten(
   },
   async (event) => {
     const date = event.params.date;
-    
+
     // Skip if document was deleted
     if (!event.data.after.exists) {
       console.log(`📋 cached_bookings/${date} was deleted, skipping report update`);
@@ -701,7 +701,7 @@ exports.onPickupAssignmentsChanged = onDocumentWritten(
     // SAFETY: Detect dangerous "fresh fetch" that lost all assignments
     const beforeAssignedCount = beforeBookings.filter(b => b.assignedGuideId).length;
     const afterAssignedCount = afterBookings.filter(b => b.assignedGuideId).length;
-    
+
     if (beforeAssignedCount > 0 && afterAssignedCount === 0 && afterBookings.length > 0) {
       console.log(`⚠️ DANGER: cached_bookings refresh lost all ${beforeAssignedCount} assignments!`);
       console.log(`⚠️ This looks like a fresh API fetch - NOT regenerating report to preserve existing data`);
@@ -711,7 +711,7 @@ exports.onPickupAssignmentsChanged = onDocumentWritten(
 
     // Quick check: did any assignments actually change?
     const assignmentChanged = hasAssignmentChanged(beforeBookings, afterBookings);
-    
+
     if (!assignmentChanged) {
       console.log(`📋 No assignment changes detected for ${date}, skipping report update`);
       return null;
@@ -727,7 +727,7 @@ exports.onPickupAssignmentsChanged = onDocumentWritten(
         const lastUpdateTime = new Date(lastUpdated);
         const now = new Date();
         const secondsSinceUpdate = (now - lastUpdateTime) / 1000;
-        
+
         if (secondsSinceUpdate < 60) {
           console.log(`⏱️ Report was updated ${secondsSinceUpdate.toFixed(0)}s ago, skipping (rate limit)`);
           return null;
@@ -797,9 +797,9 @@ exports.onBusAssignmentChanged = onDocumentWritten(
     // Get date from the document
     const afterData = event.data.after.exists ? event.data.after.data() : null;
     const beforeData = event.data.before.exists ? event.data.before.data() : null;
-    
+
     const date = afterData?.date || beforeData?.date;
-    
+
     if (!date) {
       console.log('⚠️ No date found in bus_guide_assignment, skipping');
       return null;
@@ -815,7 +815,7 @@ exports.onBusAssignmentChanged = onDocumentWritten(
         const lastUpdateTime = new Date(lastUpdated);
         const now = new Date();
         const secondsSinceUpdate = (now - lastUpdateTime) / 1000;
-        
+
         if (secondsSinceUpdate < 30) {
           console.log(`⏱️ Report was updated ${secondsSinceUpdate.toFixed(0)}s ago, skipping`);
           return null;
@@ -852,9 +852,9 @@ exports.generateTourReport = onSchedule(
     const now = new Date();
     const yesterday = new Date(now);
     yesterday.setDate(yesterday.getDate() - 1);
-    
+
     // Adjust for Iceland timezone
-    const icelandYesterday = new Date(yesterday.toLocaleString('en-US', {timeZone: 'Atlantic/Reykjavik'}));
+    const icelandYesterday = new Date(yesterday.toLocaleString('en-US', { timeZone: 'Atlantic/Reykjavik' }));
     const dateStr = `${icelandYesterday.getFullYear()}-${String(icelandYesterday.getMonth() + 1).padStart(2, '0')}-${String(icelandYesterday.getDate()).padStart(2, '0')}`;
 
     console.log(`📅 Generating fallback report for: ${dateStr}`);
@@ -891,7 +891,7 @@ exports.generateTourReportManual = onCall(
       const now = new Date();
       const yesterday = new Date(now);
       yesterday.setDate(yesterday.getDate() - 1);
-      const icelandYesterday = new Date(yesterday.toLocaleString('en-US', {timeZone: 'Atlantic/Reykjavik'}));
+      const icelandYesterday = new Date(yesterday.toLocaleString('en-US', { timeZone: 'Atlantic/Reykjavik' }));
       targetDate = `${icelandYesterday.getFullYear()}-${String(icelandYesterday.getMonth() + 1).padStart(2, '0')}-${String(icelandYesterday.getDate()).padStart(2, '0')}`;
     }
 
@@ -911,7 +911,7 @@ exports.generateTourReportManual = onCall(
 async function sendNotificationToAdminsOnly(title, body, data = {}) {
   try {
     console.log(`📤 Preparing to send admin-only notification: "${title}"`);
-    
+
     // Get users with isAdmin = true (supports both old role:'admin' and new isAdmin:true)
     const usersSnapshot = await db
       .collection('users')
@@ -928,12 +928,12 @@ async function sendNotificationToAdminsOnly(title, body, data = {}) {
         .collection('users')
         .where('role', '==', 'admin')
         .get();
-      
+
       if (fallbackSnapshot.empty) {
         console.log('⚠️ No admin users found to send notification');
-        return {success: false, message: 'No admin users found'};
+        return { success: false, message: 'No admin users found' };
       }
-      
+
       // Process fallback results
       const tokens = [];
       const adminNames = [];
@@ -947,11 +947,11 @@ async function sendNotificationToAdminsOnly(title, body, data = {}) {
           console.log(`  ✗ Admin ${userData.fullName || doc.id} has no FCM token (fallback)`);
         }
       });
-      
+
       if (tokens.length === 0) {
-        return {success: false, message: 'No FCM tokens found for admins'};
+        return { success: false, message: 'No FCM tokens found for admins' };
       }
-      
+
       return await sendPushNotifications(tokens, title, body, data, adminNames);
     }
 
@@ -973,13 +973,13 @@ async function sendNotificationToAdminsOnly(title, body, data = {}) {
 
     if (tokens.length === 0) {
       console.log('⚠️ No FCM tokens found for admin users');
-      return {success: false, message: 'No FCM tokens found for admins'};
+      return { success: false, message: 'No FCM tokens found for admins' };
     }
 
     return await sendPushNotifications(tokens, title, body, data, adminNames);
   } catch (error) {
     console.error('❌ Error sending notification to admins:', error);
-    return {success: false, error: error.message};
+    return { success: false, error: error.message };
   }
 }
 
@@ -1037,7 +1037,7 @@ async function sendPushNotifications(tokens, title, body, data, recipientNames) 
 async function sendNotificationToAdmins(title, body, data = {}) {
   try {
     console.log(`📤 Preparing to send notification: "${title}" - "${body}"`);
-    
+
     // Get all users (changed from admin-only to all users)
     const usersSnapshot = await db
       .collection('users')
@@ -1047,7 +1047,7 @@ async function sendNotificationToAdmins(title, body, data = {}) {
 
     if (usersSnapshot.empty) {
       console.log('⚠️ No users found to send notification');
-      return {success: false, message: 'No users found'};
+      return { success: false, message: 'No users found' };
     }
 
     const tokens = [];
@@ -1065,7 +1065,7 @@ async function sendNotificationToAdmins(title, body, data = {}) {
 
     if (tokens.length === 0) {
       console.log('⚠️ No FCM tokens found for users - notifications cannot be sent');
-      return {success: false, message: 'No FCM tokens found'};
+      return { success: false, message: 'No FCM tokens found' };
     }
 
     // Send notification to all admin tokens
@@ -1113,7 +1113,7 @@ async function sendNotificationToAdmins(title, body, data = {}) {
     };
   } catch (error) {
     console.error('❌ Error sending notification to admins:', error);
-    return {success: false, error: error.message};
+    return { success: false, error: error.message };
   }
 }
 
@@ -1145,7 +1145,7 @@ async function getGuideAssignment(bookingId, date) {
     const assignmentDoc = await db.collection('pickup_assignments')
       .doc(`${date}_${bookingId}`)
       .get();
-    
+
     if (assignmentDoc.exists) {
       const data = assignmentDoc.data();
       return {
@@ -1160,7 +1160,7 @@ async function getGuideAssignment(bookingId, date) {
       .where('bookingId', '==', bookingId)
       .limit(1)
       .get();
-    
+
     if (!querySnapshot.empty) {
       const data = querySnapshot.docs[0].data();
       return {
@@ -1219,7 +1219,7 @@ async function areAllPickupsCompleteForGuide(guideId, date) {
       const statusDoc = await db.collection('booking_status')
         .doc(`${date}_${bid}`)
         .get();
-      
+
       if (!statusDoc.exists) {
         return false; // No status yet, not complete
       }
@@ -1227,7 +1227,7 @@ async function areAllPickupsCompleteForGuide(guideId, date) {
       const status = statusDoc.data();
       const isArrived = status.isArrived === true;
       const isNoShow = status.isNoShow === true;
-      
+
       // Consider complete if arrived OR marked as no-show
       return isArrived || isNoShow;
     });
@@ -1263,7 +1263,7 @@ exports.onPickupCompleted = onDocumentWritten(
     const before = change.before?.data();
     const after = change.after?.data();
     const documentId = event.params.documentId;
-    
+
     console.log('🔔 onPickupCompleted triggered for document:', documentId);
     console.log('📊 Before data:', JSON.stringify(before));
     console.log('📊 After data:', JSON.stringify(after));
@@ -1277,7 +1277,7 @@ exports.onPickupCompleted = onDocumentWritten(
     // Extract date and bookingId from document ID (format: YYYY-MM-DD_bookingId)
     const parts = documentId.split('_');
     console.log(`🔍 Parsing document ID: "${documentId}" -> parts: [${parts.join(', ')}]`);
-    
+
     if (parts.length < 2) {
       console.log(`⚠️ Document ID doesn't have enough parts (need at least 2 for date_bookingId), got ${parts.length}`);
       return;
@@ -1289,7 +1289,7 @@ exports.onPickupCompleted = onDocumentWritten(
     // Check if isArrived changed from false/undefined to true
     const wasArrived = before?.isArrived === true;
     const isNowArrived = after?.isArrived === true;
-    
+
     console.log(`🔍 Checking pickup status: wasArrived=${wasArrived}, isNowArrived=${isNowArrived}`);
 
     if (!wasArrived && isNowArrived) {
@@ -1297,7 +1297,7 @@ exports.onPickupCompleted = onDocumentWritten(
 
       // Get guide assignment for this booking
       const guideAssignment = await getGuideAssignment(bookingId, date);
-      
+
       if (!guideAssignment) {
         console.log('⚠️ No guide assignment found for this booking, skipping notification');
         return;
@@ -1355,7 +1355,7 @@ exports.onNoShowMarked = onDocumentWritten(
     const before = change.before?.data();
     const after = change.after?.data();
     const documentId = event.params.documentId;
-    
+
     console.log('🔔 onNoShowMarked triggered for document:', documentId);
     console.log('📊 Before data:', JSON.stringify(before));
     console.log('📊 After data:', JSON.stringify(after));
@@ -1369,7 +1369,7 @@ exports.onNoShowMarked = onDocumentWritten(
     // Extract date and bookingId from document ID
     const parts = documentId.split('_');
     console.log(`🔍 Parsing document ID: "${documentId}" -> parts: [${parts.join(', ')}]`);
-    
+
     if (parts.length < 2) {
       console.log(`⚠️ Document ID doesn't have enough parts (need at least 2 for date_bookingId), got ${parts.length}`);
       return;
@@ -1381,7 +1381,7 @@ exports.onNoShowMarked = onDocumentWritten(
     // Check if isNoShow changed from false/undefined to true
     const wasNoShow = before?.isNoShow === true;
     const isNowNoShow = after?.isNoShow === true;
-    
+
     console.log(`🔍 Checking no-show status: wasNoShow=${wasNoShow}, isNowNoShow=${isNowNoShow}`);
 
     if (!wasNoShow && isNowNoShow) {
@@ -1389,7 +1389,7 @@ exports.onNoShowMarked = onDocumentWritten(
 
       // Get guide assignment for this booking
       const guideAssignment = await getGuideAssignment(bookingId, date);
-      
+
       if (!guideAssignment) {
         console.log('⚠️ No guide assignment found for this booking, skipping notification');
         return;
@@ -1465,15 +1465,15 @@ exports.onAuroraSighting = onDocumentWritten(
   },
   async (event) => {
     const sightingId = event.params.sightingId;
-    
+
     console.log('🌌 onAuroraSighting triggered for document:', sightingId);
-    
+
     // Only process NEW documents (not updates or deletes)
     if (!event.data.after.exists) {
       console.log('⚠️ Document was deleted, skipping');
       return;
     }
-    
+
     // Check if this is a new document (before didn't exist)
     if (event.data.before.exists) {
       console.log('ℹ️ Document was updated (not created), skipping');
@@ -1481,7 +1481,7 @@ exports.onAuroraSighting = onDocumentWritten(
     }
 
     const sightingData = event.data.after.data();
-    
+
     console.log('📊 Sighting data:', JSON.stringify(sightingData));
 
     // Check if already processed (prevent duplicate notifications)
@@ -1500,7 +1500,7 @@ exports.onAuroraSighting = onDocumentWritten(
 
     // Build notification body
     let notificationBody = `${guideName} spotted ${levelLabel.toLowerCase()} aurora!`;
-    
+
     if (hasLocation && latitude && longitude) {
       // Add approximate location description
       notificationBody += ` 📍 Location available`;
@@ -1529,7 +1529,7 @@ exports.onAuroraSighting = onDocumentWritten(
 
     // Send notification to ADMINS ONLY
     console.log(`🌌 Sending ${emoji} ${levelLabel} aurora alert from ${guideName}`);
-    
+
     const result = await sendNotificationToAdminsOnly(
       `${emoji} ${levelLabel} Aurora Spotted!`,
       notificationBody,
@@ -1572,7 +1572,7 @@ function extractBookingReferences(content) {
  */
 async function findOrCreateCustomer(channel, identifier, name) {
   const customersRef = db.collection('customers');
-  
+
   // Build query based on channel
   let query;
   if (channel === 'gmail') {
@@ -1582,9 +1582,9 @@ async function findOrCreateCustomer(channel, identifier, name) {
   } else if (channel === 'wix') {
     query = customersRef.where('channels.wix', '==', identifier);
   }
-  
+
   const snapshot = await query.limit(1).get();
-  
+
   if (!snapshot.empty) {
     // Update last contact
     const customerDoc = snapshot.docs[0];
@@ -1594,7 +1594,7 @@ async function findOrCreateCustomer(channel, identifier, name) {
     });
     return customerDoc.id;
   }
-  
+
   // Extract name from email if not provided
   let extractedName = name;
   if (!extractedName && channel === 'gmail') {
@@ -1604,7 +1604,7 @@ async function findOrCreateCustomer(channel, identifier, name) {
       .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
       .join(' ');
   }
-  
+
   // Create new customer
   const newCustomer = {
     name: extractedName || identifier,
@@ -1628,7 +1628,7 @@ async function findOrCreateCustomer(channel, identifier, name) {
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   };
-  
+
   const docRef = await customersRef.add(newCustomer);
   console.log(`👤 Created new customer: ${newCustomer.name} (${docRef.id})`);
   return docRef.id;
@@ -1640,7 +1640,7 @@ async function findOrCreateCustomer(channel, identifier, name) {
  */
 async function findOrCreateConversation(customerId, channel, threadId, subject, messagePreview, inboxEmail = null) {
   const conversationsRef = db.collection('conversations');
-  
+
   // Try to find existing conversation by thread ID (for Gmail) or recent active conversation
   let snapshot;
   if (channel === 'gmail' && threadId) {
@@ -1652,7 +1652,7 @@ async function findOrCreateConversation(customerId, channel, threadId, subject, 
       .limit(1)
       .get();
   }
-  
+
   // If not found, check for recent active conversation (within last 24 hours)
   if (!snapshot || snapshot.empty) {
     const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
@@ -1664,7 +1664,7 @@ async function findOrCreateConversation(customerId, channel, threadId, subject, 
       .limit(1)
       .get();
   }
-  
+
   if (snapshot && !snapshot.empty) {
     // Update existing conversation
     const convDoc = snapshot.docs[0];
@@ -1676,7 +1676,7 @@ async function findOrCreateConversation(customerId, channel, threadId, subject, 
     });
     return convDoc.id;
   }
-  
+
   // Create new conversation
   const newConversation = {
     customerId,
@@ -1693,7 +1693,7 @@ async function findOrCreateConversation(customerId, channel, threadId, subject, 
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   };
-  
+
   const docRef = await conversationsRef.add(newConversation);
   console.log(`💬 Created new conversation: ${docRef.id} (inbox: ${inboxEmail})`);
   return docRef.id;
@@ -1710,22 +1710,22 @@ exports.processGmailMessage = onCall(
   },
   async (request) => {
     console.log('📧 Processing Gmail message');
-    
+
     const { messageId, threadId, from, to, subject, content, receivedAt } = request.data;
-    
+
     if (!from || !content) {
       console.log('⚠️ Missing required fields');
       return { success: false, error: 'Missing required fields: from, content' };
     }
-    
+
     try {
       // Extract booking references
       const detectedBookingNumbers = extractBookingReferences(content + ' ' + (subject || ''));
       console.log(`🔍 Detected booking refs: ${detectedBookingNumbers.join(', ') || 'none'}`);
-      
+
       // Find or create customer
       const customerId = await findOrCreateCustomer('gmail', from, null);
-      
+
       // Find or create conversation
       const conversationId = await findOrCreateConversation(
         customerId,
@@ -1734,7 +1734,7 @@ exports.processGmailMessage = onCall(
         subject || null,
         content
       );
-      
+
       // Create message document
       const messageData = {
         conversationId,
@@ -1758,16 +1758,16 @@ exports.processGmailMessage = onCall(
         flaggedForReview: false,
         priority: 'normal',
       };
-      
+
       const msgRef = await db.collection('messages').add(messageData);
       console.log(`📨 Message created: ${msgRef.id}`);
-      
+
       // Update conversation with message ID
       await db.collection('conversations').doc(conversationId).update({
         messageIds: admin.firestore.FieldValue.arrayUnion(msgRef.id),
         bookingIds: admin.firestore.FieldValue.arrayUnion(...detectedBookingNumbers),
       });
-      
+
       return {
         success: true,
         messageId: msgRef.id,
@@ -1792,35 +1792,35 @@ exports.sendInboxMessage = onCall(
   },
   async (request) => {
     console.log('📤 Sending inbox message');
-    
+
     // Verify authentication
     if (!request.auth) {
       return { success: false, error: 'Authentication required' };
     }
-    
+
     const { conversationId, content, channel } = request.data;
-    
+
     if (!conversationId || !content) {
       return { success: false, error: 'Missing required fields: conversationId, content' };
     }
-    
+
     try {
       // Get conversation details
       const convDoc = await db.collection('conversations').doc(conversationId).get();
       if (!convDoc.exists) {
         return { success: false, error: 'Conversation not found' };
       }
-      
+
       const conversation = convDoc.data();
-      
+
       // Get customer details
       const customerDoc = await db.collection('customers').doc(conversation.customerId).get();
       if (!customerDoc.exists) {
         return { success: false, error: 'Customer not found' };
       }
-      
+
       const customer = customerDoc.data();
-      
+
       // Build outbound message
       const messageData = {
         conversationId,
@@ -1838,7 +1838,7 @@ exports.sendInboxMessage = onCall(
         flaggedForReview: false,
         priority: 'normal',
       };
-      
+
       // Build channel metadata
       if ((channel || conversation.channel) === 'gmail') {
         messageData.channelMetadata.gmail = {
@@ -1846,16 +1846,16 @@ exports.sendInboxMessage = onCall(
           from: 'info@auroraviking.is',
           threadId: conversation.channelMetadata?.gmail?.threadId || '',
         };
-        
+
         // TODO: Actually send via Gmail API
         // For now, just store the message
         console.log('📧 Gmail send placeholder - message stored but not sent via API');
       }
-      
+
       // Store message
       const msgRef = await db.collection('messages').add(messageData);
       console.log(`📨 Outbound message created: ${msgRef.id}`);
-      
+
       // Update conversation
       await convDoc.ref.update({
         lastMessageAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -1864,7 +1864,7 @@ exports.sendInboxMessage = onCall(
         messageIds: admin.firestore.FieldValue.arrayUnion(msgRef.id),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
-      
+
       return {
         success: true,
         messageId: msgRef.id,
@@ -1888,19 +1888,19 @@ exports.markConversationRead = onCall(
     if (!request.auth) {
       return { success: false, error: 'Authentication required' };
     }
-    
+
     const { conversationId } = request.data;
-    
+
     if (!conversationId) {
       return { success: false, error: 'Missing conversationId' };
     }
-    
+
     try {
       await db.collection('conversations').doc(conversationId).update({
         unreadCount: 0,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
-      
+
       return { success: true };
     } catch (error) {
       console.error('❌ Error marking conversation as read:', error);
@@ -1921,23 +1921,23 @@ exports.updateConversationStatus = onCall(
     if (!request.auth) {
       return { success: false, error: 'Authentication required' };
     }
-    
+
     const { conversationId, status } = request.data;
-    
+
     if (!conversationId || !status) {
       return { success: false, error: 'Missing conversationId or status' };
     }
-    
+
     if (!['active', 'resolved', 'archived'].includes(status)) {
       return { success: false, error: 'Invalid status. Must be: active, resolved, or archived' };
     }
-    
+
     try {
       await db.collection('conversations').doc(conversationId).update({
         status,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
-      
+
       return { success: true };
     } catch (error) {
       console.error('❌ Error updating conversation status:', error);
@@ -1962,23 +1962,23 @@ exports.createTestInboxMessage = onCall(
     if (request.auth) {
       console.log('🧪 User ID:', request.auth.uid);
     }
-    
+
     // For test function, we'll allow unauthenticated calls during development
     // In production, you'd want to check auth
     console.log('🧪 Creating test inbox message...');
-    
+
     const testEmail = request.data?.email || 'test@example.com';
     const testContent = request.data?.content || 'Hi, I have a question about my booking AV-12345. Can you help me?';
     const testSubject = request.data?.subject || 'Question about my booking';
-    
+
     try {
       // Extract booking references
       const detectedBookingNumbers = extractBookingReferences(testContent + ' ' + testSubject);
       console.log(`🔍 Detected booking refs: ${detectedBookingNumbers.join(', ') || 'none'}`);
-      
+
       // Find or create customer
       const customerId = await findOrCreateCustomer('gmail', testEmail, null);
-      
+
       // Find or create conversation
       const threadId = `thread-${Date.now()}`;
       const conversationId = await findOrCreateConversation(
@@ -1988,7 +1988,7 @@ exports.createTestInboxMessage = onCall(
         testSubject,
         testContent
       );
-      
+
       // Create message document
       const messageData = {
         conversationId,
@@ -2012,16 +2012,16 @@ exports.createTestInboxMessage = onCall(
         flaggedForReview: false,
         priority: 'normal',
       };
-      
+
       const msgRef = await db.collection('messages').add(messageData);
       console.log(`📨 Test message created: ${msgRef.id}`);
-      
+
       // Update conversation with message ID
       await db.collection('conversations').doc(conversationId).update({
         messageIds: admin.firestore.FieldValue.arrayUnion(msgRef.id),
         bookingIds: admin.firestore.FieldValue.arrayUnion(...detectedBookingNumbers),
       });
-      
+
       return {
         success: true,
         messageId: msgRef.id,
@@ -2061,7 +2061,7 @@ function getGmailOAuth2Client(clientId, clientSecret) {
 async function storeGmailTokens(email, tokens) {
   // Use email as document ID (replace special chars)
   const emailId = email.replace(/[@.]/g, '_');
-  
+
   await db.collection('system').doc('gmail_accounts').collection('accounts').doc(emailId).set({
     email,
     accessToken: tokens.access_token,
@@ -2119,24 +2119,24 @@ async function autoMigrateLegacyGmailAccount() {
       console.log('No legacy gmail_tokens found');
       return false;
     }
-    
+
     const oldTokens = oldTokensDoc.data();
     console.log(`📧 Found legacy account: ${oldTokens.email}`);
-    
+
     // Get old sync state
     const oldSyncDoc = await db.collection('system').doc('gmail_sync').get();
     const oldSync = oldSyncDoc.exists ? oldSyncDoc.data() : {};
-    
+
     // Create new document ID
     const emailId = oldTokens.email.replace(/[@.]/g, '_');
-    
+
     // Check if already migrated
     const existingDoc = await db.collection('system').doc('gmail_accounts').collection('accounts').doc(emailId).get();
     if (existingDoc.exists) {
       console.log('Account already migrated');
       return true;
     }
-    
+
     // Create new account document
     const newAccountData = {
       email: oldTokens.email,
@@ -2151,11 +2151,11 @@ async function autoMigrateLegacyGmailAccount() {
       migratedAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
-    
+
     // Save to new location
     await db.collection('system').doc('gmail_accounts').collection('accounts').doc(emailId).set(newAccountData);
     console.log(`✅ Auto-migrated ${oldTokens.email} to new structure`);
-    
+
     return true;
   } catch (error) {
     console.error('❌ Auto-migration error:', error);
@@ -2171,14 +2171,14 @@ async function getGmailClient(email, clientId, clientSecret) {
   if (!tokens) {
     throw new Error(`Gmail account ${email} not authorized. Please complete OAuth flow first.`);
   }
-  
+
   const oauth2Client = getGmailOAuth2Client(clientId, clientSecret);
   oauth2Client.setCredentials({
     access_token: tokens.accessToken,
     refresh_token: tokens.refreshToken,
     expiry_date: tokens.expiryDate,
   });
-  
+
   // Handle token refresh
   oauth2Client.on('tokens', async (newTokens) => {
     console.log(`🔄 Gmail tokens refreshed for ${email}`);
@@ -2188,7 +2188,7 @@ async function getGmailClient(email, clientId, clientSecret) {
       expiry_date: newTokens.expiry_date,
     });
   });
-  
+
   return google.gmail({ version: 'v1', auth: oauth2Client });
 }
 
@@ -2205,15 +2205,15 @@ exports.gmailOAuthStart = onRequest(
   async (req, res) => {
     const clientId = process.env.GMAIL_CLIENT_ID;
     const clientSecret = process.env.GMAIL_CLIENT_SECRET;
-    
+
     const oauth2Client = getGmailOAuth2Client(clientId, clientSecret);
-    
+
     const authUrl = oauth2Client.generateAuthUrl({
       access_type: 'offline',
       scope: GMAIL_SCOPES,
       prompt: 'consent', // Force to get refresh token
     });
-    
+
     res.send(`
       <html>
         <head>
@@ -2252,32 +2252,32 @@ exports.gmailOAuthCallback = onRequest(
   },
   async (req, res) => {
     const code = req.query.code;
-    
+
     if (!code) {
       res.status(400).send('Missing authorization code');
       return;
     }
-    
+
     try {
       const clientId = process.env.GMAIL_CLIENT_ID;
       const clientSecret = process.env.GMAIL_CLIENT_SECRET;
-      
+
       const oauth2Client = getGmailOAuth2Client(clientId, clientSecret);
       const { tokens } = await oauth2Client.getToken(code);
-      
+
       oauth2Client.setCredentials(tokens);
-      
+
       // Get the email address
       const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
       const profile = await gmail.users.getProfile({ userId: 'me' });
       const email = profile.data.emailAddress;
-      
+
       // Store tokens (this also initializes sync state)
       await storeGmailTokens(email, tokens);
-      
+
       // Get count of connected accounts
       const accounts = await getAllGmailAccounts();
-      
+
       res.send(`
         <html>
           <head>
@@ -2327,14 +2327,14 @@ exports.pollGmailInbox = onSchedule(
   },
   async () => {
     console.log('📬 Polling all Gmail inboxes...');
-    
+
     try {
       const clientId = process.env.GMAIL_CLIENT_ID;
       const clientSecret = process.env.GMAIL_CLIENT_SECRET;
-      
+
       // Get all connected Gmail accounts
       let accounts = await getAllGmailAccounts();
-      
+
       // Auto-migrate from old structure if needed
       if (accounts.length === 0) {
         console.log('🔄 No accounts in new structure, checking for legacy accounts...');
@@ -2343,16 +2343,16 @@ exports.pollGmailInbox = onSchedule(
           accounts = await getAllGmailAccounts();
         }
       }
-      
+
       if (accounts.length === 0) {
         console.log('⚠️ No Gmail accounts authorized yet. Skipping poll.');
         return;
       }
-      
+
       console.log(`📫 Found ${accounts.length} connected Gmail account(s)`);
-      
+
       let totalProcessed = 0;
-      
+
       // Poll each account
       for (const account of accounts) {
         try {
@@ -2368,7 +2368,7 @@ exports.pollGmailInbox = onSchedule(
           });
         }
       }
-      
+
       console.log(`\n✅ Gmail poll complete. Processed ${totalProcessed} new messages across ${accounts.length} account(s).`);
     } catch (error) {
       console.error('❌ Gmail poll error:', error);
@@ -2381,50 +2381,50 @@ exports.pollGmailInbox = onSchedule(
  */
 async function pollSingleGmailAccount(account, clientId, clientSecret) {
   const gmail = await getGmailClient(account.email, clientId, clientSecret);
-  
+
   // Calculate time window (last check to now, default to 24h ago)
   const lastCheck = account.lastCheckTimestamp || (Date.now() - 86400000);
   const afterTimestamp = Math.floor(lastCheck / 1000);
   const query = `after:${afterTimestamp} in:inbox`;
-  
+
   console.log(`🔍 Searching: ${query}`);
-  
+
   // List messages
   const listResponse = await gmail.users.messages.list({
     userId: 'me',
     q: query,
     maxResults: 50,
   });
-  
+
   const messages = listResponse.data.messages || [];
   console.log(`📧 Found ${messages.length} new messages`);
-  
+
   let processedCount = 0;
-  
+
   for (const msg of messages) {
     // Check if we already processed this message
     const existingMsg = await db.collection('messages')
       .where('channelMetadata.gmail.messageId', '==', msg.id)
       .limit(1)
       .get();
-    
+
     if (!existingMsg.empty) {
       console.log(`⏭️ Skipping already processed: ${msg.id}`);
       continue;
     }
-    
+
     // Get full message details
     const fullMessage = await gmail.users.messages.get({
       userId: 'me',
       id: msg.id,
       format: 'full',
     });
-    
+
     // Pass the inbox email so we know which account received this
     await processGmailMessageData(fullMessage.data, account.email);
     processedCount++;
   }
-  
+
   // Update sync state for this account
   await updateGmailSyncState(account.email, {
     lastCheckTimestamp: Date.now(),
@@ -2433,7 +2433,7 @@ async function pollSingleGmailAccount(account, clientId, clientSecret) {
     lastProcessedCount: processedCount,
     lastError: null,  // Clear any previous error
   });
-  
+
   console.log(`✅ Processed ${processedCount} from ${account.email}`);
   return processedCount;
 }
@@ -2445,31 +2445,31 @@ async function pollSingleGmailAccount(account, clientId, clientSecret) {
  */
 async function processGmailMessageData(gmailMessage, inboxEmail = 'info@auroraviking.is') {
   const headers = gmailMessage.payload.headers;
-  
+
   const getHeader = (name) => {
     const header = headers.find(h => h.name.toLowerCase() === name.toLowerCase());
     return header ? header.value : null;
   };
-  
+
   const from = getHeader('From');
   const to = getHeader('To');
   const subject = getHeader('Subject') || '(No Subject)';
   const messageId = gmailMessage.id;
   const threadId = gmailMessage.threadId;
   const internalDate = parseInt(gmailMessage.internalDate);
-  
+
   // Extract email address from "Name <email@example.com>" format
   const emailMatch = from.match(/<([^>]+)>/);
   const fromEmail = emailMatch ? emailMatch[1] : from;
   const fromName = emailMatch ? from.replace(/<[^>]+>/, '').trim() : null;
-  
+
   // Get message body - extract BOTH plain text and HTML for rich display
   let bodyPlain = '';
   let bodyHtml = '';
-  
+
   function extractBodiesFromPart(part, results = { plain: '', html: '' }) {
     if (!part) return results;
-    
+
     // Direct body data
     if (part.body && part.body.data) {
       const decoded = Buffer.from(part.body.data, 'base64').toString('utf-8');
@@ -2479,21 +2479,21 @@ async function processGmailMessageData(gmailMessage, inboxEmail = 'info@auroravi
         results.html = decoded;
       }
     }
-    
+
     // Nested parts - recursively search
     if (part.parts) {
       for (const subPart of part.parts) {
         extractBodiesFromPart(subPart, results);
       }
     }
-    
+
     return results;
   }
-  
+
   const bodies = extractBodiesFromPart(gmailMessage.payload);
   bodyHtml = bodies.html || '';
   bodyPlain = bodies.plain || '';
-  
+
   // If we only have HTML, create plain text version
   if (!bodyPlain && bodyHtml) {
     bodyPlain = bodyHtml
@@ -2508,12 +2508,12 @@ async function processGmailMessageData(gmailMessage, inboxEmail = 'info@auroravi
       .replace(/\s+/g, ' ')
       .trim();
   }
-  
+
   // Use plain text as the main body (for previews and search)
   let body = bodyPlain || bodyHtml;
-  
+
   console.log(`📝 Extracted body: plain=${bodyPlain.length} chars, html=${bodyHtml.length} chars`);
-  
+
   // Truncate very long bodies
   if (body.length > 10000) {
     body = body.substring(0, 10000) + '... [truncated]';
@@ -2521,15 +2521,15 @@ async function processGmailMessageData(gmailMessage, inboxEmail = 'info@auroravi
   if (bodyHtml.length > 50000) {
     bodyHtml = bodyHtml.substring(0, 50000) + '... [truncated]';
   }
-  
+
   console.log(`📨 Processing email from: ${fromEmail}, subject: ${subject}`);
-  
+
   // Extract booking references
   const detectedBookingNumbers = extractBookingReferences(body + ' ' + subject);
-  
+
   // Find or create customer
   const customerId = await findOrCreateCustomer('gmail', fromEmail, fromName);
-  
+
   // Find or create conversation (pass inbox email for filtering)
   const conversationId = await findOrCreateConversation(
     customerId,
@@ -2539,7 +2539,7 @@ async function processGmailMessageData(gmailMessage, inboxEmail = 'info@auroravi
     body.substring(0, 200),
     inboxEmail  // Which inbox received this message
   );
-  
+
   // Create message document
   const messageData = {
     conversationId,
@@ -2568,10 +2568,10 @@ async function processGmailMessageData(gmailMessage, inboxEmail = 'info@auroravi
     priority: detectedBookingNumbers.length > 0 ? 'normal' : 'low',
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
   };
-  
+
   const msgRef = await db.collection('messages').add(messageData);
   console.log(`✅ Created message: ${msgRef.id} for conversation: ${conversationId}`);
-  
+
   // Update conversation
   await db.collection('conversations').doc(conversationId).update({
     messageIds: admin.firestore.FieldValue.arrayUnion(msgRef.id),
@@ -2580,7 +2580,7 @@ async function processGmailMessageData(gmailMessage, inboxEmail = 'info@auroravi
     unreadCount: admin.firestore.FieldValue.increment(1),
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   });
-  
+
   return msgRef.id;
 }
 
@@ -2594,42 +2594,42 @@ exports.sendGmailReply = onCall(
   },
   async (request) => {
     const { conversationId, content, messageId } = request.data;
-    
+
     if (!conversationId || !content) {
       throw new Error('Missing required fields: conversationId, content');
     }
-    
+
     try {
       const clientId = process.env.GMAIL_CLIENT_ID;
       const clientSecret = process.env.GMAIL_CLIENT_SECRET;
-      
+
       // Get conversation details
       const convDoc = await db.collection('conversations').doc(conversationId).get();
       if (!convDoc.exists) {
         throw new Error('Conversation not found');
       }
       const conv = convDoc.data();
-      
+
       // Get customer email
       const customerDoc = await db.collection('customers').doc(conv.customerId).get();
       const customer = customerDoc.data();
       const toEmail = customer.channels?.gmail || customer.email;
-      
+
       if (!toEmail) {
         throw new Error('Customer email not found');
       }
-      
+
       // Determine which inbox to send from (use original inbox or default)
       const inboxEmail = conv.channelMetadata?.gmail?.inbox || 'info@auroraviking.is';
       console.log(`📤 Sending reply from: ${inboxEmail}`);
-      
+
       const gmail = await getGmailClient(inboxEmail, clientId, clientSecret);
       const tokens = await getGmailTokens(inboxEmail);
-      
+
       // Build email
       const subject = conv.subject.startsWith('Re:') ? conv.subject : `Re: ${conv.subject}`;
       const threadId = conv.channelMetadata?.gmail?.threadId;
-      
+
       // Get original message ID for threading
       let inReplyTo = '';
       let references = '';
@@ -2641,7 +2641,7 @@ exports.sendGmailReply = onCall(
           references = inReplyTo;
         }
       }
-      
+
       // Create RFC 2822 formatted email
       const emailLines = [
         `From: ${tokens.email}`,
@@ -2653,13 +2653,13 @@ exports.sendGmailReply = onCall(
         '',
         content,
       ].filter(Boolean);
-      
+
       const rawMessage = Buffer.from(emailLines.join('\r\n'))
         .toString('base64')
         .replace(/\+/g, '-')
         .replace(/\//g, '_')
         .replace(/=+$/, '');
-      
+
       // Send email
       const sendResponse = await gmail.users.messages.send({
         userId: 'me',
@@ -2668,9 +2668,9 @@ exports.sendGmailReply = onCall(
           threadId: threadId,
         },
       });
-      
+
       console.log(`📤 Email sent: ${sendResponse.data.id}`);
-      
+
       // Create outbound message record
       const outboundMsg = {
         conversationId,
@@ -2692,9 +2692,9 @@ exports.sendGmailReply = onCall(
         sentAt: admin.firestore.FieldValue.serverTimestamp(),
         sentBy: request.auth?.uid || 'system',
       };
-      
+
       const outMsgRef = await db.collection('messages').add(outboundMsg);
-      
+
       // Update conversation
       await db.collection('conversations').doc(conversationId).update({
         messageIds: admin.firestore.FieldValue.arrayUnion(outMsgRef.id),
@@ -2704,7 +2704,7 @@ exports.sendGmailReply = onCall(
         status: 'active',
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
-      
+
       return {
         success: true,
         messageId: outMsgRef.id,
@@ -2729,60 +2729,60 @@ exports.triggerGmailPoll = onRequest(
   },
   async (req, res) => {
     console.log('📬 Manual Gmail poll triggered...');
-    
+
     try {
       const clientId = process.env.GMAIL_CLIENT_ID;
       const clientSecret = process.env.GMAIL_CLIENT_SECRET;
-      
+
       const accounts = await getAllGmailAccounts();
       if (accounts.length === 0) {
         res.status(400).send('No Gmail accounts authorized. Visit /gmailOAuthStart first.');
         return;
       }
-      
+
       const allResults = [];
-      
+
       for (const account of accounts) {
         try {
           const gmail = await getGmailClient(account.email, clientId, clientSecret);
-          
+
           // Get last 10 messages from inbox
           const listResponse = await gmail.users.messages.list({
             userId: 'me',
             q: 'in:inbox',
             maxResults: 10,
           });
-          
+
           const messages = listResponse.data.messages || [];
           const results = [];
-          
+
           for (const msg of messages) {
             const existingMsg = await db.collection('messages')
               .where('channelMetadata.gmail.messageId', '==', msg.id)
               .limit(1)
               .get();
-            
+
             if (!existingMsg.empty) {
               results.push({ id: msg.id, status: 'skipped (already processed)' });
               continue;
             }
-            
+
             const fullMessage = await gmail.users.messages.get({
               userId: 'me',
               id: msg.id,
               format: 'full',
             });
-            
+
             const msgId = await processGmailMessageData(fullMessage.data, account.email);
             results.push({ id: msg.id, status: 'processed', firestoreId: msgId });
           }
-          
+
           // Update sync timestamp for this account
           await updateGmailSyncState(account.email, {
             lastCheckTimestamp: Date.now(),
             lastManualPollAt: admin.firestore.FieldValue.serverTimestamp(),
           });
-          
+
           allResults.push({
             email: account.email,
             messagesFound: messages.length,
@@ -2795,7 +2795,7 @@ exports.triggerGmailPoll = onRequest(
           });
         }
       }
-      
+
       res.json({
         success: true,
         accountsPolled: accounts.length,
@@ -2819,7 +2819,7 @@ exports.gmailStatus = onRequest(
   async (req, res) => {
     try {
       const accounts = await getAllGmailAccounts();
-      
+
       res.json({
         connected: accounts.length > 0,
         accountCount: accounts.length,
@@ -2853,26 +2853,26 @@ exports.onOutboundMessageCreated = onDocumentCreated(
       console.log('No data in message document');
       return;
     }
-    
+
     const messageData = snapshot.data();
     const messageId = event.params.messageId;
-    
+
     // Only process outbound messages that haven't been sent yet
     if (messageData.direction !== 'outbound') {
       return;
     }
-    
+
     if (messageData.status === 'sent' || messageData.gmailMessageId) {
       console.log(`Message ${messageId} already sent, skipping`);
       return;
     }
-    
+
     console.log(`📤 Sending outbound message: ${messageId}`);
-    
+
     try {
       const clientId = process.env.GMAIL_CLIENT_ID;
       const clientSecret = process.env.GMAIL_CLIENT_SECRET;
-      
+
       // Get conversation for subject and thread info
       const convDoc = await db.collection('conversations').doc(messageData.conversationId).get();
       if (!convDoc.exists) {
@@ -2880,7 +2880,7 @@ exports.onOutboundMessageCreated = onDocumentCreated(
         return;
       }
       const conv = convDoc.data();
-      
+
       // Get customer email
       const customerDoc = await db.collection('customers').doc(messageData.customerId).get();
       if (!customerDoc.exists) {
@@ -2889,21 +2889,21 @@ exports.onOutboundMessageCreated = onDocumentCreated(
       }
       const customer = customerDoc.data();
       const toEmail = customer.channels?.gmail || customer.email;
-      
+
       if (!toEmail) {
         console.error('No email address for customer');
         await snapshot.ref.update({ status: 'failed', error: 'No customer email' });
         return;
       }
-      
+
       // Get Gmail client
       const gmail = await getGmailClient(clientId, clientSecret);
       const tokens = await getGmailTokens();
-      
+
       // Build email
       const subject = conv.subject?.startsWith('Re:') ? conv.subject : `Re: ${conv.subject || 'Your inquiry'}`;
       const threadId = conv.channelMetadata?.gmail?.threadId;
-      
+
       // Create RFC 2822 formatted email
       const emailLines = [
         `From: Aurora Viking <${tokens.email}>`,
@@ -2913,13 +2913,13 @@ exports.onOutboundMessageCreated = onDocumentCreated(
         '',
         messageData.content,
       ];
-      
+
       const rawMessage = Buffer.from(emailLines.join('\r\n'))
         .toString('base64')
         .replace(/\+/g, '-')
         .replace(/\//g, '_')
         .replace(/=+$/, '');
-      
+
       // Send email
       const sendResponse = await gmail.users.messages.send({
         userId: 'me',
@@ -2928,9 +2928,9 @@ exports.onOutboundMessageCreated = onDocumentCreated(
           threadId: threadId || undefined,
         },
       });
-      
+
       console.log(`✅ Email sent via Gmail: ${sendResponse.data.id}`);
-      
+
       // Update message with Gmail info
       await snapshot.ref.update({
         status: 'sent',
@@ -2939,11 +2939,11 @@ exports.onOutboundMessageCreated = onDocumentCreated(
         'channelMetadata.gmail.messageId': sendResponse.data.id,
         'channelMetadata.gmail.threadId': sendResponse.data.threadId,
       });
-      
+
       console.log(`📧 Message ${messageId} sent successfully to ${toEmail}`);
     } catch (error) {
       console.error(`❌ Error sending message ${messageId}:`, error);
-      
+
       // Mark as failed
       await snapshot.ref.update({
         status: 'failed',
@@ -2964,7 +2964,7 @@ exports.migrateGmailToMultiAccount = onRequest(
   },
   async (req, res) => {
     console.log('🔄 Migrating Gmail account to new structure...');
-    
+
     try {
       // Get old tokens from the legacy location
       const oldTokensDoc = await db.collection('system').doc('gmail_tokens').get();
@@ -2974,21 +2974,21 @@ exports.migrateGmailToMultiAccount = onRequest(
       }
       const oldTokens = oldTokensDoc.data();
       console.log(`📧 Found account: ${oldTokens.email}`);
-      
+
       // Get old sync state
       const oldSyncDoc = await db.collection('system').doc('gmail_sync').get();
       const oldSync = oldSyncDoc.exists ? oldSyncDoc.data() : {};
-      
+
       // Create new document ID
       const emailId = oldTokens.email.replace(/[@.]/g, '_');
-      
+
       // Check if already migrated
       const existingDoc = await db.collection('system').doc('gmail_accounts').collection('accounts').doc(emailId).get();
       if (existingDoc.exists) {
         res.send(`Account ${oldTokens.email} already migrated.`);
         return;
       }
-      
+
       // Create new account document
       const newAccountData = {
         email: oldTokens.email,
@@ -3003,10 +3003,10 @@ exports.migrateGmailToMultiAccount = onRequest(
         migratedAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       };
-      
+
       // Save to new location
       await db.collection('system').doc('gmail_accounts').collection('accounts').doc(emailId).set(newAccountData);
-      
+
       res.send(`
         <html>
           <head><title>Migration Complete</title></head>
@@ -3019,7 +3019,7 @@ exports.migrateGmailToMultiAccount = onRequest(
           </body>
         </html>
       `);
-      
+
     } catch (error) {
       console.error('❌ Migration error:', error);
       res.status(500).send(`Migration error: ${error.message}`);
@@ -3032,24 +3032,59 @@ exports.migrateGmailToMultiAccount = onRequest(
 // ============================================
 
 /**
+ * Verify Firebase Auth token from request
+ * Returns the decoded token with uid, or null if invalid
+ * Skips verification for OPTIONS requests (CORS preflight)
+ */
+async function verifyWebsiteAuth(req) {
+  // Skip auth for preflight requests
+  if (req.method === 'OPTIONS') {
+    return { uid: 'preflight', isOptions: true };
+  }
+
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return null;
+  }
+
+  try {
+    const token = authHeader.split('Bearer ')[1];
+    const decodedToken = await admin.auth().verifyIdToken(token);
+    return decodedToken;
+  } catch (error) {
+    console.error('❌ Auth verification failed:', error.message);
+    return null;
+  }
+}
+
+/**
  * Create a new anonymous website chat session
  * Called when visitor opens chat widget for the first time
+ * Requires Firebase Anonymous Auth token
  */
 exports.createWebsiteSession = onRequest(
   {
     region: 'us-central1',
     cors: true,
-    invoker: 'public',
+    invoker: 'public',  // Required for CORS, we verify auth in function body
   },
   async (req, res) => {
     console.log('🌐 Creating website chat session...');
-    
+
+    // Verify auth token
+    const authUser = await verifyWebsiteAuth(req);
+    if (!authUser) {
+      console.log('❌ Unauthorized request to createWebsiteSession');
+      return res.status(401).json({ error: 'Unauthorized - valid Firebase Auth token required' });
+    }
+    console.log('✅ Auth verified for uid:', authUser.uid);
+
     try {
       const { pageUrl, referrer, userAgent } = req.body;
-      
+
       // Generate unique session ID
       const sessionId = 'ws_' + crypto.randomBytes(12).toString('hex');
-      
+
       // Create anonymous customer
       const customerId = 'cust_website_' + crypto.randomBytes(8).toString('hex');
       const customerRef = await db.collection('customers').add({
@@ -3064,14 +3099,14 @@ exports.createWebsiteSession = onRequest(
         referrer: referrer || null,
         userAgent: userAgent || null,
       });
-      
+
       // Create conversation
       const conversationRef = await db.collection('conversations').add({
         customerId: customerRef.id,
         customerName: 'Website Visitor',
         channel: 'website',
         subject: 'Website Chat',
-        status: 'open',
+        status: 'active',  // Must match Flutter ConversationStatus enum
         hasUnread: false,
         lastMessageAt: admin.firestore.FieldValue.serverTimestamp(),
         lastMessagePreview: '',
@@ -3085,7 +3120,7 @@ exports.createWebsiteSession = onRequest(
         },
         inboxEmail: 'website',
       });
-      
+
       // Create website session document
       await db.collection('website_sessions').doc(sessionId).set({
         sessionId: sessionId,
@@ -3102,15 +3137,15 @@ exports.createWebsiteSession = onRequest(
         lastSeen: admin.firestore.FieldValue.serverTimestamp(),
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       });
-      
+
       console.log(`✅ Website session created: ${sessionId}, conversation: ${conversationRef.id}`);
-      
+
       res.json({
         sessionId,
         conversationId: conversationRef.id,
         customerId: customerRef.id,
       });
-      
+
     } catch (error) {
       console.error('❌ Error creating website session:', error);
       res.status(500).json({ error: error.message });
@@ -3120,49 +3155,55 @@ exports.createWebsiteSession = onRequest(
 
 /**
  * Update website session (page tracking, visitor identification)
+ * Requires Firebase Anonymous Auth token
  */
 exports.updateWebsiteSession = onRequest(
   {
     region: 'us-central1',
-    cors: true,
-    invoker: 'public',
+    cors: true,  // Allow ALL origins
   },
   async (req, res) => {
+    // Verify auth token
+    const authUser = await verifyWebsiteAuth(req);
+    if (!authUser) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
     try {
       const { sessionId, currentPageUrl, visitorName, visitorEmail, bookingRef } = req.body;
-      
+
       if (!sessionId) {
         return res.status(400).json({ error: 'sessionId required' });
       }
-      
+
       const sessionRef = db.collection('website_sessions').doc(sessionId);
       const session = await sessionRef.get();
-      
+
       if (!session.exists) {
         return res.status(404).json({ error: 'Session not found' });
       }
-      
+
       const updates = {
         lastSeen: admin.firestore.FieldValue.serverTimestamp(),
         isOnline: true,
       };
-      
+
       if (currentPageUrl) updates.currentPageUrl = currentPageUrl;
       if (visitorName) updates.visitorName = visitorName;
       if (visitorEmail) updates.visitorEmail = visitorEmail;
       if (bookingRef) updates.bookingRef = bookingRef;
-      
+
       await sessionRef.update(updates);
-      
+
       // Also update customer record if we have new info
       const sessionData = session.data();
       if ((visitorName || visitorEmail) && sessionData.customerId) {
         const customerUpdates = {};
         if (visitorName) customerUpdates.name = visitorName;
         if (visitorEmail) customerUpdates.email = visitorEmail;
-        
+
         await db.collection('customers').doc(sessionData.customerId).update(customerUpdates);
-        
+
         // Update conversation with customer name
         if (visitorName) {
           await db.collection('conversations').doc(sessionData.conversationId).update({
@@ -3170,9 +3211,9 @@ exports.updateWebsiteSession = onRequest(
           });
         }
       }
-      
+
       res.json({ success: true });
-      
+
     } catch (error) {
       console.error('❌ Error updating session:', error);
       res.status(500).json({ error: error.message });
@@ -3182,51 +3223,57 @@ exports.updateWebsiteSession = onRequest(
 
 /**
  * Send a message from the website chat widget
+ * Requires Firebase Anonymous Auth token
  */
 exports.sendWebsiteMessage = onRequest(
   {
     region: 'us-central1',
-    cors: true,
-    invoker: 'public',
+    cors: true,  // Allow ALL origins
   },
   async (req, res) => {
     console.log('💬 Receiving website chat message...');
-    
+
+    // Verify auth token
+    const authUser = await verifyWebsiteAuth(req);
+    if (!authUser) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
     try {
       const { sessionId, conversationId, content, visitorName, visitorEmail } = req.body;
-      
+
       if (!content || !content.trim()) {
         return res.status(400).json({ error: 'Message content required' });
       }
-      
+
       if (!sessionId || !conversationId) {
         return res.status(400).json({ error: 'sessionId and conversationId required' });
       }
-      
+
       // Get session
       const sessionRef = db.collection('website_sessions').doc(sessionId);
       const session = await sessionRef.get();
-      
+
       if (!session.exists) {
         return res.status(404).json({ error: 'Session not found' });
       }
-      
+
       const sessionData = session.data();
-      
+
       // Update visitor info if provided
       if (visitorName || visitorEmail) {
         const sessionUpdates = {};
         if (visitorName) sessionUpdates.visitorName = visitorName;
         if (visitorEmail) sessionUpdates.visitorEmail = visitorEmail;
         await sessionRef.update(sessionUpdates);
-        
+
         // Update customer
         const customerUpdates = {};
         if (visitorName) customerUpdates.name = visitorName;
         if (visitorEmail) customerUpdates.email = visitorEmail;
         await db.collection('customers').doc(sessionData.customerId).update(customerUpdates);
       }
-      
+
       // Create message
       const messageRef = await db.collection('messages').add({
         conversationId: conversationId,
@@ -3243,29 +3290,29 @@ exports.sendWebsiteMessage = onRequest(
           }
         },
       });
-      
+
       // Update conversation
       await db.collection('conversations').doc(conversationId).update({
         lastMessageAt: admin.firestore.FieldValue.serverTimestamp(),
         lastMessagePreview: content.substring(0, 100),
         hasUnread: true,
-        status: 'open',
+        status: 'active',  // Must match Flutter ConversationStatus enum
         customerName: visitorName || sessionData.visitorName || 'Website Visitor',
       });
-      
+
       // Update session last seen
       await sessionRef.update({
         lastSeen: admin.firestore.FieldValue.serverTimestamp(),
         isOnline: true,
       });
-      
+
       console.log(`✅ Website message saved: ${messageRef.id}`);
-      
+
       res.json({
         success: true,
         messageId: messageRef.id,
       });
-      
+
     } catch (error) {
       console.error('❌ Error sending website message:', error);
       res.status(500).json({ error: error.message });
@@ -3276,28 +3323,34 @@ exports.sendWebsiteMessage = onRequest(
 /**
  * Mark session as offline (heartbeat timeout)
  * Can be triggered by scheduler or when visitor closes tab
+ * Requires Firebase Anonymous Auth token
  */
 exports.updateWebsitePresence = onRequest(
   {
     region: 'us-central1',
-    cors: true,
-    invoker: 'public',
+    cors: true,  // Allow ALL origins
   },
   async (req, res) => {
+    // Verify auth token
+    const authUser = await verifyWebsiteAuth(req);
+    if (!authUser) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
     try {
       const { sessionId, isOnline } = req.body;
-      
+
       if (!sessionId) {
         return res.status(400).json({ error: 'sessionId required' });
       }
-      
+
       await db.collection('website_sessions').doc(sessionId).update({
         isOnline: isOnline !== false,
         lastSeen: admin.firestore.FieldValue.serverTimestamp(),
       });
-      
+
       res.json({ success: true });
-      
+
     } catch (error) {
       console.error('❌ Error updating presence:', error);
       res.status(500).json({ error: error.message });
@@ -3317,17 +3370,17 @@ exports.sendWebsiteChatReply = onDocumentCreated(
   async (event) => {
     const snapshot = event.data;
     if (!snapshot) return;
-    
+
     const messageData = snapshot.data();
     const messageId = event.params.messageId;
-    
+
     // Only process outbound website messages
     if (messageData.direction !== 'outbound' || messageData.channel !== 'website') {
       return;
     }
-    
+
     console.log(`📤 Processing website reply: ${messageId}`);
-    
+
     try {
       // Get conversation to find session
       const convDoc = await db.collection('conversations').doc(messageData.conversationId).get();
@@ -3335,21 +3388,21 @@ exports.sendWebsiteChatReply = onDocumentCreated(
         console.log(`⚠️ Conversation ${messageData.conversationId} not found`);
         return;
       }
-      
+
       const conv = convDoc.data();
       const sessionId = conv.channelMetadata?.website?.sessionId;
-      
+
       if (!sessionId) {
         console.log('⚠️ No sessionId found for website conversation');
         return;
       }
-      
+
       // Update message status to sent (visitor will poll for new messages)
       await snapshot.ref.update({
         status: 'sent',
         sentAt: admin.firestore.FieldValue.serverTimestamp(),
       });
-      
+
       // Update conversation
       await db.collection('conversations').doc(messageData.conversationId).update({
         lastMessageAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -3357,9 +3410,9 @@ exports.sendWebsiteChatReply = onDocumentCreated(
         hasUnread: false,
         respondedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
-      
+
       console.log(`✅ Website reply sent: ${messageId}`);
-      
+
     } catch (error) {
       console.error(`❌ Error processing website reply:`, error);
     }

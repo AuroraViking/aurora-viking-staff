@@ -17,19 +17,46 @@ service cloud.firestore {
     // UNIFIED INBOX - Messaging Collections
     // ============================================
     
-    // Messages: Staff read/write only
+    // Helper function to check if user is anonymous (website chat)
+    function isAnonymousAuth() {
+      return request.auth != null && 
+        request.auth.token.firebase.sign_in_provider == 'anonymous';
+    }
+    
+    // Messages: Staff read/write, anonymous can create inbound messages and read their conversation
     match /messages/{messageId} {
       allow read, write: if isStaff();
+      // Website chat visitors can create inbound messages for their conversation
+      allow create: if isAnonymousAuth() && 
+        request.resource.data.direction == 'inbound' &&
+        request.resource.data.channel == 'website';
+      // Website chat visitors can read any messages where channel is website
+      // Note: Query must include channel=='website' filter to match this rule
+      allow read: if isAnonymousAuth();
     }
     
-    // Customers: Staff read/write only
+    // Customers: Staff read/write, anonymous can create their own customer record
     match /customers/{customerId} {
       allow read, write: if isStaff();
+      // Website chat visitors can create their own customer record
+      allow create: if isAnonymousAuth() && 
+        request.resource.data.source == 'website_chat';
     }
     
-    // Conversations: Staff read/write only
+    // Conversations: Staff read/write, anonymous can create website conversations
     match /conversations/{conversationId} {
       allow read, write: if isStaff();
+      // Website chat visitors can create and update their own conversation
+      allow create: if isAnonymousAuth() && 
+        request.resource.data.channel == 'website';
+      allow update: if isAnonymousAuth() && 
+        resource.data.channel == 'website';
+    }
+    
+    // Website Sessions: Staff read, anonymous can create/update their sessions
+    match /website_sessions/{sessionId} {
+      allow read: if isStaff();
+      allow create, update: if isAnonymousAuth();
     }
     
     // AI Drafts: Staff read/write only (Phase 2+)

@@ -76,3 +76,4 @@ After granting permissions, test the notification functions again. You should se
 
 This is required because v2 Cloud Functions use Cloud Run, which has different default permissions than v1 functions.
 
+

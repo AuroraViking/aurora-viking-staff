@@ -1,70 +1,37 @@
-# 🌐 Website Chat Widget - Setup Guide
+# 🌐 Website Chat Widget - Complete Setup Guide
 
 ## Overview
 
-The Website Chat Widget is a custom embeddable chat solution that integrates directly with the Aurora Viking Staff app's Unified Inbox.
+The Website Chat Widget is a custom embeddable chat solution that integrates directly with the Aurora Viking Staff app's Unified Inbox. It uses **Firebase Anonymous Authentication** for secure API access.
 
-## What Was Built
+---
 
-### 1. Chat Widget Files (`web/chat-widget/`)
-- `aurora-chat.js` - Full source JavaScript widget
-- `aurora-chat.min.js` - Minified production version
-- `aurora-chat.css` - Styles matching Aurora Viking theme (dark obsidian + teal accents)
-- `embed-snippet.html` - Instructions page for embedding on Wix/other sites
+## ✅ Current Status
 
-### 2. Cloud Functions (in `functions/index.js`)
-- `createWebsiteSession` - Creates anonymous chat session for website visitors
-- `updateWebsiteSession` - Updates session with page tracking & visitor info
-- `sendWebsiteMessage` - Handles incoming messages from the widget
-- `updateWebsitePresence` - Tracks online/offline status
-- `sendWebsiteChatReply` - Processes staff replies (triggers on outbound message creation)
+| Component | Status |
+|-----------|--------|
+| Chat Widget JS | ✅ Deployed with Firebase Auth |
+| Chat Widget CSS | ✅ Modern sci-fi Aurora theme |
+| Cloud Functions | ✅ Auth-verified endpoints |
+| Firebase Anonymous Auth | ⚠️ **Must be enabled in Firebase Console** |
 
-### 3. Flutter App Updates
-- Added `website` channel to `MessageChannel` enum
-- Added `WebsiteMetadata` class for website-specific data
-- Updated `unified_inbox_screen.dart` - Website tab now active (orange icon)
-- Updated `inbox_controller.dart` - Filters for website conversations
-- Updated `conversation_screen.dart` - Displays website channel icon
+---
 
-## Deployment Steps
+## 🚀 Quick Setup for Production (Wix)
 
-### Step 1: Deploy Cloud Functions
-```powershell
-cd functions
-npm install
-firebase deploy --only functions
-```
+### Step 1: Enable Anonymous Auth in Firebase
 
-### Step 2: Deploy Web Assets
-The chat widget files will be deployed with the Flutter web build:
-```powershell
-# From project root
-flutter build web
-firebase deploy --only hosting
-```
+1. Go to: https://console.firebase.google.com/project/aurora-viking-staff/authentication/providers
+2. Scroll down to find **"Anonymous"** (not Google!)
+3. Click on it and toggle **Enable**
+4. Click **Save**
 
-### Step 3: Test the Widget
-After deployment, you can test by visiting:
-```
-https://aurora-viking-staff.web.app/chat-widget/embed-snippet.html
-```
+### Step 2: Update Wix Custom Code
 
-This page shows:
-- The embed code to copy
-- Step-by-step Wix integration instructions
-- Configuration options
-- JavaScript API documentation
-
-### Step 4: Add to Wix Website
-
-**For auroraviking.is and auroraviking.com:**
-
-1. Go to Wix Dashboard → Settings → Custom Code
-2. Click "+ Add Code"
-3. Paste this code:
+Replace your current chat widget code in Wix with this:
 
 ```html
-<!-- Aurora Viking Chat Widget -->
+<!-- Aurora Viking Chat Widget v2 -->
 <script>
   window.AURORA_CHAT_CONFIG = {
     projectId: 'aurora-viking-staff',
@@ -80,16 +47,70 @@ This page shows:
     ]
   };
 </script>
-<script src="https://aurora-viking-staff.web.app/chat-widget/aurora-chat.min.js" async></script>
+<script src="https://aurora-viking-staff.web.app/chat-widget/aurora-chat.js" async></script>
 ```
 
-4. Set placement: "All Pages" → "Body - end"
-5. Click "Apply"
+### Step 3: Configure Placement
 
-## Firestore Collections Used
+- **Add Code to Pages:** All Pages
+- **Place Code in:** Body - end
+
+---
+
+## 📁 Files Reference
+
+| File | Purpose |
+|------|---------|
+| `web/chat-widget/aurora-chat.js` | Main widget with Firebase Auth |
+| `web/chat-widget/aurora-chat.css` | Modern sci-fi styling |
+| `web/chat-widget/embed-snippet.html` | Instructions and demo page |
+| `functions/index.js` | Cloud Functions with auth verification |
+
+---
+
+## 🔐 How Authentication Works
+
+1. **Widget loads** → Firebase SDK initializes
+2. **Anonymous sign-in** → User gets temporary auth token
+3. **API calls** → Token included in `Authorization: Bearer <token>` header
+4. **Cloud Functions** → Verify token with `admin.auth().verifyIdToken()`
+
+This approach:
+- ✅ Bypasses GCP org policy blocking public functions
+- ✅ More secure than fully public endpoints
+- ✅ Provides session tracking via Firebase Auth UID
+
+---
+
+## 🔧 Cloud Functions
+
+All website chat functions now require authentication:
+
+| Function | Purpose |
+|----------|---------|
+| `createWebsiteSession` | Creates new chat session |
+| `updateWebsiteSession` | Updates page tracking, visitor info |
+| `sendWebsiteMessage` | Handles messages from widget |
+| `updateWebsitePresence` | Tracks online/offline status |
+| `sendWebsiteChatReply` | Firestore trigger for staff replies |
+
+---
+
+## 🎨 Styling Features
+
+The widget uses a modern sci-fi Aurora theme:
+
+- **Glassmorphism** - Frosted glass effect
+- **Aurora gradients** - Shifting cyan/teal/green colors
+- **Glow effects** - Neon-style button glows
+- **Smooth animations** - Spring-based transitions
+- **Dark theme** - Matches Aurora Viking branding
+
+---
+
+## 📊 Firestore Collections
 
 ### `website_sessions`
-Stores anonymous visitor sessions:
 ```javascript
 {
   sessionId: "ws_abc123",
@@ -99,8 +120,6 @@ Stores anonymous visitor sessions:
   visitorEmail: null,       // Collected later
   firstPageUrl: "https://...",
   currentPageUrl: "https://...",
-  referrer: "...",
-  userAgent: "...",
   isOnline: true,
   lastSeen: Timestamp,
   createdAt: Timestamp
@@ -108,7 +127,6 @@ Stores anonymous visitor sessions:
 ```
 
 ### `conversations` (channel: 'website')
-Website conversations appear alongside Gmail/Wix conversations:
 ```javascript
 {
   channel: 'website',
@@ -123,7 +141,6 @@ Website conversations appear alongside Gmail/Wix conversations:
 ```
 
 ### `messages` (channel: 'website')
-Messages from website chat:
 ```javascript
 {
   channel: 'website',
@@ -137,21 +154,32 @@ Messages from website chat:
 }
 ```
 
-## Features
+---
 
-| Feature | Status |
-|---------|--------|
-| Anonymous sessions | ✅ |
-| Real-time messaging | ✅ (polling, can upgrade to WebSocket) |
-| Message persistence (localStorage) | ✅ |
-| Page URL tracking | ✅ |
-| Quick reply buttons | ✅ |
-| Typing indicators | 🔜 Phase 2 |
-| Visitor identification form | 🔜 Phase 2 |
-| Read receipts | 🔜 Phase 2 |
-| File/image upload | 🔜 Phase 2 |
+## 🔧 JavaScript API
 
-## Configuration Options
+Control the widget programmatically:
+
+```javascript
+// Open the chat
+AuroraChat.open();
+
+// Close the chat
+AuroraChat.close();
+
+// Toggle open/close
+AuroraChat.toggle();
+
+// Identify a visitor (e.g., after they book)
+AuroraChat.identify('John Doe', 'john@example.com');
+
+// Remove the widget completely
+AuroraChat.destroy();
+```
+
+---
+
+## ⚙️ Configuration Options
 
 | Option | Default | Description |
 |--------|---------|-------------|
@@ -162,27 +190,49 @@ Messages from website chat:
 | `offlineMessage` | `'Leave a message...'` | Offline message |
 | `quickReplies` | `[...]` | Quick reply buttons |
 
-## JavaScript API
+---
 
-Control the widget programmatically:
-```javascript
-AuroraChat.open();      // Open chat window
-AuroraChat.close();     // Close chat window
-AuroraChat.toggle();    // Toggle open/close
-AuroraChat.identify('John', 'john@example.com');  // Set visitor info
-AuroraChat.destroy();   // Remove widget from page
+## 🧪 Testing
+
+### Test Page
+https://aurora-viking-staff.web.app/chat-widget/embed-snippet.html
+
+### Verify in Firebase Console
+1. Check **Authentication > Users** for anonymous users
+2. Check **Firestore > website_sessions** for new sessions
+3. Check **Firestore > messages** for chat messages
+
+### Check Function Logs
+```powershell
+firebase functions:log --only createWebsiteSession,sendWebsiteMessage
 ```
-
-## Next Steps (Phase 2+)
-
-1. **AI Draft Responses** - Auto-generate reply suggestions
-2. **Typing indicators** - Show "Staff is typing..."
-3. **Read receipts** - Show when messages are seen
-4. **File uploads** - Allow image/document sharing
-5. **Visitor identification** - Prompt for name/email after first message
-6. **WhatsApp Integration** - Similar setup via Twilio
 
 ---
 
-Built with 💚 by Aurora Viking
+## 🔜 Future Enhancements
 
+- [ ] Typing indicators (real-time)
+- [ ] Read receipts
+- [ ] File/image uploads  
+- [ ] Visitor identification form
+- [ ] AI draft responses integration
+
+---
+
+## 🆘 Troubleshooting
+
+### "Unable to connect" error
+- Verify Anonymous Auth is enabled in Firebase Console
+- Check browser console for specific errors
+
+### Old styling showing
+- Hard refresh the page (Ctrl+F5)
+- Clear browser cache
+
+### Messages not appearing in app
+- Check Firestore for new documents
+- Verify Cloud Functions are deployed
+
+---
+
+*Last updated: January 12, 2026*

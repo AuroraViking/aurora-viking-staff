@@ -21,3 +21,4 @@ gcloud projects add-iam-policy-binding aurora-viking-staff `
 Write-Host "`nPermissions granted! Wait 1-2 minutes for propagation, then run:" -ForegroundColor Green
 Write-Host "firebase deploy --only functions" -ForegroundColor Cyan
 
+

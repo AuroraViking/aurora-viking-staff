@@ -344,3 +344,4 @@ class _AuroraSightingWidgetState extends State<AuroraSightingWidget> {
   }
 }
 
+

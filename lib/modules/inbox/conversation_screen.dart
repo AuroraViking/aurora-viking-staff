@@ -115,8 +115,13 @@ class _ConversationScreenState extends State<ConversationScreen> {
           ),
           body: Column(
             children: [
+              // Website visitor info panel (for website channel)
+              if (conversation.channel == 'website')
+                _buildWebsiteVisitorPanel(conversation, customer),
+
               // Booking context panel (if bookings detected)
-              if (conversation.bookingIds.isNotEmpty)
+              if (conversation.bookingIds.isNotEmpty && 
+                  conversation.channel != 'website')
                 _buildBookingContextPanel(conversation),
 
               // Messages list
@@ -236,6 +241,128 @@ class _ConversationScreenState extends State<ConversationScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildWebsiteVisitorPanel(Conversation conversation, dynamic customer) {
+    // Debug print
+    print('🔍 Visitor Panel Debug:');
+    print('   customerName: ${conversation.customerName}');
+    print('   customerEmail: ${conversation.customerEmail}');
+    print('   bookingIds: ${conversation.bookingIds}');
+    
+    final hasName = conversation.customerName != null && 
+        conversation.customerName != 'Website Visitor' &&
+        conversation.customerName!.isNotEmpty;
+    final hasEmail = conversation.customerEmail != null && 
+        conversation.customerEmail!.isNotEmpty;
+    final hasBookings = conversation.bookingIds.isNotEmpty;
+    
+    print('   hasName: $hasName, hasEmail: $hasEmail, hasBookings: $hasBookings');
+
+    // Don't show panel if no visitor info
+    if (!hasName && !hasEmail && !hasBookings) {
+      return const SizedBox.shrink();
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AVColors.slateElev,
+        border: Border(
+          bottom: BorderSide(color: AVColors.outline, width: 1),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AVColors.auroraGreen.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Icons.person_outline,
+                  color: AVColors.auroraGreen,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Text(
+                  'Website Visitor Details',
+                  style: TextStyle(
+                    color: AVColors.textHigh,
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // Visitor info grid
+          Wrap(
+            spacing: 16,
+            runSpacing: 8,
+            children: [
+              if (hasName)
+                _buildVisitorInfoItem(
+                  Icons.badge_outlined,
+                  'Name',
+                  conversation.customerName!,
+                ),
+              if (hasEmail)
+                _buildVisitorInfoItem(
+                  Icons.email_outlined,
+                  'Email',
+                  conversation.customerEmail!,
+                ),
+              if (hasBookings)
+                _buildVisitorInfoItem(
+                  Icons.confirmation_number_outlined,
+                  'Booking',
+                  conversation.bookingIds.join(', '),
+                  color: AVColors.primaryTeal,
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildVisitorInfoItem(IconData icon, String label, String value, {Color? color}) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 16, color: color ?? AVColors.textLow),
+        const SizedBox(width: 6),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                color: AVColors.textLow,
+                fontSize: 10,
+              ),
+            ),
+            Text(
+              value,
+              style: TextStyle(
+                color: color ?? AVColors.textHigh,
+                fontSize: 13,
+                fontWeight: color != null ? FontWeight.bold : FontWeight.normal,
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 

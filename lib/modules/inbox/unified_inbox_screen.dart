@@ -634,8 +634,19 @@ class _ConversationTile extends StatelessWidget {
           future: _getCustomer(context, conversation.customerId),
           builder: (context, snapshot) {
             final customer = snapshot.data;
-            final customerName = customer?.displayName ?? 'Loading...';
-            final initials = customer?.initials ?? '?';
+            
+            // Prefer customerName from conversation if it's not the default
+            final hasRealName = conversation.customerName != null && 
+                conversation.customerName != 'Website Visitor' &&
+                conversation.customerName!.isNotEmpty;
+            final customerName = hasRealName 
+                ? conversation.customerName! 
+                : (customer?.displayName ?? 'Loading...');
+            
+            // Get initials from name
+            final initials = hasRealName
+                ? conversation.customerName!.split(' ').map((n) => n.isNotEmpty ? n[0] : '').take(2).join().toUpperCase()
+                : (customer?.initials ?? '?');
 
             return Container(
               margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),

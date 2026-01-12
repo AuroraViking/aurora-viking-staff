@@ -221,7 +221,7 @@ class MessagingService {
       final customerEmail = customerData?['email'] ?? customerData?['channels']?['gmail'] ?? '';
       
       // Extract booking references from content
-      final bookingRegex = RegExp(r'\b(AV|av)-\d+\b', caseSensitive: false);
+      final bookingRegex = RegExp(r'\b(AV|AUR|av|aur)-\d+\b', caseSensitive: false);
       final matches = bookingRegex.allMatches(content);
       final detectedBookingNumbers = matches.map((m) => m.group(0)!.toUpperCase()).toList();
       

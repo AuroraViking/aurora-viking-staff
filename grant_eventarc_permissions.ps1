@@ -15,3 +15,4 @@ gcloud services enable eventarc.googleapis.com --project=aurora-viking-staff
 Write-Host "`n✅ Permissions granted! Wait 2-3 minutes for propagation, then run:" -ForegroundColor Green
 Write-Host "firebase deploy --only functions" -ForegroundColor Cyan
 
+

@@ -32,3 +32,4 @@ firebase deploy --only functions
 
 The secrets you set will be automatically available as environment variables (`process.env.BOKUN_ACCESS_KEY` and `process.env.BOKUN_SECRET_KEY`) in your Cloud Function.
 
+

@@ -38,3 +38,4 @@ The function uses `process.env.BOKUN_ACCESS_KEY` and `process.env.BOKUN_SECRET_K
 - Firebase Functions SDK v7 is used (latest)
 - The deprecated `functions.config()` API has been removed
 
+

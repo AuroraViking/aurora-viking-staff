@@ -551,3 +551,4 @@ class _ManualShiftAssignmentDialogState extends State<ManualShiftAssignmentDialo
   }
 }
 
+

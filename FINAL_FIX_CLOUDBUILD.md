@@ -34,3 +34,4 @@ If the Cloud Build Service Account role doesn't work or isn't available, ensure 
 - ✅ Logs Writer (roles/logging.logWriter) - might be needed
 - ✅ Service Account Token Creator (roles/iam.serviceAccountTokenCreator) - might be needed
 
+

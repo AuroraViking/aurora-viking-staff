@@ -33,3 +33,4 @@ The compute service account is automatically created when you enable the Compute
 
 If you don't want to enable Compute Engine API, we can modify the function to use a different service account. But enabling Compute Engine API is the standard solution for Cloud Functions.
 
+
