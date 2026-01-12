@@ -43,6 +43,11 @@
   let bookingRef = null;
   let messages = [];
   let isOpen = false;
+
+  // Check for embedded mode (no button, just chat window)
+  // Can be set via: ?embedded=true in URL or window.AURORA_CHAT_EMBEDDED = true
+  const embeddedMode = window.AURORA_CHAT_EMBEDDED === true ||
+    new URLSearchParams(window.location.search).get('embedded') === 'true';
   let isOnline = true;
   let isTyping = false;
   let unreadCount = 0;
@@ -230,6 +235,7 @@
         <svg viewBox="0 0 24 24">
           <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/>
         </svg>
+        <span class="aurora-chat-label">CHAT</span>
         <span class="aurora-chat-badge" style="display: none;">0</span>
       </button>
       
@@ -325,6 +331,16 @@
     messagesContainer = widget.querySelector('.aurora-chat-messages');
     inputElement = widget.querySelector('.aurora-chat-input');
     badgeElement = widget.querySelector('.aurora-chat-badge');
+
+    // Handle embedded mode (no button, always open)
+    if (embeddedMode) {
+      widget.classList.add('embedded');
+      chatButton.style.display = 'none';
+      chatWindow.classList.add('open');
+      widget.querySelector('.aurora-chat-close').style.display = 'none';
+      isOpen = true;
+      console.log('🌌 Aurora Chat running in embedded mode');
+    }
 
     // Set up event listeners
     setupEventListeners();

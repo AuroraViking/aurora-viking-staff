@@ -40,6 +40,45 @@
   --av-glow-green: 0 0 30px rgba(0, 255, 136, 0.3);
 }
 
+/* ========== FIX: Widget Container Positioning ========== */
+/* This makes the widget immune to parent container CSS shenanigans */
+.aurora-chat-widget {
+  position: fixed !important;
+  inset: 0 !important;
+  pointer-events: none !important;
+  z-index: 999997 !important;
+  /* Isolation prevents parent transforms from affecting children */
+  isolation: isolate;
+  /* Ensure no parent can mess with us */
+  transform: none !important;
+  contain: layout;
+}
+
+/* Re-enable pointer events on the actual interactive elements */
+.aurora-chat-widget .aurora-chat-button,
+.aurora-chat-widget .aurora-chat-window {
+  pointer-events: auto !important;
+}
+
+/* Force positioning with maximum specificity */
+.aurora-chat-widget .aurora-chat-button,
+button.aurora-chat-button,
+.aurora-chat-button[aria-label] {
+  top: 0 !important;
+  left: 0 !important;
+  bottom: auto !important;
+  right: auto !important;
+}
+
+.aurora-chat-widget .aurora-chat-window,
+div.aurora-chat-window,
+.aurora-chat-window {
+  top: 80px !important;
+  left: 0 !important;
+  bottom: auto !important;
+  right: auto !important;
+}
+
 /* Reset for widget container */
 .aurora-chat-widget * {
   box-sizing: border-box;
@@ -50,12 +89,14 @@
 
 /* ========== Floating Button ========== */
 .aurora-chat-button {
-  position: fixed;
-  bottom: 24px;
-  right: 24px;
-  width: 64px;
-  height: 64px;
-  border-radius: 50%;
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  bottom: auto !important;
+  right: auto !important;
+  width: 60px;
+  height: 70px;
+  border-radius: 14px;
   background: linear-gradient(135deg, var(--av-aurora-cyan), var(--av-aurora-teal), var(--av-aurora-green));
   background-size: 200% 200%;
   animation: aurora-shift 5s ease infinite;
@@ -66,10 +107,28 @@
     0 0 60px rgba(0, 255, 136, 0.2),
     inset 0 2px 0 rgba(255, 255, 255, 0.2);
   transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  z-index: 999998;
+  z-index: 999998 !important;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 4px;
+}
+
+.aurora-chat-button svg {
+  width: 24px;
+  height: 24px;
+  fill: var(--av-void);
+  transition: all 0.4s ease;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3));
+}
+
+.aurora-chat-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--av-void);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 @keyframes aurora-shift {
@@ -109,14 +168,6 @@
 
 .aurora-chat-button:active {
   transform: scale(0.95);
-}
-
-.aurora-chat-button svg {
-  width: 28px;
-  height: 28px;
-  fill: var(--av-void);
-  transition: all 0.4s ease;
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3));
 }
 
 .aurora-chat-button.open svg {
@@ -160,9 +211,11 @@
 
 /* ========== Chat Window ========== */
 .aurora-chat-window {
-  position: fixed;
-  bottom: 104px;
-  right: 24px;
+  position: fixed !important;
+  top: 80px !important;
+  left: 0 !important;
+  bottom: auto !important;
+  right: auto !important;
   width: 400px;
   height: 600px;
   max-height: calc(100vh - 140px);
@@ -179,24 +232,24 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  z-index: 999999;
+  z-index: 999999 !important;
   opacity: 0;
-  transform: translateY(20px) scale(0.9);
+  transform: translateX(-20px) scale(0.9);
   pointer-events: none;
   transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .aurora-chat-window.open {
   opacity: 1;
-  transform: translateY(0) scale(1);
+  transform: translateX(0) scale(1);
   pointer-events: auto;
 }
 
 /* Mobile responsive */
 @media (max-width: 480px) {
   .aurora-chat-window {
-    bottom: 0;
-    right: 0;
+    top: 0 !important;
+    left: 0 !important;
     width: 100%;
     height: 100%;
     max-height: 100%;
@@ -205,11 +258,47 @@
   }
 
   .aurora-chat-button {
-    bottom: 20px;
-    right: 20px;
-    width: 56px;
-    height: 56px;
+    top: 0 !important;
+    left: 0 !important;
+    bottom: auto !important;
+    right: auto !important;
+    width: 50px;
+    height: 60px;
+    border-radius: 12px;
   }
+
+  .aurora-chat-button svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  .aurora-chat-label {
+    font-size: 8px;
+  }
+}
+
+/* ========== Embedded Mode (no button, chat fills container) ========== */
+.aurora-chat-widget.embedded {
+  position: relative !important;
+  inset: auto !important;
+  width: 100% !important;
+  height: 100% !important;
+  pointer-events: auto !important;
+}
+
+.aurora-chat-widget.embedded .aurora-chat-window {
+  position: relative !important;
+  top: auto !important;
+  left: auto !important;
+  bottom: auto !important;
+  right: auto !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-height: 100% !important;
+  border-radius: 0;
+  opacity: 1;
+  transform: none !important;
+  pointer-events: auto;
 }
 
 /* ========== Header ========== */

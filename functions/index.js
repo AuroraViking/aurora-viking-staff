@@ -3419,3 +3419,71 @@ exports.sendWebsiteChatReply = onDocumentCreated(
   }
 );
 
+// ============================================
+// WEBSITE CHAT - Notification for new messages (to admins only)
+// ============================================
+exports.onWebsiteChatMessage = onDocumentCreated(
+  {
+    document: 'messages/{messageId}',
+    region: 'us-central1',
+  },
+  async (event) => {
+    const snapshot = event.data;
+    if (!snapshot) {
+      console.log('No data in snapshot');
+      return null;
+    }
+
+    const messageData = snapshot.data();
+    const messageId = event.params.messageId;
+
+    // Only send notification for INBOUND website chat messages
+    if (messageData.channel !== 'website' || messageData.direction !== 'inbound') {
+      console.log(`ℹ️ Skipping notification - not an inbound website message`);
+      return null;
+    }
+
+    console.log(`💬 New website chat message received: ${messageId}`);
+
+    try {
+      // Get conversation for more context
+      const conversationDoc = await db.collection('conversations').doc(messageData.conversationId).get();
+      const conversationData = conversationDoc.exists ? conversationDoc.data() : {};
+
+      // Get visitor name if available
+      const visitorName = conversationData.customerName && conversationData.customerName !== 'Website Visitor'
+        ? conversationData.customerName
+        : 'Website Visitor';
+
+      // Get booking ref if available
+      const bookingRef = conversationData.bookingIds && conversationData.bookingIds.length > 0
+        ? ` (${conversationData.bookingIds[0]})`
+        : '';
+
+      // Truncate message for notification
+      const messagePreview = messageData.content.length > 100
+        ? messageData.content.substring(0, 100) + '...'
+        : messageData.content;
+
+      // Send notification to admins only
+      await sendNotificationToAdminsOnly(
+        `💬 Website Chat${bookingRef}`,
+        `${visitorName}: ${messagePreview}`,
+        {
+          type: 'website_chat',
+          conversationId: messageData.conversationId,
+          messageId: messageId,
+          visitorName: visitorName,
+        }
+      );
+
+      console.log(`✅ Website chat notification sent to admins`);
+      return { success: true };
+
+    } catch (error) {
+      console.error(`❌ Error sending website chat notification:`, error);
+      return { success: false, error: error.message };
+    }
+  }
+);
+
