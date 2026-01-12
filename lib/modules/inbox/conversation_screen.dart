@@ -450,13 +450,30 @@ class _ConversationScreenState extends State<ConversationScreen> {
                 const SizedBox(height: 8),
               ],
 
-              // Message content - render HTML if available
-              if (message.contentHtml != null && message.contentHtml!.isNotEmpty)
-                Builder(
-                  builder: (context) {
+              // Message content - prefer plain text, fallback to HTML
+              Builder(
+                builder: (context) {
+                  // Debug: log content lengths
+                  debugPrint('Message ${message.id}: content="${message.content.length}" chars, html="${message.contentHtml?.length ?? 0}" chars');
+                  
+                  // If plain text content is available and not empty, use it
+                  if (message.content.isNotEmpty) {
+                    return Text(
+                      message.content,
+                      style: const TextStyle(color: AVColors.textHigh),
+                    );
+                  }
+                  
+                  // Try HTML if no plain text
+                  if (message.contentHtml != null && message.contentHtml!.isNotEmpty) {
+                    // Strip <style> tags to avoid CSS parsing errors
+                    String sanitizedHtml = message.contentHtml!
+                        .replaceAll(RegExp(r'<style[^>]*>[\s\S]*?</style>', caseSensitive: false), '')
+                        .replaceAll(RegExp(r'<link[^>]*stylesheet[^>]*>', caseSensitive: false), '');
+                    
                     try {
                       return Html(
-                        data: message.contentHtml!,
+                        data: sanitizedHtml,
                         style: {
                           '*': Style(
                             color: AVColors.textHigh,
@@ -478,20 +495,17 @@ class _ConversationScreenState extends State<ConversationScreen> {
                         },
                       );
                     } catch (e) {
-                      // Fallback to plain text if HTML parsing fails
                       debugPrint('HTML parsing error: $e');
-                      return Text(
-                        message.content,
-                        style: const TextStyle(color: AVColors.textHigh),
-                      );
                     }
-                  },
-                )
-              else
-                Text(
-                  message.content,
-                  style: const TextStyle(color: AVColors.textHigh),
-                ),
+                  }
+                  
+                  // Final fallback
+                  return const Text(
+                    '(No content available)',
+                    style: TextStyle(color: AVColors.textLow, fontStyle: FontStyle.italic),
+                  );
+                },
+              ),
 
               const SizedBox(height: 8),
 

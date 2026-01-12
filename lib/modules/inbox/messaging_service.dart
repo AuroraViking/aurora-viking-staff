@@ -1,5 +1,5 @@
 // Messaging service for the Unified Inbox
-// Uses direct Firestore operations (Cloud Functions auth issues on some devices)
+// Saves to Firestore - Cloud Function trigger (onOutboundMessageCreated) handles Gmail sending
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../core/models/messaging/messaging_models.dart';
@@ -197,11 +197,12 @@ class MessagingService {
     });
   }
 
-  /// Send a message (direct Firestore - bypasses Cloud Functions)
+  /// Send a message - saves to Firestore, Cloud Function trigger handles Gmail sending
   Future<String?> sendMessage({
     required String conversationId,
     required String content,
     String? channel,
+    String? messageId,
   }) async {
     try {
       print('📤 Sending message to conversation: $conversationId');
@@ -225,7 +226,7 @@ class MessagingService {
       final matches = bookingRegex.allMatches(content);
       final detectedBookingNumbers = matches.map((m) => m.group(0)!.toUpperCase()).toList();
       
-      // Create outbound message
+      // Create outbound message - the onOutboundMessageCreated trigger will send via Gmail
       final messageDoc = await _firestore.collection('messages').add({
         'conversationId': conversationId,
         'customerId': customerId,
@@ -242,13 +243,14 @@ class MessagingService {
         },
         'bookingIds': [],
         'detectedBookingNumbers': detectedBookingNumbers,
-        'status': 'responded',
+        'status': 'pending', // Trigger will update to 'sent'
         'handledAt': FieldValue.serverTimestamp(),
         'flaggedForReview': false,
         'priority': 'normal',
       });
       
       print('📨 Outbound message created: ${messageDoc.id}');
+      print('📧 Cloud Function trigger will send via Gmail...');
       
       // Update conversation
       await convDoc.reference.update({
@@ -259,11 +261,7 @@ class MessagingService {
         'updatedAt': FieldValue.serverTimestamp(),
       });
       
-      print('✅ Message sent successfully!');
-      
-      // Note: In production, you'd also need to actually send the email via Gmail API
-      // For now, this just stores the message in Firestore
-      
+      print('✅ Message saved, awaiting Gmail send...');
       return messageDoc.id;
     } catch (e) {
       print('❌ Error sending message: $e');

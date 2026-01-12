@@ -2118,14 +2118,30 @@ async function storeGmailTokens(email, tokens) {
 
 /**
  * Get Gmail tokens for a specific email from Firestore
+ * Checks both new location (gmail_accounts) and old location (gmail_tokens) for backwards compatibility
  */
 async function getGmailTokens(email) {
   const emailId = email.replace(/[@.]/g, '_');
-  const doc = await db.collection('system').doc('gmail_accounts').collection('accounts').doc(emailId).get();
-  if (!doc.exists) {
-    return null;
+
+  // Try new location first
+  const newDoc = await db.collection('system').doc('gmail_accounts').collection('accounts').doc(emailId).get();
+  if (newDoc.exists) {
+    return { ...newDoc.data(), id: emailId };
   }
-  return { ...doc.data(), id: emailId };
+
+  // Fallback to old location (system/gmail_tokens)
+  console.log(`📍 Checking legacy token location for ${email}`);
+  const oldDoc = await db.collection('system').doc('gmail_tokens').get();
+  if (oldDoc.exists) {
+    const data = oldDoc.data();
+    // Check if email matches
+    if (data.email === email || email === 'info@auroraviking.is') {
+      console.log(`✅ Found tokens in legacy location for ${email}`);
+      return { ...data, id: emailId };
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -2939,9 +2955,19 @@ exports.onOutboundMessageCreated = onDocumentCreated(
         return;
       }
 
+      // Determine which inbox to send from
+      const inboxEmail = conv.channelMetadata?.gmail?.inbox || 'info@auroraviking.is';
+      console.log(`📧 Sending from inbox: ${inboxEmail}`);
+
       // Get Gmail client
-      const gmail = await getGmailClient(clientId, clientSecret);
-      const tokens = await getGmailTokens();
+      const tokens = await getGmailTokens(inboxEmail);
+      if (!tokens) {
+        console.error(`No tokens found for inbox: ${inboxEmail}`);
+        await snapshot.ref.update({ status: 'failed', error: `No tokens for ${inboxEmail}` });
+        return;
+      }
+
+      const gmail = await getGmailClient(inboxEmail, clientId, clientSecret);
 
       // Build email
       const subject = conv.subject?.startsWith('Re:') ? conv.subject : `Re: ${conv.subject || 'Your inquiry'}`;

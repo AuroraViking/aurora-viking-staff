@@ -33,6 +33,8 @@ class _BookingManagementScreenState extends State<BookingManagementScreen> {
   }
 
   Future<void> _loadBookings() async {
+    if (!mounted) return;
+    
     setState(() {
       _isLoading = true;
       _error = null;
@@ -45,12 +47,16 @@ class _BookingManagementScreenState extends State<BookingManagementScreen> {
       
       final bookings = await _service.getBookingsForDateRange(firstDay, lastDay);
       
+      if (!mounted) return;
+      
       setState(() {
         _allBookings = bookings;
         _bookingsByDate = _service.groupBookingsByDate(bookings);
         _isLoading = false;
       });
     } catch (e) {
+      if (!mounted) return;
+      
       setState(() {
         _error = 'Failed to load bookings: $e';
         _isLoading = false;
