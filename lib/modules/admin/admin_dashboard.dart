@@ -11,6 +11,7 @@ import 'admin_guide_management_screen.dart';
 import 'admin_reports_screen.dart';
 import 'admin_pickup_management_screen.dart';
 import 'admin_bus_management_screen.dart';
+import 'booking_management_screen.dart';
 import '../inbox/unified_inbox_screen.dart';
 import '../inbox/inbox_controller.dart';
 
@@ -464,6 +465,23 @@ class _AdminDashboardState extends State<AdminDashboard> {
                 context,
                 MaterialPageRoute(
                   builder: (context) => const AdminReportsScreen(),
+                ),
+              );
+            },
+          ),
+          
+          const SizedBox(height: 12),
+          
+          _buildActionCard(
+            'Booking Management',
+            'View, reschedule, and cancel bookings via calendar',
+            Icons.calendar_month,
+            AppColors.primary,
+            () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const BookingManagementScreen(),
                 ),
               );
             },

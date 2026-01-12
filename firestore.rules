@@ -74,6 +74,11 @@ service cloud.firestore {
       allow read, write: if isStaff();
     }
     
+    // Booking Actions: Staff read/write (for tracking booking modifications)
+    match /booking_actions/{actionId} {
+      allow read, write: if isStaff();
+    }
+    
     // Staff Activity: Write for authenticated staff, read for all staff
     match /staffActivity/{activityId} {
       allow create: if isStaff() && request.auth.uid == request.resource.data.staffId;

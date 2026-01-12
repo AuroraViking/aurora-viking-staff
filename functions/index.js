@@ -572,64 +572,107 @@ exports.getBookings = onRequest(
         .update(message)
         .digest('base64');
 
-      // Prepare request body
-      const requestBody = {
-        startDateRange: {
-          from: startDate,
-          to: endDate,
-        }
-      };
+      // Pagination: fetch all bookings in batches
+      const pageSize = 50;
+      let allBookings = [];
+      let offset = 0;
+      let totalHits = 0;
+      let hasMore = true;
 
-      // Make request to Bokun API
-      const result = await new Promise((resolve, reject) => {
-        const postData = JSON.stringify(requestBody);
-
-        const options = {
-          hostname: 'api.bokun.io',
-          path: '/booking.json/booking-search',
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Content-Length': Buffer.byteLength(postData),
-            'X-Bokun-AccessKey': accessKey,
-            'X-Bokun-Date': bokunDate,
-            'X-Bokun-Signature': signature,
+      while (hasMore) {
+        // Prepare request body with pagination
+        // Note: productConfirmationDateRange filters by the activity/tour date
+        const requestBody = {
+          productConfirmationDateRange: {
+            from: startDate,
+            to: endDate,
           },
+          offset: offset,
+          limit: pageSize,
         };
 
-        const apiReq = https.request(options, (apiRes) => {
-          let data = '';
+        // Make request to Bokun API
+        const result = await new Promise((resolve, reject) => {
+          const postData = JSON.stringify(requestBody);
 
-          apiRes.on('data', (chunk) => {
-            data += chunk;
-          });
+          // Need fresh signature for each request
+          const now = new Date();
+          const bokunDate = now.toISOString().replace('T', ' ').substring(0, 19);
+          const message = bokunDate + accessKey + method + path;
+          const sig = crypto
+            .createHmac('sha1', secretKey)
+            .update(message)
+            .digest('base64');
 
-          apiRes.on('end', () => {
-            if (apiRes.statusCode >= 200 && apiRes.statusCode < 300) {
-              try {
-                const jsonData = JSON.parse(data);
-                resolve(jsonData);
-              } catch (e) {
-                reject(new Error(`Failed to parse response: ${e.message}`));
+          const options = {
+            hostname: 'api.bokun.io',
+            path: '/booking.json/booking-search',
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Content-Length': Buffer.byteLength(postData),
+              'X-Bokun-AccessKey': accessKey,
+              'X-Bokun-Date': bokunDate,
+              'X-Bokun-Signature': sig,
+            },
+          };
+
+          const apiReq = https.request(options, (apiRes) => {
+            let data = '';
+
+            apiRes.on('data', (chunk) => {
+              data += chunk;
+            });
+
+            apiRes.on('end', () => {
+              if (apiRes.statusCode >= 200 && apiRes.statusCode < 300) {
+                try {
+                  const jsonData = JSON.parse(data);
+                  resolve(jsonData);
+                } catch (e) {
+                  reject(new Error(`Failed to parse response: ${e.message}`));
+                }
+              } else {
+                reject(new Error(`Bokun API error: ${apiRes.statusCode} - ${data}`));
               }
-            } else {
-              reject(new Error(`Bokun API error: ${apiRes.statusCode} - ${data}`));
-            }
+            });
           });
+
+          apiReq.on('error', (error) => {
+            reject(error);
+          });
+
+          apiReq.write(postData);
+          apiReq.end();
         });
 
-        apiReq.on('error', (error) => {
-          reject(error);
-        });
+        // Accumulate results
+        const items = result.items || [];
+        allBookings = allBookings.concat(items);
+        totalHits = result.totalHits || allBookings.length;
 
-        apiReq.write(postData);
-        apiReq.end();
+        console.log(`Fetched page ${Math.floor(offset / pageSize) + 1}: ${items.length} bookings (total so far: ${allBookings.length}/${totalHits})`);
+
+        // Check if there are more pages
+        offset += pageSize;
+        hasMore = items.length === pageSize && allBookings.length < totalHits;
+
+        // Safety limit to prevent infinite loops
+        if (offset > 1000) {
+          console.log('Safety limit reached (1000 bookings), stopping pagination');
+          hasMore = false;
+        }
+      }
+
+      console.log(`Successfully fetched ${allBookings.length} total bookings for user ${uid}`);
+
+      // Return combined result
+      res.status(200).json({
+        result: {
+          items: allBookings,
+          totalHits: totalHits,
+        }
       });
-
-      console.log(`Successfully fetched ${result.items?.length || 0} bookings for user ${uid}`);
-
-      // Return result wrapped in 'result' for consistency
-      res.status(200).json({ result: result });
 
     } catch (error) {
       console.error('Error in getBookings:', error);
@@ -3687,5 +3730,342 @@ Output ONLY the response text, no labels or prefixes.`;
     tone: 'friendly',
     reasoning: 'Generated based on conversation context and company guidelines',
   };
+}
+
+// ============================================
+// BOOKING MANAGEMENT FUNCTIONS
+// ============================================
+
+/**
+ * Get booking details by ID from Bokun
+ */
+exports.getBookingDetails = onRequest(
+  {
+    cors: true,
+    secrets: ['BOKUN_ACCESS_KEY', 'BOKUN_SECRET_KEY'],
+    invoker: 'public',
+  },
+  async (req, res) => {
+    if (req.method !== 'POST') {
+      res.status(405).json({ error: 'Method not allowed' });
+      return;
+    }
+
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      res.status(401).json({ error: 'Unauthorized - missing token' });
+      return;
+    }
+
+    try {
+      const token = authHeader.split('Bearer ')[1];
+      await admin.auth().verifyIdToken(token);
+
+      const requestData = req.body.data || req.body;
+      const { bookingId } = requestData;
+
+      if (!bookingId) {
+        res.status(400).json({ error: 'bookingId is required' });
+        return;
+      }
+
+      const accessKey = process.env.BOKUN_ACCESS_KEY;
+      const secretKey = process.env.BOKUN_SECRET_KEY;
+
+      if (!accessKey || !secretKey) {
+        res.status(500).json({ error: 'Bokun API keys not configured' });
+        return;
+      }
+
+      const result = await makeBokunRequest(
+        'GET',
+        `/booking.json/${bookingId}`,
+        null,
+        accessKey,
+        secretKey
+      );
+
+      res.status(200).json({ result });
+    } catch (error) {
+      console.error('Error in getBookingDetails:', error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
+
+/**
+ * Reschedule a booking to a new date
+ * Note: Bokun may handle this as cancel + rebook internally
+ */
+exports.rescheduleBooking = onRequest(
+  {
+    cors: true,
+    secrets: ['BOKUN_ACCESS_KEY', 'BOKUN_SECRET_KEY'],
+    invoker: 'public',
+  },
+  async (req, res) => {
+    if (req.method !== 'POST') {
+      res.status(405).json({ error: 'Method not allowed' });
+      return;
+    }
+
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      res.status(401).json({ error: 'Unauthorized - missing token' });
+      return;
+    }
+
+    try {
+      const token = authHeader.split('Bearer ')[1];
+      const decodedToken = await admin.auth().verifyIdToken(token);
+      const uid = decodedToken.uid;
+
+      const requestData = req.body.data || req.body;
+      const { bookingId, confirmationCode, newDate, reason } = requestData;
+
+      if (!bookingId || !newDate) {
+        res.status(400).json({ error: 'bookingId and newDate are required' });
+        return;
+      }
+
+      const accessKey = process.env.BOKUN_ACCESS_KEY;
+      const secretKey = process.env.BOKUN_SECRET_KEY;
+
+      if (!accessKey || !secretKey) {
+        res.status(500).json({ error: 'Bokun API keys not configured' });
+        return;
+      }
+
+      // First, get the current booking details
+      const currentBooking = await makeBokunRequest(
+        'GET',
+        `/booking.json/${bookingId}`,
+        null,
+        accessKey,
+        secretKey
+      );
+
+      // Try to amend the booking with new date
+      // Note: Bokun's amend API structure may vary - this is a best-effort implementation
+      const amendRequest = {
+        bookingId: bookingId,
+        newStartDate: newDate,
+        // Additional fields may be required depending on Bokun's API
+      };
+
+      try {
+        const result = await makeBokunRequest(
+          'POST',
+          `/booking.json/${bookingId}/reschedule`,
+          amendRequest,
+          accessKey,
+          secretKey
+        );
+
+        // Log the action to Firestore
+        await admin.firestore().collection('booking_actions').add({
+          bookingId,
+          confirmationCode: confirmationCode || '',
+          action: 'reschedule',
+          performedBy: uid,
+          performedAt: admin.firestore.FieldValue.serverTimestamp(),
+          reason: reason || 'Rescheduled via admin app',
+          originalData: {
+            date: currentBooking.startDate || 'unknown',
+          },
+          newData: {
+            date: newDate,
+          },
+          success: true,
+          source: 'cloud_function',
+        });
+
+        res.status(200).json({ result, success: true });
+      } catch (amendError) {
+        // If amend fails, log the error
+        console.error('Bokun amend failed:', amendError.message);
+
+        // Log failed attempt
+        await admin.firestore().collection('booking_actions').add({
+          bookingId,
+          confirmationCode: confirmationCode || '',
+          action: 'reschedule',
+          performedBy: uid,
+          performedAt: admin.firestore.FieldValue.serverTimestamp(),
+          reason: reason || 'Attempted reschedule',
+          newData: { date: newDate },
+          success: false,
+          errorMessage: amendError.message,
+          source: 'cloud_function',
+        });
+
+        // Return error with suggestion
+        res.status(400).json({
+          error: `Reschedule failed: ${amendError.message}. You may need to cancel and rebook manually.`,
+          needsManualRebook: true,
+        });
+      }
+    } catch (error) {
+      console.error('Error in rescheduleBooking:', error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
+
+/**
+ * Cancel a booking
+ */
+exports.cancelBooking = onRequest(
+  {
+    cors: true,
+    secrets: ['BOKUN_ACCESS_KEY', 'BOKUN_SECRET_KEY'],
+    invoker: 'public',
+  },
+  async (req, res) => {
+    if (req.method !== 'POST') {
+      res.status(405).json({ error: 'Method not allowed' });
+      return;
+    }
+
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      res.status(401).json({ error: 'Unauthorized - missing token' });
+      return;
+    }
+
+    try {
+      const token = authHeader.split('Bearer ')[1];
+      const decodedToken = await admin.auth().verifyIdToken(token);
+      const uid = decodedToken.uid;
+
+      const requestData = req.body.data || req.body;
+      const { bookingId, confirmationCode, reason } = requestData;
+
+      if (!bookingId) {
+        res.status(400).json({ error: 'bookingId is required' });
+        return;
+      }
+
+      if (!reason) {
+        res.status(400).json({ error: 'reason is required for cancellation' });
+        return;
+      }
+
+      const accessKey = process.env.BOKUN_ACCESS_KEY;
+      const secretKey = process.env.BOKUN_SECRET_KEY;
+
+      if (!accessKey || !secretKey) {
+        res.status(500).json({ error: 'Bokun API keys not configured' });
+        return;
+      }
+
+      // Get current booking for logging
+      let currentBooking = null;
+      try {
+        currentBooking = await makeBokunRequest(
+          'GET',
+          `/booking.json/${bookingId}`,
+          null,
+          accessKey,
+          secretKey
+        );
+      } catch (e) {
+        console.warn('Could not fetch booking details for logging:', e.message);
+      }
+
+      // Cancel the booking
+      const cancelRequest = {
+        bookingId: bookingId,
+        reason: reason,
+      };
+
+      const result = await makeBokunRequest(
+        'POST',
+        `/booking.json/${bookingId}/cancel`,
+        cancelRequest,
+        accessKey,
+        secretKey
+      );
+
+      // Log the action
+      await admin.firestore().collection('booking_actions').add({
+        bookingId,
+        confirmationCode: confirmationCode || '',
+        action: 'cancel',
+        performedBy: uid,
+        performedAt: admin.firestore.FieldValue.serverTimestamp(),
+        reason,
+        originalData: currentBooking ? {
+          date: currentBooking.startDate,
+          status: currentBooking.status,
+          totalParticipants: currentBooking.totalParticipants,
+        } : null,
+        success: true,
+        source: 'cloud_function',
+      });
+
+      res.status(200).json({ result, success: true });
+    } catch (error) {
+      console.error('Error in cancelBooking:', error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
+
+// Helper: Make authenticated request to Bokun API
+async function makeBokunRequest(method, path, body, accessKey, secretKey) {
+  const now = new Date();
+  const bokunDate = now.toISOString().replace('T', ' ').substring(0, 19);
+
+  // Create HMAC-SHA1 signature
+  const message = bokunDate + accessKey + method + path;
+  const signature = crypto
+    .createHmac('sha1', secretKey)
+    .update(message)
+    .digest('base64');
+
+  const options = {
+    hostname: 'api.bokun.io',
+    path: path,
+    method: method,
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Bokun-AccessKey': accessKey,
+      'X-Bokun-Date': bokunDate,
+      'X-Bokun-Signature': signature,
+    },
+  };
+
+  return new Promise((resolve, reject) => {
+    const apiReq = https.request(options, (apiRes) => {
+      let data = '';
+
+      apiRes.on('data', (chunk) => {
+        data += chunk;
+      });
+
+      apiRes.on('end', () => {
+        if (apiRes.statusCode >= 200 && apiRes.statusCode < 300) {
+          try {
+            const jsonData = JSON.parse(data);
+            resolve(jsonData);
+          } catch (e) {
+            resolve(data); // Return raw data if not JSON
+          }
+        } else {
+          reject(new Error(`Bokun API error: ${apiRes.statusCode} - ${data}`));
+        }
+      });
+    });
+
+    apiReq.on('error', (error) => {
+      reject(error);
+    });
+
+    if (body) {
+      apiReq.write(JSON.stringify(body));
+    }
+    apiReq.end();
+  });
 }
 
