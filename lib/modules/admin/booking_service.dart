@@ -377,6 +377,20 @@ class Booking {
       createdAt = DateTime.now();
     }
     
+    // Get totalParticipants from productBookings[0] (that's where Bokun stores it)
+    int totalParticipants = 0;
+    final pBookingsForParticipants = json['productBookings'] as List?;
+    if (pBookingsForParticipants != null && pBookingsForParticipants.isNotEmpty) {
+      final firstPB = pBookingsForParticipants[0] as Map<String, dynamic>?;
+      if (firstPB != null) {
+        totalParticipants = (firstPB['totalParticipants'] as int?) ?? 0;
+      }
+    }
+    // Fallback to top-level or participant list length
+    if (totalParticipants == 0) {
+      totalParticipants = (json['totalParticipants'] as int?) ?? participantsList.length;
+    }
+    
     return Booking(
       id: json['id']?.toString() ?? '',
       confirmationCode: json['confirmationCode'] ?? json['externalBookingReference'] ?? '',
@@ -385,7 +399,7 @@ class Booking {
       endDate: null,
       productTitle: json['productTitle'] ?? json['product']?['title'] ?? 'Northern Lights Tour',
       productId: json['productId']?.toString() ?? json['product']?['id']?.toString(),
-      totalParticipants: json['totalParticipants'] ?? participantsList.length,
+      totalParticipants: totalParticipants,
       totalPrice: (json['totalPrice'] ?? json['totalAmount'] ?? 0).toDouble(),
       currency: json['currency'] ?? 'ISK',
       customer: customer,

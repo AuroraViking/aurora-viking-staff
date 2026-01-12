@@ -164,21 +164,21 @@ class _BookingManagementScreenState extends State<BookingManagementScreen> {
           markerBuilder: (context, date, events) {
             if (events.isEmpty) return null;
             
-            final bookingCount = events.length;
             final passengerCount = events.fold<int>(
               0, (sum, b) => sum + b.totalParticipants,
             );
             
+            // Show passenger count (more important than booking count)
             return Positioned(
               bottom: 1,
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
                 decoration: BoxDecoration(
-                  color: AppColors.primary,
+                  color: passengerCount > 0 ? AppColors.primary : Colors.grey,
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
-                  '$bookingCount',
+                  '$passengerCount',
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 10,
