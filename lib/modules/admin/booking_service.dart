@@ -234,11 +234,14 @@ class BookingService {
     }
   }
 
-  /// Group bookings by date for calendar display
+  /// Group bookings by date for calendar display (excludes cancelled)
   Map<DateTime, List<Booking>> groupBookingsByDate(List<Booking> bookings) {
     final grouped = <DateTime, List<Booking>>{};
     
     for (final booking in bookings) {
+      // Skip cancelled bookings
+      if (booking.isCancelled) continue;
+      
       final dateKey = DateTime(
         booking.startDate.year,
         booking.startDate.month,
@@ -391,10 +394,19 @@ class Booking {
       totalParticipants = (json['totalParticipants'] as int?) ?? participantsList.length;
     }
     
+    // Get status from productBookings[0] (that's where Bokun stores it)
+    String status = 'CONFIRMED';
+    if (pBookingsForParticipants != null && pBookingsForParticipants.isNotEmpty) {
+      final firstPB = pBookingsForParticipants[0] as Map<String, dynamic>?;
+      if (firstPB != null) {
+        status = (firstPB['status'] as String?) ?? 'CONFIRMED';
+      }
+    }
+    
     return Booking(
       id: json['id']?.toString() ?? '',
       confirmationCode: json['confirmationCode'] ?? json['externalBookingReference'] ?? '',
-      status: json['status'] ?? 'CONFIRMED',
+      status: status,
       startDate: startDate,
       endDate: null,
       productTitle: json['productTitle'] ?? json['product']?['title'] ?? 'Northern Lights Tour',

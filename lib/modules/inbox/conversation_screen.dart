@@ -66,7 +66,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
         // Scroll to bottom when messages change
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (messages.isNotEmpty) {
+          if (mounted && messages.isNotEmpty) {
             _scrollToBottom(animate: false);
           }
         });
@@ -452,27 +452,39 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
               // Message content - render HTML if available
               if (message.contentHtml != null && message.contentHtml!.isNotEmpty)
-                Html(
-                  data: message.contentHtml!,
-                  style: {
-                    '*': Style(
-                      color: AVColors.textHigh,
-                      fontSize: FontSize(14),
-                      margin: Margins.zero,
-                      padding: HtmlPaddings.zero,
-                    ),
-                    'a': Style(
-                      color: AVColors.primaryTeal,
-                      textDecoration: TextDecoration.underline,
-                    ),
-                    'img': Style(
-                      display: Display.block,
-                      margin: Margins.only(top: 8, bottom: 8),
-                    ),
-                  },
-                  onLinkTap: (url, _, __) {
-                    // TODO: Handle link taps (open in browser)
-                    debugPrint('Link tapped: $url');
+                Builder(
+                  builder: (context) {
+                    try {
+                      return Html(
+                        data: message.contentHtml!,
+                        style: {
+                          '*': Style(
+                            color: AVColors.textHigh,
+                            fontSize: FontSize(14),
+                            margin: Margins.zero,
+                            padding: HtmlPaddings.zero,
+                          ),
+                          'a': Style(
+                            color: AVColors.primaryTeal,
+                            textDecoration: TextDecoration.underline,
+                          ),
+                          'img': Style(
+                            display: Display.block,
+                            margin: Margins.only(top: 8, bottom: 8),
+                          ),
+                        },
+                        onLinkTap: (url, _, __) {
+                          debugPrint('Link tapped: $url');
+                        },
+                      );
+                    } catch (e) {
+                      // Fallback to plain text if HTML parsing fails
+                      debugPrint('HTML parsing error: $e');
+                      return Text(
+                        message.content,
+                        style: const TextStyle(color: AVColors.textHigh),
+                      );
+                    }
                   },
                 )
               else

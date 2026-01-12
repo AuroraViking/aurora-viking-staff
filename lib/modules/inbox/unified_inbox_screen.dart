@@ -21,7 +21,9 @@ class _UnifiedInboxScreenState extends State<UnifiedInboxScreen> {
     super.initState();
     // Initialize the controller when the screen is first created
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<InboxController>().initialize();
+      if (mounted) {
+        context.read<InboxController>().initialize();
+      }
     });
   }
 
