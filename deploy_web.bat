@@ -27,7 +27,7 @@ if "%MAPS_KEY%"=="" (
 echo [2/4] Replacing placeholder in web/index.html...
 powershell -Command "(Get-Content web\index.html) -replace 'MAPS_API_KEY_PLACEHOLDER', '%MAPS_KEY%' | Set-Content web\index.html"
 
-echo [3/4] Building Flutter web app with API key...
+echo [3/5] Building Flutter web app with API key...
 call flutter build web --release --dart-define=GOOGLE_MAPS_API_KEY=%MAPS_KEY%
 if errorlevel 1 (
     echo ERROR: Build failed!
@@ -35,7 +35,15 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo [4/4] Deploying to Firebase Hosting...
+echo [4/5] Copying chat widget files to build output...
+if exist web\chat-widget (
+    xcopy /E /I /Y web\chat-widget build\web\chat-widget
+    echo Chat widget files copied successfully!
+) else (
+    echo WARNING: web\chat-widget folder not found!
+)
+
+echo [5/5] Deploying to Firebase Hosting...
 call firebase deploy --only hosting
 if errorlevel 1 (
     echo ERROR: Deployment failed!
@@ -44,7 +52,7 @@ if errorlevel 1 (
 )
 
 echo.
-echo [5/5] Restoring placeholder in web/index.html...
+echo [6/6] Restoring placeholder in web/index.html...
 powershell -Command "(Get-Content web\index.html) -replace '%MAPS_KEY%', 'MAPS_API_KEY_PLACEHOLDER' | Set-Content web\index.html"
 
 echo.

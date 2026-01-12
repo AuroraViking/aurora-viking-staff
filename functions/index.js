@@ -3027,3 +3027,342 @@ exports.migrateGmailToMultiAccount = onRequest(
   }
 );
 
+// ============================================
+// WEBSITE CHAT WIDGET FUNCTIONS
+// ============================================
+
+/**
+ * Create a new anonymous website chat session
+ * Called when visitor opens chat widget for the first time
+ */
+exports.createWebsiteSession = onRequest(
+  {
+    region: 'us-central1',
+    cors: true,
+    invoker: 'public',
+  },
+  async (req, res) => {
+    console.log('🌐 Creating website chat session...');
+    
+    try {
+      const { pageUrl, referrer, userAgent } = req.body;
+      
+      // Generate unique session ID
+      const sessionId = 'ws_' + crypto.randomBytes(12).toString('hex');
+      
+      // Create anonymous customer
+      const customerId = 'cust_website_' + crypto.randomBytes(8).toString('hex');
+      const customerRef = await db.collection('customers').add({
+        id: customerId,
+        name: 'Website Visitor',
+        email: null,
+        phone: null,
+        source: 'website_chat',
+        sessionId: sessionId,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        firstPageUrl: pageUrl || null,
+        referrer: referrer || null,
+        userAgent: userAgent || null,
+      });
+      
+      // Create conversation
+      const conversationRef = await db.collection('conversations').add({
+        customerId: customerRef.id,
+        customerName: 'Website Visitor',
+        channel: 'website',
+        subject: 'Website Chat',
+        status: 'open',
+        hasUnread: false,
+        lastMessageAt: admin.firestore.FieldValue.serverTimestamp(),
+        lastMessagePreview: '',
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        channelMetadata: {
+          website: {
+            sessionId: sessionId,
+            firstPageUrl: pageUrl || null,
+            referrer: referrer || null,
+          }
+        },
+        inboxEmail: 'website',
+      });
+      
+      // Create website session document
+      await db.collection('website_sessions').doc(sessionId).set({
+        sessionId: sessionId,
+        conversationId: conversationRef.id,
+        customerId: customerRef.id,
+        visitorName: null,
+        visitorEmail: null,
+        bookingRef: null,
+        firstPageUrl: pageUrl || null,
+        currentPageUrl: pageUrl || null,
+        referrer: referrer || null,
+        userAgent: userAgent || null,
+        isOnline: true,
+        lastSeen: admin.firestore.FieldValue.serverTimestamp(),
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      
+      console.log(`✅ Website session created: ${sessionId}, conversation: ${conversationRef.id}`);
+      
+      res.json({
+        sessionId,
+        conversationId: conversationRef.id,
+        customerId: customerRef.id,
+      });
+      
+    } catch (error) {
+      console.error('❌ Error creating website session:', error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
+
+/**
+ * Update website session (page tracking, visitor identification)
+ */
+exports.updateWebsiteSession = onRequest(
+  {
+    region: 'us-central1',
+    cors: true,
+    invoker: 'public',
+  },
+  async (req, res) => {
+    try {
+      const { sessionId, currentPageUrl, visitorName, visitorEmail, bookingRef } = req.body;
+      
+      if (!sessionId) {
+        return res.status(400).json({ error: 'sessionId required' });
+      }
+      
+      const sessionRef = db.collection('website_sessions').doc(sessionId);
+      const session = await sessionRef.get();
+      
+      if (!session.exists) {
+        return res.status(404).json({ error: 'Session not found' });
+      }
+      
+      const updates = {
+        lastSeen: admin.firestore.FieldValue.serverTimestamp(),
+        isOnline: true,
+      };
+      
+      if (currentPageUrl) updates.currentPageUrl = currentPageUrl;
+      if (visitorName) updates.visitorName = visitorName;
+      if (visitorEmail) updates.visitorEmail = visitorEmail;
+      if (bookingRef) updates.bookingRef = bookingRef;
+      
+      await sessionRef.update(updates);
+      
+      // Also update customer record if we have new info
+      const sessionData = session.data();
+      if ((visitorName || visitorEmail) && sessionData.customerId) {
+        const customerUpdates = {};
+        if (visitorName) customerUpdates.name = visitorName;
+        if (visitorEmail) customerUpdates.email = visitorEmail;
+        
+        await db.collection('customers').doc(sessionData.customerId).update(customerUpdates);
+        
+        // Update conversation with customer name
+        if (visitorName) {
+          await db.collection('conversations').doc(sessionData.conversationId).update({
+            customerName: visitorName,
+          });
+        }
+      }
+      
+      res.json({ success: true });
+      
+    } catch (error) {
+      console.error('❌ Error updating session:', error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
+
+/**
+ * Send a message from the website chat widget
+ */
+exports.sendWebsiteMessage = onRequest(
+  {
+    region: 'us-central1',
+    cors: true,
+    invoker: 'public',
+  },
+  async (req, res) => {
+    console.log('💬 Receiving website chat message...');
+    
+    try {
+      const { sessionId, conversationId, content, visitorName, visitorEmail } = req.body;
+      
+      if (!content || !content.trim()) {
+        return res.status(400).json({ error: 'Message content required' });
+      }
+      
+      if (!sessionId || !conversationId) {
+        return res.status(400).json({ error: 'sessionId and conversationId required' });
+      }
+      
+      // Get session
+      const sessionRef = db.collection('website_sessions').doc(sessionId);
+      const session = await sessionRef.get();
+      
+      if (!session.exists) {
+        return res.status(404).json({ error: 'Session not found' });
+      }
+      
+      const sessionData = session.data();
+      
+      // Update visitor info if provided
+      if (visitorName || visitorEmail) {
+        const sessionUpdates = {};
+        if (visitorName) sessionUpdates.visitorName = visitorName;
+        if (visitorEmail) sessionUpdates.visitorEmail = visitorEmail;
+        await sessionRef.update(sessionUpdates);
+        
+        // Update customer
+        const customerUpdates = {};
+        if (visitorName) customerUpdates.name = visitorName;
+        if (visitorEmail) customerUpdates.email = visitorEmail;
+        await db.collection('customers').doc(sessionData.customerId).update(customerUpdates);
+      }
+      
+      // Create message
+      const messageRef = await db.collection('messages').add({
+        conversationId: conversationId,
+        customerId: sessionData.customerId,
+        channel: 'website',
+        direction: 'inbound',
+        content: content.trim(),
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        status: 'delivered',
+        channelMetadata: {
+          website: {
+            sessionId: sessionId,
+            pageUrl: sessionData.currentPageUrl,
+          }
+        },
+      });
+      
+      // Update conversation
+      await db.collection('conversations').doc(conversationId).update({
+        lastMessageAt: admin.firestore.FieldValue.serverTimestamp(),
+        lastMessagePreview: content.substring(0, 100),
+        hasUnread: true,
+        status: 'open',
+        customerName: visitorName || sessionData.visitorName || 'Website Visitor',
+      });
+      
+      // Update session last seen
+      await sessionRef.update({
+        lastSeen: admin.firestore.FieldValue.serverTimestamp(),
+        isOnline: true,
+      });
+      
+      console.log(`✅ Website message saved: ${messageRef.id}`);
+      
+      res.json({
+        success: true,
+        messageId: messageRef.id,
+      });
+      
+    } catch (error) {
+      console.error('❌ Error sending website message:', error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
+
+/**
+ * Mark session as offline (heartbeat timeout)
+ * Can be triggered by scheduler or when visitor closes tab
+ */
+exports.updateWebsitePresence = onRequest(
+  {
+    region: 'us-central1',
+    cors: true,
+    invoker: 'public',
+  },
+  async (req, res) => {
+    try {
+      const { sessionId, isOnline } = req.body;
+      
+      if (!sessionId) {
+        return res.status(400).json({ error: 'sessionId required' });
+      }
+      
+      await db.collection('website_sessions').doc(sessionId).update({
+        isOnline: isOnline !== false,
+        lastSeen: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      
+      res.json({ success: true });
+      
+    } catch (error) {
+      console.error('❌ Error updating presence:', error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
+
+/**
+ * Send a reply from staff to website chat visitor
+ * Called from the Flutter app when staff replies to a website conversation
+ */
+exports.sendWebsiteChatReply = onDocumentCreated(
+  {
+    document: 'messages/{messageId}',
+    region: 'us-central1',
+  },
+  async (event) => {
+    const snapshot = event.data;
+    if (!snapshot) return;
+    
+    const messageData = snapshot.data();
+    const messageId = event.params.messageId;
+    
+    // Only process outbound website messages
+    if (messageData.direction !== 'outbound' || messageData.channel !== 'website') {
+      return;
+    }
+    
+    console.log(`📤 Processing website reply: ${messageId}`);
+    
+    try {
+      // Get conversation to find session
+      const convDoc = await db.collection('conversations').doc(messageData.conversationId).get();
+      if (!convDoc.exists) {
+        console.log(`⚠️ Conversation ${messageData.conversationId} not found`);
+        return;
+      }
+      
+      const conv = convDoc.data();
+      const sessionId = conv.channelMetadata?.website?.sessionId;
+      
+      if (!sessionId) {
+        console.log('⚠️ No sessionId found for website conversation');
+        return;
+      }
+      
+      // Update message status to sent (visitor will poll for new messages)
+      await snapshot.ref.update({
+        status: 'sent',
+        sentAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      
+      // Update conversation
+      await db.collection('conversations').doc(messageData.conversationId).update({
+        lastMessageAt: admin.firestore.FieldValue.serverTimestamp(),
+        lastMessagePreview: messageData.content.substring(0, 100),
+        hasUnread: false,
+        respondedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      
+      console.log(`✅ Website reply sent: ${messageId}`);
+      
+    } catch (error) {
+      console.error(`❌ Error processing website reply:`, error);
+    }
+  }
+);
+

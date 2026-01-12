@@ -3,7 +3,7 @@
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-enum MessageChannel { gmail, wix, whatsapp }
+enum MessageChannel { gmail, wix, whatsapp, website }
 enum MessageDirection { inbound, outbound }
 enum MessageStatus { pending, draftReady, responded, autoHandled, archived }
 enum MessagePriority { low, normal, high, urgent }
@@ -197,11 +197,13 @@ class ChannelMetadata {
   final GmailMetadata? gmail;
   final WixMetadata? wix;
   final WhatsAppMetadata? whatsapp;
+  final WebsiteMetadata? website;
 
   ChannelMetadata({
     this.gmail,
     this.wix,
     this.whatsapp,
+    this.website,
   });
 
   factory ChannelMetadata.fromJson(Map<String, dynamic> json) {
@@ -209,6 +211,7 @@ class ChannelMetadata {
       gmail: json['gmail'] != null ? GmailMetadata.fromJson(json['gmail']) : null,
       wix: json['wix'] != null ? WixMetadata.fromJson(json['wix']) : null,
       whatsapp: json['whatsapp'] != null ? WhatsAppMetadata.fromJson(json['whatsapp']) : null,
+      website: json['website'] != null ? WebsiteMetadata.fromJson(json['website']) : null,
     );
   }
 
@@ -217,6 +220,7 @@ class ChannelMetadata {
       'gmail': gmail?.toJson(),
       'wix': wix?.toJson(),
       'whatsapp': whatsapp?.toJson(),
+      'website': website?.toJson(),
     };
   }
 }
@@ -301,6 +305,38 @@ class WhatsAppMetadata {
     return {
       'phoneNumber': phoneNumber,
       'messageId': messageId,
+    };
+  }
+}
+
+class WebsiteMetadata {
+  final String sessionId;
+  final String? pageUrl;
+  final String? visitorName;
+  final String? visitorEmail;
+
+  WebsiteMetadata({
+    required this.sessionId,
+    this.pageUrl,
+    this.visitorName,
+    this.visitorEmail,
+  });
+
+  factory WebsiteMetadata.fromJson(Map<String, dynamic> json) {
+    return WebsiteMetadata(
+      sessionId: json['sessionId'] ?? '',
+      pageUrl: json['pageUrl'],
+      visitorName: json['visitorName'],
+      visitorEmail: json['visitorEmail'],
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'sessionId': sessionId,
+      'pageUrl': pageUrl,
+      'visitorName': visitorName,
+      'visitorEmail': visitorEmail,
     };
   }
 }

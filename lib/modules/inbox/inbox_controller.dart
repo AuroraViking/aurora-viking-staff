@@ -44,6 +44,12 @@ class InboxController extends ChangeNotifier {
       // Info inbox - include legacy data (null inboxEmail) and explicit info@
       filtered = filtered.where((c) => 
           c.inboxEmail == 'info@auroraviking.is' || c.inboxEmail == null).toList();
+    } else if (_selectedInboxFilter == 'website') {
+      // Website tab - filter by channel
+      filtered = filtered.where((c) => c.channel == 'website').toList();
+    } else if (_selectedInboxFilter == 'whatsapp') {
+      // WhatsApp tab - filter by channel
+      filtered = filtered.where((c) => c.channel == 'whatsapp').toList();
     } else {
       // Other inboxes (photo@, etc.) - exact match only
       filtered = filtered.where((c) => c.inboxEmail == _selectedInboxFilter).toList();

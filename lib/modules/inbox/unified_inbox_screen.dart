@@ -125,10 +125,9 @@ class _UnifiedInboxScreenState extends State<UnifiedInboxScreen> {
               count: controller.websiteCount,
               inbox: 'website',
               isSelected: controller.selectedInboxFilter == 'website',
-              onTap: () => _showComingSoon(context, 'Website Chat'),
+              onTap: () => controller.setInboxFilter('website'),
               icon: Icons.language,
               color: Colors.orange,
-              isPlaceholder: true,
             ),
             const SizedBox(width: 8),
             _buildInboxTab(
@@ -835,6 +834,8 @@ class _ConversationTile extends StatelessWidget {
         return Colors.blue[400]!;
       case 'whatsapp':
         return Colors.green[400]!;
+      case 'website':
+        return Colors.orange[400]!;
       default:
         return AVColors.textLow;
     }
@@ -856,6 +857,10 @@ class _ConversationTile extends StatelessWidget {
       case 'whatsapp':
         icon = Icons.phone;
         color = Colors.green[400]!;
+        break;
+      case 'website':
+        icon = Icons.language;
+        color = Colors.orange[400]!;
         break;
       default:
         icon = Icons.message;

@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Aurora Viking Chat Widget - Embed Code</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 40px 20px;
+      background: #f5f5f5;
+      color: #333;
+    }
+    h1 {
+      color: #0B0F14;
+      margin-bottom: 10px;
+    }
+    h2 {
+      color: #00E5FF;
+      margin-top: 40px;
+      font-size: 1.2rem;
+    }
+    .subtitle {
+      color: #666;
+      margin-bottom: 30px;
+    }
+    .code-block {
+      background: #1a1a2e;
+      color: #00E5FF;
+      padding: 20px;
+      border-radius: 10px;
+      font-family: 'Monaco', 'Consolas', monospace;
+      font-size: 13px;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+      position: relative;
+    }
+    .code-block .comment {
+      color: #6a9955;
+    }
+    .code-block .string {
+      color: #ce9178;
+    }
+    .code-block .key {
+      color: #9cdcfe;
+    }
+    .copy-button {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: #00E5FF;
+      color: #0B0F14;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 12px;
+    }
+    .copy-button:hover {
+      background: #00FF95;
+    }
+    .step {
+      background: white;
+      padding: 20px;
+      border-radius: 10px;
+      margin: 20px 0;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    .step-number {
+      display: inline-block;
+      background: #00E5FF;
+      color: #0B0F14;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      text-align: center;
+      line-height: 28px;
+      font-weight: bold;
+      margin-right: 10px;
+    }
+    ul {
+      line-height: 1.8;
+    }
+    .note {
+      background: #fff3cd;
+      border-left: 4px solid #ffc107;
+      padding: 15px;
+      margin: 20px 0;
+      border-radius: 0 8px 8px 0;
+    }
+    .success {
+      background: #d4edda;
+      border-left: 4px solid #00FF95;
+      padding: 15px;
+      margin: 20px 0;
+      border-radius: 0 8px 8px 0;
+    }
+  </style>
+</head>
+<body>
+  <h1>🌌 Aurora Viking Chat Widget</h1>
+  <p class="subtitle">Embed code for your website (Wix, Squarespace, or any HTML site)</p>
+
+  <h2>📋 Quick Embed Code</h2>
+  <p>Copy and paste this code just before the closing <code>&lt;/body&gt;</code> tag of your website:</p>
+  
+  <div class="code-block" id="embed-code">
+<span class="comment">&lt;!-- Aurora Viking Chat Widget --&gt;</span>
+&lt;script&gt;
+  window.AURORA_CHAT_CONFIG = {
+    <span class="key">projectId</span>: <span class="string">'aurora-viking-staff'</span>,
+    <span class="key">position</span>: <span class="string">'bottom-right'</span>,
+    <span class="key">primaryColor</span>: <span class="string">'#00E5FF'</span>,
+    <span class="key">greeting</span>: <span class="string">'Hi! 👋 Ask us anything about Northern Lights tours!'</span>,
+    <span class="key">offlineMessage</span>: <span class="string">'Leave a message and we\'ll get back to you!'</span>,
+    <span class="key">quickReplies</span>: [
+      <span class="string">'Tour availability?'</span>,
+      <span class="string">'What to wear?'</span>,
+      <span class="string">'Photo request'</span>,
+      <span class="string">'Rebooking'</span>
+    ]
+  };
+&lt;/script&gt;
+&lt;script src=<span class="string">"https://aurora-viking-staff.web.app/chat-widget/aurora-chat.min.js"</span> async&gt;&lt;/script&gt;
+    <button class="copy-button" onclick="copyCode()">Copy Code</button>
+  </div>
+
+  <h2>📝 For Wix Sites</h2>
+  <div class="step">
+    <p><span class="step-number">1</span><strong>Go to Settings > Custom Code</strong></p>
+    <ul>
+      <li>In your Wix dashboard, click Settings in the left menu</li>
+      <li>Click "Custom Code" under Advanced</li>
+    </ul>
+  </div>
+  
+  <div class="step">
+    <p><span class="step-number">2</span><strong>Add New Code</strong></p>
+    <ul>
+      <li>Click "+ Add Code"</li>
+      <li>Paste the embed code above</li>
+      <li>Name it "Aurora Chat Widget"</li>
+    </ul>
+  </div>
+  
+  <div class="step">
+    <p><span class="step-number">3</span><strong>Configure Placement</strong></p>
+    <ul>
+      <li>Set "Add Code to Pages" to "All Pages"</li>
+      <li>Set "Place Code in" to "Body - end"</li>
+      <li>Click "Apply"</li>
+    </ul>
+  </div>
+
+  <h2>⚙️ Configuration Options</h2>
+  <div class="step">
+    <table style="width: 100%; border-collapse: collapse;">
+      <tr style="background: #f0f0f0;">
+        <th style="padding: 10px; text-align: left;">Option</th>
+        <th style="padding: 10px; text-align: left;">Default</th>
+        <th style="padding: 10px; text-align: left;">Description</th>
+      </tr>
+      <tr>
+        <td style="padding: 10px;"><code>position</code></td>
+        <td style="padding: 10px;">'bottom-right'</td>
+        <td style="padding: 10px;">Widget position (bottom-right, bottom-left)</td>
+      </tr>
+      <tr style="background: #fafafa;">
+        <td style="padding: 10px;"><code>primaryColor</code></td>
+        <td style="padding: 10px;">'#00E5FF'</td>
+        <td style="padding: 10px;">Main accent color for buttons</td>
+      </tr>
+      <tr>
+        <td style="padding: 10px;"><code>greeting</code></td>
+        <td style="padding: 10px;">'Hi! 👋 Ask us...'</td>
+        <td style="padding: 10px;">Welcome message shown to visitors</td>
+      </tr>
+      <tr style="background: #fafafa;">
+        <td style="padding: 10px;"><code>offlineMessage</code></td>
+        <td style="padding: 10px;">'Leave a message...'</td>
+        <td style="padding: 10px;">Shown when staff are offline</td>
+      </tr>
+      <tr>
+        <td style="padding: 10px;"><code>quickReplies</code></td>
+        <td style="padding: 10px;">[...]</td>
+        <td style="padding: 10px;">Array of quick reply buttons</td>
+      </tr>
+    </table>
+  </div>
+
+  <h2>🔧 JavaScript API</h2>
+  <p>Control the widget programmatically:</p>
+  <div class="code-block">
+<span class="comment">// Open the chat</span>
+AuroraChat.open();
+
+<span class="comment">// Close the chat</span>
+AuroraChat.close();
+
+<span class="comment">// Toggle open/close</span>
+AuroraChat.toggle();
+
+<span class="comment">// Identify a visitor (e.g., after booking)</span>
+AuroraChat.identify(<span class="string">'John Doe'</span>, <span class="string">'john@example.com'</span>);
+
+<span class="comment">// Remove the widget</span>
+AuroraChat.destroy();
+  </div>
+
+  <div class="success">
+    <strong>✅ That's it!</strong> The chat widget will now appear on your website. All messages go directly to the Aurora Viking Staff app's Unified Inbox.
+  </div>
+
+  <div class="note">
+    <strong>⚠️ Note:</strong> The chat widget requires an active internet connection. Messages are stored in Firebase and synced in real-time with the staff app.
+  </div>
+
+  <h2>🎮 Live Demo</h2>
+  <div class="step">
+    <p><strong>Try it out!</strong> The chat widget is embedded on this page. Look for the floating button in the bottom-right corner 👉</p>
+    <p style="margin-top: 10px; color: #666; font-size: 14px;">Click it to open the chat and send a test message. It will appear in your Aurora Viking Staff app's Unified Inbox!</p>
+  </div>
+
+  <!-- Live Demo: Aurora Chat Widget -->
+  <script>
+    window.AURORA_CHAT_CONFIG = {
+      projectId: 'aurora-viking-staff',
+      position: 'bottom-right',
+      primaryColor: '#00E5FF',
+      greeting: 'Hi! 👋 Ask us anything about Northern Lights tours!',
+      offlineMessage: 'Leave a message and we\'ll get back to you!',
+      quickReplies: [
+        'Tour availability?',
+        'What to wear?',
+        'Photo request',
+        'Rebooking'
+      ]
+    };
+  </script>
+  <script src="https://aurora-viking-staff.web.app/chat-widget/aurora-chat.min.js" async></script>
+
+  <script>
+    function copyCode() {
+      const codeText = `<!-- Aurora Viking Chat Widget -->
+<script>
+  window.AURORA_CHAT_CONFIG = {
+    projectId: 'aurora-viking-staff',
+    position: 'bottom-right',
+    primaryColor: '#00E5FF',
+    greeting: 'Hi! 👋 Ask us anything about Northern Lights tours!',
+    offlineMessage: 'Leave a message and we\\'ll get back to you!',
+    quickReplies: [
+      'Tour availability?',
+      'What to wear?',
+      'Photo request',
+      'Rebooking'
+    ]
+  };
+<\/script>
+<script src="https://aurora-viking-staff.web.app/chat-widget/aurora-chat.min.js" async><\/script>`;
+      
+      navigator.clipboard.writeText(codeText).then(() => {
+        const btn = document.querySelector('.copy-button');
+        btn.textContent = 'Copied! ✓';
+        setTimeout(() => btn.textContent = 'Copy Code', 2000);
+      });
+    }
+  </script>
+</body>
+</html>
+

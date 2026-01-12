@@ -619,6 +619,8 @@ class _ConversationScreenState extends State<ConversationScreen> {
         return Icons.chat_bubble;
       case MessageChannel.whatsapp:
         return Icons.phone;
+      case MessageChannel.website:
+        return Icons.language;
     }
   }
 
