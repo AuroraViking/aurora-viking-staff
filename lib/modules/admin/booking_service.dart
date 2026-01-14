@@ -693,7 +693,7 @@ class Booking {
     // Parse date from cached format
     DateTime startDate;
     try {
-      final dateStr = json['date'] ?? json['tourDate'];
+      final dateStr = json['startDate'] ?? json['date'] ?? json['tourDate'];
       if (dateStr is String) {
         startDate = DateTime.parse(dateStr);
       } else {
