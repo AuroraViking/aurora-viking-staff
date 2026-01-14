@@ -169,6 +169,11 @@ service cloud.firestore {
       allow read, write: if request.auth != null;
     }
     
+    // Booking management cache - authenticated users can read/write
+    match /booking_management_cache/{document} {
+      allow read, write: if request.auth != null;
+    }
+    
     // Tour Reports - readable by authenticated users, writable by Cloud Functions only
     match /tour_reports/{reportId} {
       allow read: if request.auth != null;
