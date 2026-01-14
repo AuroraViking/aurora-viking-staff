@@ -4343,45 +4343,39 @@ exports.onRescheduleRequest = onDocumentCreated(
           console.log(`✅ Booking confirmed!`);
 
           // Step 2c: Update pickup location via Bokun REST API (OCTO doesn't support pickup)
+          // Uses SAME method as updatePickupLocation function - search for booking to get productBookingId
           if (pickupLocation && pickupLocationId) {
             console.log(`📍 Setting pickup location via REST API: ${pickupLocation} (ID: ${pickupLocationId})`);
 
-            // Get the new booking's confirmation code from OCTO response
-            const newConfirmationCode = newBooking.supplierReference || newBooking.id;
+            // Wait for Bokun to process the new booking
+            await new Promise(resolve => setTimeout(resolve, 2000));
 
-            // Use the edit endpoint to set pickup
-            const editPath = '/booking.json/edit';
-            const editDate = new Date().toISOString().replace('T', ' ').substring(0, 19);
-            const editMessage = editDate + accessKey + 'POST' + editPath;
-            const editSignature = crypto
+            // Search for the new booking by confirmation code to get productBookingId
+            const newConfirmationCode = newBooking.supplierReference;
+            console.log(`🔍 Searching for new booking: ${newConfirmationCode}`);
+
+            const searchPath2 = '/booking.json/booking-search';
+            const searchDate2 = new Date().toISOString().replace('T', ' ').substring(0, 19);
+            const searchMessage2 = searchDate2 + accessKey + 'POST' + searchPath2;
+            const searchSignature2 = crypto
               .createHmac('sha1', secretKey)
-              .update(editMessage)
+              .update(searchMessage2)
               .digest('base64');
 
-            // ActivityPickupAction - body must be an ARRAY directly (NOT wrapped in { actions: [...] })
-            // This is the working format as documented in BOKUN_API_REFERENCE.md
-            const editActions = [{
-              type: 'ActivityPickupAction',
-              activityBookingId: parseInt(newBooking.id) || null,
-              pickup: true,
-              pickupPlaceId: parseInt(pickupLocationId),
-              description: pickupLocation,
-            }];
-
+            let actualProductBookingId = null;
             try {
-              const editResult = await new Promise((resolve, reject) => {
-                const editBody = JSON.stringify(editActions);
-
+              const searchResult2 = await new Promise((resolve, reject) => {
+                const searchBody = JSON.stringify({ confirmationCode: newConfirmationCode });
                 const options = {
                   hostname: 'api.bokun.io',
-                  path: editPath,
+                  path: searchPath2,
                   method: 'POST',
                   headers: {
                     'Content-Type': 'application/json;charset=UTF-8',
-                    'Content-Length': Buffer.byteLength(editBody),
+                    'Content-Length': Buffer.byteLength(searchBody),
                     'X-Bokun-AccessKey': accessKey,
-                    'X-Bokun-Date': editDate,
-                    'X-Bokun-Signature': editSignature,
+                    'X-Bokun-Date': searchDate2,
+                    'X-Bokun-Signature': searchSignature2,
                   },
                 };
 
@@ -4389,31 +4383,95 @@ exports.onRescheduleRequest = onDocumentCreated(
                   let data = '';
                   apiRes.on('data', (chunk) => { data += chunk; });
                   apiRes.on('end', () => {
-                    console.log(`📍 Edit pickup response: ${apiRes.statusCode}`);
-                    if (apiRes.statusCode >= 200 && apiRes.statusCode < 400) {
-                      resolve({ success: true, statusCode: apiRes.statusCode });
+                    if (apiRes.statusCode >= 200 && apiRes.statusCode < 300) {
+                      resolve(JSON.parse(data));
                     } else {
-                      console.log(`⚠️ Edit pickup failed: ${data}`);
-                      resolve({ success: false, error: data }); // Don't reject - booking is created
+                      reject(new Error(`Search failed: ${apiRes.statusCode}`));
                     }
                   });
                 });
-
-                apiReq.on('error', (error) => {
-                  console.log(`⚠️ Edit pickup error: ${error.message}`);
-                  resolve({ success: false, error: error.message });
-                });
-                apiReq.write(editBody);
+                apiReq.on('error', reject);
+                apiReq.write(searchBody);
                 apiReq.end();
               });
 
-              if (editResult.success) {
-                console.log(`✅ Pickup location set successfully!`);
-              } else {
-                console.log(`⚠️ Pickup location not set - booking still created`);
+              const newBokunBooking = searchResult2.items?.[0];
+              if (newBokunBooking) {
+                actualProductBookingId = newBokunBooking.productBookings?.[0]?.id;
+                console.log(`📋 Found productBookingId: ${actualProductBookingId}`);
               }
             } catch (e) {
-              console.log(`⚠️ Could not set pickup: ${e.message}`);
+              console.log(`⚠️ Could not search for new booking: ${e.message}`);
+            }
+
+            // Apply pickup using ActivityPickupAction (same as updatePickupLocation)
+            if (actualProductBookingId) {
+              const editPath = '/booking.json/edit';
+              const editDate = new Date().toISOString().replace('T', ' ').substring(0, 19);
+              const editMessage = editDate + accessKey + 'POST' + editPath;
+              const editSignature = crypto
+                .createHmac('sha1', secretKey)
+                .update(editMessage)
+                .digest('base64');
+
+              // ActivityPickupAction - body must be an ARRAY directly
+              const editActions = [{
+                type: 'ActivityPickupAction',
+                activityBookingId: parseInt(actualProductBookingId),
+                pickup: true,
+                pickupPlaceId: parseInt(pickupLocationId),
+                description: pickupLocation,
+              }];
+
+              console.log(`📤 Edit request: ${JSON.stringify(editActions)}`);
+
+              try {
+                const editResult = await new Promise((resolve, reject) => {
+                  const editBody = JSON.stringify(editActions);
+                  const options = {
+                    hostname: 'api.bokun.io',
+                    path: editPath,
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json;charset=UTF-8',
+                      'Content-Length': Buffer.byteLength(editBody),
+                      'X-Bokun-AccessKey': accessKey,
+                      'X-Bokun-Date': editDate,
+                      'X-Bokun-Signature': editSignature,
+                    },
+                  };
+
+                  const apiReq = https.request(options, (apiRes) => {
+                    let data = '';
+                    apiRes.on('data', (chunk) => { data += chunk; });
+                    apiRes.on('end', () => {
+                      console.log(`📍 Edit pickup response: ${apiRes.statusCode}`);
+                      if (apiRes.statusCode >= 200 && apiRes.statusCode < 400) {
+                        resolve({ success: true });
+                      } else {
+                        console.log(`⚠️ Edit pickup failed: ${data}`);
+                        resolve({ success: false, error: data });
+                      }
+                    });
+                  });
+
+                  apiReq.on('error', (error) => {
+                    resolve({ success: false, error: error.message });
+                  });
+                  apiReq.write(editBody);
+                  apiReq.end();
+                });
+
+                if (editResult.success) {
+                  console.log(`✅ Pickup location set successfully!`);
+                } else {
+                  console.log(`⚠️ Pickup location not set - booking still created`);
+                }
+              } catch (e) {
+                console.log(`⚠️ Could not set pickup: ${e.message}`);
+              }
+            } else {
+              console.log(`⚠️ Could not find productBookingId - pickup not set`);
             }
           }
         }
