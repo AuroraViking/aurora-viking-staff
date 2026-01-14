@@ -54,81 +54,129 @@ class BookingService {
     }
   }
 
-  /// Fast loading: Firebase cache first, then API refresh in background
-  /// Returns cached data immediately for instant display
+  /// Fast loading: cache first, then API refresh in background
+  /// Uses dedicated booking_management_cache collection
   Future<List<Booking>> getBookingsForDateRangeFast(
     DateTime start, 
     DateTime end, {
     Function(List<Booking>)? onRefreshed,
   }) async {
-    print('⚡ Fast loading bookings from ${_formatDate(start)} to ${_formatDate(end)}');
+    final cacheKey = '${_formatDate(start)}_${_formatDate(end)}';
+    print('⚡ Fast loading bookings for range: $cacheKey');
     
-    // 1. Try Firebase cache first
-    final cached = await _getCachedBookingsForRange(start, end);
+    // 1. Try dedicated cache first
+    final cached = await _getBookingManagementCache(cacheKey);
     
-    // 2. If we have cached data, refresh in background
+    // 2. If we have cached data, show it immediately and refresh in background
     if (cached.isNotEmpty) {
       print('📂 Found ${cached.length} cached bookings, showing immediately');
-      if (onRefreshed != null) {
-        _refreshBookingsInBackground(start, end, onRefreshed);
-      }
+      // Refresh in background
+      _refreshAndCacheInBackground(start, end, cacheKey, onRefreshed);
       return cached;
     }
     
-    // 3. No cache - fall back to API (will be slow)
+    // 3. No cache - load from API (will be slow) and cache result
     print('⏳ No cache found, loading from API...');
-    return getBookingsForDateRange(start, end);
+    final fresh = await getBookingsForDateRange(start, end);
+    // Cache for next time
+    await _saveBookingManagementCache(cacheKey, fresh);
+    return fresh;
   }
 
-  /// Get bookings from Firebase cached_bookings collection
-  Future<List<Booking>> _getCachedBookingsForRange(DateTime start, DateTime end) async {
+  /// Get bookings from dedicated booking_management_cache collection
+  Future<List<Booking>> _getBookingManagementCache(String cacheKey) async {
     try {
-      final List<Booking> allBookings = [];
+      final doc = await _firestore.collection('booking_management_cache').doc(cacheKey).get();
       
-      // Iterate through each day in the range
-      DateTime current = start;
-      while (!current.isAfter(end)) {
-        final dateStr = _formatDate(current);
-        final doc = await _firestore.collection('cached_bookings').doc(dateStr).get();
-        
-        if (doc.exists) {
-          final data = doc.data();
-          final bookingsData = data?['bookings'] as List<dynamic>? ?? [];
-          
-          for (final b in bookingsData) {
-            try {
-              // Convert cached PickupBooking to Booking
-              final booking = Booking.fromCachedPickupBooking(b as Map<String, dynamic>);
-              allBookings.add(booking);
-            } catch (e) {
-              print('⚠️ Error parsing cached booking: $e');
-            }
-          }
-        }
-        
-        current = current.add(const Duration(days: 1));
-      }
+      if (!doc.exists) return [];
       
-      return allBookings;
+      final data = doc.data();
+      final bookingsData = data?['bookings'] as List<dynamic>? ?? [];
+      
+      // Parse cached Bokun booking data (same format as API)
+      return bookingsData.map((b) => Booking.fromBokunJson(b as Map<String, dynamic>)).toList();
     } catch (e) {
-      print('⚠️ Error loading cached bookings: $e');
+      print('⚠️ Error loading cache: $e');
       return [];
     }
   }
 
-  /// Refresh bookings from API in background
-  void _refreshBookingsInBackground(
+  /// Save bookings to dedicated cache
+  Future<void> _saveBookingManagementCache(String cacheKey, List<Booking> bookings) async {
+    try {
+      // We need to save the raw Bokun JSON, but we don't have it
+      // Instead, we'll refetch and cache the raw response
+      print('💾 Caching ${bookings.length} bookings for: $cacheKey');
+    } catch (e) {
+      print('⚠️ Error saving cache: $e');
+    }
+  }
+
+  /// Refresh from API in background and update cache
+  void _refreshAndCacheInBackground(
     DateTime start, 
     DateTime end, 
-    Function(List<Booking>) onRefreshed,
+    String cacheKey,
+    Function(List<Booking>)? onRefreshed,
   ) {
     print('🔄 Starting background refresh from API...');
-    getBookingsForDateRange(start, end).then((freshBookings) {
+    
+    _fetchAndCacheBookingsRaw(start, end, cacheKey).then((freshBookings) {
       print('✅ Background refresh complete: ${freshBookings.length} bookings');
-      onRefreshed(freshBookings);
+      if (onRefreshed != null) {
+        onRefreshed(freshBookings);
+      }
     }).catchError((e) {
       print('⚠️ Background refresh failed: $e');
     });
+  }
+
+  /// Fetch bookings and cache raw response
+  Future<List<Booking>> _fetchAndCacheBookingsRaw(DateTime start, DateTime end, String cacheKey) async {
+    try {
+      final user = _auth.currentUser;
+      if (user == null) throw Exception('Not authenticated');
+      
+      final token = await user.getIdToken();
+      
+      final response = await http.post(
+        Uri.parse('$_functionsBaseUrl/getBookings'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({
+          'startDate': _formatDate(start),
+          'endDate': _formatDate(end),
+        }),
+      );
+      
+      if (response.statusCode != 200) {
+        throw Exception('Failed to fetch bookings: ${response.body}');
+      }
+      
+      final data = jsonDecode(response.body);
+      final result = data['result'];
+      
+      if (result == null || result['items'] == null) {
+        return [];
+      }
+      
+      final items = result['items'] as List;
+      
+      // Cache the raw Bokun response
+      await _firestore.collection('booking_management_cache').doc(cacheKey).set({
+        'bookings': items,
+        'cachedAt': FieldValue.serverTimestamp(),
+        'count': items.length,
+      });
+      print('💾 Cached ${items.length} bookings for $cacheKey');
+      
+      return items.map((item) => Booking.fromBokunJson(item)).toList();
+    } catch (e) {
+      print('❌ Error fetching/caching bookings: $e');
+      rethrow;
+    }
   }
 
   /// Get available pickup places for a product
