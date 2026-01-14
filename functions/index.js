@@ -4234,9 +4234,11 @@ exports.onRescheduleRequest = onDocumentCreated(
         console.log(`📋 Unit items: ${JSON.stringify(unitItems)}`);
 
         // Step 2a: Cancel the existing booking
-        console.log(`🚫 Cancelling existing booking ${bookingId}...`);
+        // Use the correct Bokun cancel endpoint format with confirmation code
+        const bookingConfirmCode = confirmationCode || foundBooking.confirmationCode;
+        console.log(`🚫 Cancelling existing booking ${bookingId} (${bookingConfirmCode})...`);
 
-        const cancelPath = `/booking.json/${bookingId}/cancel`;
+        const cancelPath = `/booking.json/cancel-booking/${bookingConfirmCode}`;
         const cancelDate = new Date().toISOString().replace('T', ' ').substring(0, 19);
         const cancelMessage = cancelDate + accessKey + 'POST' + cancelPath;
         const cancelSignature = crypto
@@ -4649,15 +4651,20 @@ exports.cancelBooking = onRequest(
         console.warn('Could not fetch booking details for logging:', e.message);
       }
 
-      // Cancel the booking
+      if (!confirmationCode) {
+        res.status(400).json({ error: 'confirmationCode is required for cancellation' });
+        return;
+      }
+
+      // Cancel the booking using correct endpoint
       const cancelRequest = {
-        bookingId: bookingId,
-        reason: reason,
+        note: reason,
+        notify: true,
       };
 
       const result = await makeBokunRequest(
         'POST',
-        `/booking.json/${bookingId}/cancel`,
+        `/booking.json/cancel-booking/${confirmationCode}`,
         cancelRequest,
         accessKey,
         secretKey
