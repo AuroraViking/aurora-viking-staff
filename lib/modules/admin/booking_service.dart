@@ -413,15 +413,35 @@ class Booking {
       phone: customerData['phoneNumber'] ?? customerData['phone'] ?? '',
     );
     
-    // Parse pickup
+    // Parse pickup - check multiple possible locations in Bokun response
     PickupInfo? pickup;
-    final pickupData = json['pickup'] ?? json['pickupPlace'];
+    
+    // First check top-level pickup/pickupPlace
+    var pickupData = json['pickup'] ?? json['pickupPlace'];
+    
+    // If not found, check in productBookings (where Bokun usually stores it)
+    if (pickupData == null) {
+      final pBookings = json['productBookings'] as List?;
+      if (pBookings != null && pBookings.isNotEmpty) {
+        final firstPB = pBookings[0] as Map<String, dynamic>?;
+        if (firstPB != null) {
+          // Check pickupPlace object
+          pickupData = firstPB['pickupPlace'];
+          // Also check fields.pickupPlace
+          if (pickupData == null && firstPB['fields'] != null) {
+            pickupData = firstPB['fields']['pickupPlace'];
+          }
+        }
+      }
+    }
+    
     if (pickupData != null) {
       pickup = PickupInfo(
         location: pickupData['title'] ?? pickupData['name'] ?? 'Unknown',
         time: pickupData['pickupTime'] ?? pickupData['time'] ?? '',
-        address: pickupData['address'] ?? '',
+        address: pickupData['address']?.toString() ?? '',
       );
+      print('📍 Parsed pickup: ${pickup.location}');
     }
     
     // Parse participants
