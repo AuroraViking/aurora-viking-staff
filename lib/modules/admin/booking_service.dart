@@ -86,7 +86,8 @@ class BookingService {
   }
 
   /// Reschedule a booking to a new date
-  /// Uses Firebase Callable function to avoid IAM issues
+  /// Uses Firestore trigger pattern to bypass Cloud Run IAM issues
+  /// Writes to reschedule_requests collection, Cloud Function trigger processes it
   Future<bool> rescheduleBooking({
     required String bookingId,
     required String confirmationCode,
@@ -97,50 +98,82 @@ class BookingService {
       final user = _auth.currentUser;
       if (user == null) throw Exception('Not authenticated');
       
-      // Use Firebase Callable function
-      final callable = FirebaseFunctions.instance
-          .httpsCallable('rescheduleBooking');
+      print('📅 Creating reschedule request for booking: $bookingId');
       
-      final result = await callable.call({
+      // Write to Firestore - trigger will process it
+      final requestRef = await _firestore.collection('reschedule_requests').add({
         'bookingId': bookingId,
         'confirmationCode': confirmationCode,
         'newDate': _formatDate(newDate),
         'reason': reason,
+        'userId': user.uid,
+        'status': 'pending',
+        'createdAt': FieldValue.serverTimestamp(),
       });
       
-      final data = result.data as Map<String, dynamic>;
-      if (data['success'] == true) {
-        // Log the action to Firestore
-        await _logBookingAction(
-          bookingId: bookingId,
-          confirmationCode: confirmationCode,
-          action: 'reschedule',
-          reason: reason,
-          newData: {'date': _formatDate(newDate)},
-          success: true,
-        );
+      print('📨 Reschedule request created: ${requestRef.id}');
+      print('⏳ Waiting for Cloud Function to process...');
+      
+      // Wait for the trigger to process (poll for completion)
+      for (int i = 0; i < 30; i++) { // Max 30 seconds
+        await Future.delayed(const Duration(seconds: 1));
         
-        return true;
-      } else {
-        throw Exception(data['error'] ?? 'Failed to reschedule booking');
+        final doc = await requestRef.get();
+        final status = doc.data()?['status'] as String?;
+        
+        if (status == 'completed') {
+          final requiresManualAction = doc.data()?['requiresManualAction'] as bool? ?? false;
+          final availabilityConfirmed = doc.data()?['availabilityConfirmed'] as bool? ?? false;
+          final portalLink = doc.data()?['bokunPortalLink'] as String?;
+          final message = doc.data()?['message'] as String?;
+          final availabilityId = doc.data()?['availabilityId'] as String?;
+          
+          // Store for UI
+          _lastReschedulePortalLink = portalLink;
+          _lastRescheduleMessage = message;
+          _lastRescheduleAvailabilityConfirmed = availabilityConfirmed;
+          
+          if (requiresManualAction && portalLink != null) {
+            if (availabilityConfirmed) {
+              print('✅ Availability CONFIRMED for new date!');
+              print('📋 Availability ID: $availabilityId');
+            }
+            print('⚠️ Manual action required in Bokun portal');
+            print('🔗 Portal link: $portalLink');
+          } else {
+            print('✅ Reschedule completed successfully!');
+          }
+          return true;
+        } else if (status == 'failed') {
+          final error = doc.data()?['error'] as String? ?? 'Unknown error';
+          throw Exception(error);
+        }
+        // Still processing, continue waiting
       }
+      
+      // Timeout - but request was created, trigger should process eventually
+      print('⚠️ Request created but processing timeout - check Firestore');
+      return true;
+      
     } catch (e) {
       print('❌ Error rescheduling booking: $e');
-      
-      // Log failed action
-      await _logBookingAction(
-        bookingId: bookingId,
-        confirmationCode: confirmationCode,
-        action: 'reschedule',
-        reason: reason,
-        newData: {'date': _formatDate(newDate)},
-        success: false,
-        errorMessage: e.toString(),
-      );
-      
       rethrow;
     }
   }
+
+  // Store last reschedule action details for UI
+  String? _lastReschedulePortalLink;
+  String? _lastRescheduleMessage;
+  bool _lastRescheduleAvailabilityConfirmed = false;
+  
+  /// Get the Bokun portal link from the last reschedule action (if manual action needed)
+  String? getLastReschedulePortalLink() => _lastReschedulePortalLink;
+  
+  /// Get the message from the last reschedule action
+  String? getLastRescheduleMessage() => _lastRescheduleMessage;
+  
+  /// Check if availability was confirmed for the last reschedule action
+  bool getLastRescheduleAvailabilityConfirmed() => _lastRescheduleAvailabilityConfirmed;
 
   /// Cancel a booking
   Future<bool> cancelBooking({

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../core/theme/colors.dart';
 import 'booking_service.dart';
 
@@ -621,17 +622,28 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
       );
       
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Booking rescheduled to ${DateFormat('MMM d, yyyy').format(newDate)}',
-            ),
-            backgroundColor: AppColors.success,
-          ),
-        );
+        // Check if manual action is required
+        final portalLink = _service.getLastReschedulePortalLink();
+        final availabilityConfirmed = _service.getLastRescheduleAvailabilityConfirmed();
         
-        widget.onUpdated?.call();
-        Navigator.pop(context);
+        if (portalLink != null) {
+          // Show dialog with portal link
+          setState(() => _isLoading = false);
+          _showManualActionDialog(newDate, portalLink, availabilityConfirmed);
+        } else {
+          // Fully completed
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Booking rescheduled to ${DateFormat('MMM d, yyyy').format(newDate)}',
+              ),
+              backgroundColor: AppColors.success,
+            ),
+          );
+          
+          widget.onUpdated?.call();
+          Navigator.pop(context);
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -644,6 +656,100 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
         );
       }
     }
+  }
+
+  void _showManualActionDialog(DateTime newDate, String portalLink, bool availabilityConfirmed) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A2E),
+        title: Row(
+          children: [
+            Icon(
+              availabilityConfirmed ? Icons.check_circle : Icons.info,
+              color: availabilityConfirmed ? AppColors.success : AppColors.warning,
+            ),
+            const SizedBox(width: 8),
+            const Expanded(
+              child: Text(
+                'Complete in Bokun',
+                style: TextStyle(color: Colors.white),
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (availabilityConfirmed) ...[
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.success.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.event_available, color: AppColors.success),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Availability CONFIRMED for ${DateFormat('MMM d').format(newDate)}',
+                        style: const TextStyle(color: AppColors.success, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
+            const Text(
+              'Due to Bokun API limitations, please complete this reschedule in the Bokun portal:',
+              style: TextStyle(color: Colors.white70),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Steps:',
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              '1. Open the Bokun portal link below\n'
+              '2. Click "Edit Booking"\n'
+              '3. Change the date to the new date\n'
+              '4. Confirm the changes',
+              style: TextStyle(color: Colors.white70, height: 1.5),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              widget.onUpdated?.call();
+              Navigator.pop(context);
+            },
+            child: const Text('Done'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () async {
+              // Open Bokun portal
+              final uri = Uri.parse(portalLink);
+              if (await canLaunchUrl(uri)) {
+                await launchUrl(uri, mode: LaunchMode.externalApplication);
+              }
+            },
+            icon: const Icon(Icons.open_in_new),
+            label: const Text('Open Bokun'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _executeCancel(String reason) async {

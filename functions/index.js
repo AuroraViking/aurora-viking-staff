@@ -518,7 +518,7 @@ exports.getBookings = onRequest(
   {
     cors: true,  // Enable CORS for all origins
     secrets: ['BOKUN_ACCESS_KEY', 'BOKUN_SECRET_KEY'],
-    
+
   },
   async (req, res) => {
     // Only allow POST
@@ -919,7 +919,7 @@ exports.generateTourReport = onSchedule(
 exports.generateTourReportManual = onCall(
   {
     region: 'us-central1',
-    
+
   },
   async (request) => {
     console.log('📝 Manual report generation requested');
@@ -1749,7 +1749,7 @@ async function findOrCreateConversation(customerId, channel, threadId, subject, 
 exports.processGmailMessage = onCall(
   {
     region: 'us-central1',
-    
+
   },
   async (request) => {
     console.log('📧 Processing Gmail message');
@@ -1831,7 +1831,7 @@ exports.processGmailMessage = onCall(
 exports.sendInboxMessage = onCall(
   {
     region: 'us-central1',
-    
+
   },
   async (request) => {
     console.log('📤 Sending inbox message');
@@ -1925,7 +1925,7 @@ exports.sendInboxMessage = onCall(
 exports.markConversationRead = onCall(
   {
     region: 'us-central1',
-    
+
   },
   async (request) => {
     if (!request.auth) {
@@ -1958,7 +1958,7 @@ exports.markConversationRead = onCall(
 exports.updateConversationStatus = onCall(
   {
     region: 'us-central1',
-    
+
   },
   async (request) => {
     if (!request.auth) {
@@ -1996,7 +1996,7 @@ exports.updateConversationStatus = onCall(
 exports.createTestInboxMessage = onCall(
   {
     region: 'us-central1',
-    
+
   },
   async (request) => {
     // Log auth status for debugging
@@ -2259,7 +2259,7 @@ exports.gmailOAuthStart = onRequest(
   {
     region: 'us-central1',
     secrets: ['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET'],
-    
+
   },
   async (req, res) => {
     const clientId = process.env.GMAIL_CLIENT_ID;
@@ -2307,7 +2307,7 @@ exports.gmailOAuthCallback = onRequest(
   {
     region: 'us-central1',
     secrets: ['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET'],
-    
+
   },
   async (req, res) => {
     const code = req.query.code;
@@ -2784,7 +2784,7 @@ exports.triggerGmailPoll = onRequest(
   {
     region: 'us-central1',
     secrets: ['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET'],
-    
+
   },
   async (req, res) => {
     console.log('📬 Manual Gmail poll triggered...');
@@ -2873,7 +2873,7 @@ exports.triggerGmailPoll = onRequest(
 exports.gmailStatus = onRequest(
   {
     region: 'us-central1',
-    
+
   },
   async (req, res) => {
     try {
@@ -3135,7 +3135,7 @@ exports.createWebsiteSession = onRequest(
   {
     region: 'us-central1',
     cors: true,
-    
+
   },
   async (req, res) => {
     console.log('🌐 Creating website chat session...');
@@ -3769,7 +3769,7 @@ exports.getBookingDetails = onRequest(
   {
     cors: true,
     secrets: ['BOKUN_ACCESS_KEY', 'BOKUN_SECRET_KEY'],
-    
+
   },
   async (req, res) => {
     if (req.method !== 'POST') {
@@ -3919,13 +3919,683 @@ exports.rescheduleBooking = onCall(
 );
 
 /**
+ * Firestore Trigger: Process reschedule requests
+ * Flutter writes to reschedule_requests collection, this trigger processes it
+ * This bypasses Cloud Run IAM issues since Firestore triggers don't need external invocation
+ */
+exports.onRescheduleRequest = onDocumentCreated(
+  {
+    document: 'reschedule_requests/{requestId}',
+    region: 'us-central1',
+    secrets: ['BOKUN_ACCESS_KEY', 'BOKUN_SECRET_KEY', 'BOKUN_OCTO_TOKEN'],
+  },
+  async (event) => {
+    const snapshot = event.data;
+    if (!snapshot) {
+      console.log('No data in reschedule request');
+      return;
+    }
+
+    const requestData = snapshot.data();
+    const requestId = event.params.requestId;
+
+    // Skip if already processed
+    if (requestData.status === 'completed' || requestData.status === 'failed') {
+      console.log(`Request ${requestId} already processed`);
+      return;
+    }
+
+    const { bookingId, confirmationCode, newDate, reason, userId } = requestData;
+
+    console.log(`📅 Processing reschedule request: ${requestId} for booking ${bookingId}`);
+
+    // Mark as processing
+    await snapshot.ref.update({ status: 'processing' });
+
+    try {
+      const accessKey = process.env.BOKUN_ACCESS_KEY;
+      const secretKey = process.env.BOKUN_SECRET_KEY;
+      const octoToken = process.env.BOKUN_OCTO_TOKEN;
+
+      if (!accessKey || !secretKey) {
+        throw new Error('Bokun API keys not configured');
+      }
+      if (!octoToken) {
+        throw new Error('OCTO token not configured - required for programmatic reschedule');
+      }
+
+      // Use booking-search to find the booking and get product details
+      console.log(`🔍 Searching for booking ${bookingId}...`);
+
+      const now = new Date();
+      const bokunDate = now.toISOString().replace('T', ' ').substring(0, 19);
+      const searchPath = '/booking.json/booking-search';
+
+      const message = bokunDate + accessKey + 'POST' + searchPath;
+      const signature = crypto
+        .createHmac('sha1', secretKey)
+        .update(message)
+        .digest('base64');
+
+      const searchRequest = {
+        id: parseInt(bookingId),
+        limit: 10,
+      };
+
+      const searchResult = await new Promise((resolve, reject) => {
+        const postData = JSON.stringify(searchRequest);
+
+        const options = {
+          hostname: 'api.bokun.io',
+          path: searchPath,
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json;charset=UTF-8',
+            'Content-Length': Buffer.byteLength(postData),
+            'X-Bokun-AccessKey': accessKey,
+            'X-Bokun-Date': bokunDate,
+            'X-Bokun-Signature': signature,
+          },
+        };
+
+        const apiReq = https.request(options, (apiRes) => {
+          let data = '';
+          apiRes.on('data', (chunk) => { data += chunk; });
+          apiRes.on('end', () => {
+            if (apiRes.statusCode >= 200 && apiRes.statusCode < 300) {
+              try {
+                resolve(JSON.parse(data));
+              } catch (e) {
+                reject(new Error('Failed to parse search response'));
+              }
+            } else {
+              reject(new Error(`Bokun search error: ${apiRes.statusCode}`));
+            }
+          });
+        });
+
+        apiReq.on('error', (error) => reject(error));
+        apiReq.write(postData);
+        apiReq.end();
+      });
+
+      const foundBooking = searchResult.items?.find(b => String(b.id) === String(bookingId));
+      if (!foundBooking) {
+        throw new Error(`Booking ${bookingId} not found`);
+      }
+
+      console.log(`✅ Found booking ${bookingId} (${foundBooking.confirmationCode})`);
+
+      const productBooking = foundBooking.productBookings?.[0];
+      if (!productBooking) {
+        throw new Error('No product booking found');
+      }
+
+      // Log productBooking structure to find optionId
+      console.log(`📋 ProductBooking keys: ${Object.keys(productBooking).join(', ')}`);
+      console.log(`📋 Product: ${JSON.stringify(productBooking.product || {})}`);
+
+      const productId = productBooking.product?.id;
+      // Option ID can be the activity ID, rate ID, or specific option
+      // In Bokun, the optionId typically matches the product ID for simple products
+      const optionId = productBooking.activity?.id || productBooking.rate?.id || productId;
+      const currentDate = productBooking.startDate || 'Unknown';
+      const customerName = foundBooking.customer?.firstName
+        ? `${foundBooking.customer.firstName} ${foundBooking.customer.lastName || ''}`.trim()
+        : 'Unknown Customer';
+
+      console.log(`📦 Product ID: ${productId}, Option ID: ${optionId}, Current date: ${currentDate}, New date: ${newDate}`);
+
+      // Helper function for OCTO API calls
+      const octoRequest = (method, path, body = null) => {
+        return new Promise((resolve, reject) => {
+          const postData = body ? JSON.stringify(body) : null;
+
+          const options = {
+            hostname: 'api.bokun.io',
+            path: `/octo/v1${path}`,
+            method: method,
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${octoToken}`,
+            },
+          };
+
+          if (postData) {
+            options.headers['Content-Length'] = Buffer.byteLength(postData);
+          }
+
+          console.log(`📡 OCTO ${method} ${options.path}`);
+
+          const apiReq = https.request(options, (apiRes) => {
+            let data = '';
+            apiRes.on('data', (chunk) => { data += chunk; });
+            apiRes.on('end', () => {
+              console.log(`📡 OCTO Response: ${apiRes.statusCode}`);
+              if (data.length > 0 && data.length < 1000) {
+                console.log(`📡 OCTO Body: ${data}`);
+              }
+
+              if (apiRes.statusCode >= 200 && apiRes.statusCode < 300) {
+                try {
+                  resolve(data ? JSON.parse(data) : {});
+                } catch (e) {
+                  resolve(data);
+                }
+              } else {
+                reject(new Error(`OCTO API error: ${apiRes.statusCode} - ${data}`));
+              }
+            });
+          });
+
+          apiReq.on('error', (error) => reject(error));
+          if (postData) {
+            apiReq.write(postData);
+          }
+          apiReq.end();
+        });
+      };
+
+      // Step 0: Get list of products from OCTO to find correct IDs
+      console.log(`🔍 Fetching OCTO products to find correct product/option IDs...`);
+      let octoProductId = String(productId);  // Default to Bokun ID
+      let octoOptionId = String(optionId);    // Default to Bokun optionId
+      let octoUnitIds = [];  // Available unit IDs for this option
+      let defaultUnitId = null;  // Default unit ID to use
+
+      try {
+        const octoProducts = await octoRequest('GET', '/products');
+        console.log(`📦 OCTO returned ${Array.isArray(octoProducts) ? octoProducts.length : 0} products`);
+
+        if (Array.isArray(octoProducts) && octoProducts.length > 0) {
+          // Log first product for debugging
+          const firstProduct = octoProducts[0];
+          console.log(`📦 Sample OCTO product: id=${firstProduct.id}, internalName=${firstProduct.internalName}`);
+          console.log(`📦 Sample options: ${JSON.stringify(firstProduct.options?.slice(0, 2) || [])}`);
+
+          // Try to find matching product by Bokun product ID (OCTO stores Bokun ID as their ID)
+          const matchingProduct = octoProducts.find(p =>
+            String(p.id) === String(productId) ||
+            p.internalName?.includes(String(productId))
+          );
+
+          let optionToUse = null;
+          if (matchingProduct) {
+            octoProductId = String(matchingProduct.id);
+            console.log(`✅ Found matching OCTO product: ${octoProductId}`);
+
+            // Use the first option from this product
+            if (matchingProduct.options && matchingProduct.options.length > 0) {
+              optionToUse = matchingProduct.options[0];
+              octoOptionId = String(optionToUse.id);
+              console.log(`✅ Using OCTO option: ${octoOptionId}`);
+            }
+          } else {
+            // If no exact match, try the first product as fallback
+            console.log(`⚠️ No exact match found. Trying first product as fallback.`);
+            octoProductId = String(firstProduct.id);
+            if (firstProduct.options && firstProduct.options.length > 0) {
+              optionToUse = firstProduct.options[0];
+              octoOptionId = String(optionToUse.id);
+            }
+            console.log(`📦 Using fallback: productId=${octoProductId}, optionId=${octoOptionId}`);
+          }
+
+          // Extract unit IDs from the option
+          if (optionToUse && optionToUse.units && optionToUse.units.length > 0) {
+            octoUnitIds = optionToUse.units.map(u => String(u.id));
+            defaultUnitId = octoUnitIds[0]; // Use first unit as default
+            console.log(`📦 Available unit IDs: ${octoUnitIds.join(', ')}`);
+            console.log(`📦 Default unit ID: ${defaultUnitId}`);
+          }
+        }
+      } catch (e) {
+        console.log(`⚠️ Could not fetch OCTO products: ${e.message}`);
+      }
+
+      // Step 1: Get availability for the new date using OCTO IDs
+      console.log(`🔍 Checking availability for ${newDate} with productId=${octoProductId}, optionId=${octoOptionId}...`);
+      const availabilityResult = await octoRequest('POST', '/availability', {
+        productId: octoProductId,
+        optionId: octoOptionId,
+        localDate: newDate,  // Format: YYYY-MM-DD
+      });
+
+      console.log(`📅 Found ${Array.isArray(availabilityResult) ? availabilityResult.length : 0} availability slots`);
+
+      if (!Array.isArray(availabilityResult) || availabilityResult.length === 0) {
+        throw new Error(`No availability found for ${newDate}. The tour may be fully booked or not running on this date.`);
+      }
+
+      // Use the first available slot (or could match by time)
+      const newAvailability = availabilityResult[0];
+      const availabilityId = newAvailability.id;
+
+      console.log(`✅ Found availability: ${availabilityId}`);
+
+      // Step 2: Get the booking UUID from OCTO (needed for PATCH)
+      // First try to get the booking details via OCTO
+      console.log(`🔍 Looking up booking in OCTO...`);
+
+      // The OCTO booking UUID might be stored in the booking or we need to search
+      // Let's try using the confirmation code to find it
+      let octoBookingUuid = null;
+
+      // Try to get OCTO booking by supplier reference (Bokun booking ID)
+      try {
+        const octoBookings = await octoRequest('GET', `/bookings?supplierReference=${bookingId}`);
+        if (Array.isArray(octoBookings) && octoBookings.length > 0) {
+          octoBookingUuid = octoBookings[0].uuid;
+          console.log(`✅ Found OCTO booking UUID: ${octoBookingUuid}`);
+        }
+      } catch (e) {
+        console.log(`⚠️ Could not find OCTO booking: ${e.message}`);
+      }
+
+      if (!octoBookingUuid) {
+        // OCTO booking not found - this is a portal-created booking
+        // Strategy: Cancel old booking + Create new booking via OCTO
+        console.log(`⚠️ OCTO booking not found - using cancel + rebook strategy`);
+
+        // Extract customer info for new booking
+        const customer = foundBooking.customer || {};
+        const customerContact = {
+          fullName: `${customer.firstName || ''} ${customer.lastName || ''}`.trim(),
+          firstName: customer.firstName || '',
+          lastName: customer.lastName || '',
+          emailAddress: customer.email || customer.emailAddress || '',
+          phoneNumber: customer.phoneNumber || customer.phone || '',
+          country: customer.countryCode || customer.nationality || 'IS',
+        };
+
+        // Extract unit items (participants) from original booking
+        // Use the OCTO default unit ID, not the Bokun price category IDs
+        const unitItems = [];
+        let totalParticipants = 0;
+
+        for (const pcb of (productBooking.priceCategoryBookings || [])) {
+          const quantity = pcb.persons || pcb.qty || 1;
+          totalParticipants += quantity;
+        }
+
+        // If we couldn't count participants, default to 1
+        if (totalParticipants === 0) {
+          totalParticipants = productBooking.totalParticipants || foundBooking.totalParticipants || 1;
+        }
+
+        // Create unit items using the OCTO default unit ID
+        const unitIdToUse = defaultUnitId || octoUnitIds[0] || octoOptionId;
+        for (let i = 0; i < totalParticipants; i++) {
+          unitItems.push({ unitId: unitIdToUse });
+        }
+
+        console.log(`📋 Customer: ${customerContact.fullName}, Email: ${customerContact.emailAddress}`);
+        console.log(`📋 Total participants: ${totalParticipants}, Unit ID: ${unitIdToUse}`);
+        console.log(`📋 Unit items: ${JSON.stringify(unitItems)}`);
+
+        // Step 2a: Cancel the existing booking
+        console.log(`🚫 Cancelling existing booking ${bookingId}...`);
+
+        const cancelPath = `/booking.json/${bookingId}/cancel`;
+        const cancelDate = new Date().toISOString().replace('T', ' ').substring(0, 19);
+        const cancelMessage = cancelDate + accessKey + 'POST' + cancelPath;
+        const cancelSignature = crypto
+          .createHmac('sha1', secretKey)
+          .update(cancelMessage)
+          .digest('base64');
+
+        const cancelResult = await new Promise((resolve, reject) => {
+          const cancelBody = JSON.stringify({
+            reason: `Rescheduled to ${newDate}. ${reason || 'Rescheduled via admin app'}`,
+          });
+
+          const options = {
+            hostname: 'api.bokun.io',
+            path: cancelPath,
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json;charset=UTF-8',
+              'Content-Length': Buffer.byteLength(cancelBody),
+              'X-Bokun-AccessKey': accessKey,
+              'X-Bokun-Date': cancelDate,
+              'X-Bokun-Signature': cancelSignature,
+            },
+          };
+
+          const apiReq = https.request(options, (apiRes) => {
+            let data = '';
+            apiRes.on('data', (chunk) => { data += chunk; });
+            apiRes.on('end', () => {
+              console.log(`🚫 Cancel response: ${apiRes.statusCode}`);
+              if (apiRes.statusCode >= 200 && apiRes.statusCode < 400) {
+                resolve({ success: true, statusCode: apiRes.statusCode });
+              } else {
+                reject(new Error(`Cancel failed: ${apiRes.statusCode} - ${data}`));
+              }
+            });
+          });
+
+          apiReq.on('error', (error) => reject(error));
+          apiReq.write(cancelBody);
+          apiReq.end();
+        });
+
+        console.log(`✅ Booking cancelled successfully`);
+
+        // Step 2b: Create new booking via OCTO
+        console.log(`📝 Creating new booking for ${newDate}...`);
+
+        const newBookingRequest = {
+          productId: octoProductId,
+          optionId: octoOptionId,
+          availabilityId: availabilityId,
+          unitItems: unitItems.length > 0 ? unitItems : [{ unitId: defaultUnitId || octoUnitIds[0] }],
+          notes: `Rebook from ${confirmationCode || bookingId}. Original date: ${currentDate}. Reason: ${reason || 'Customer request'}`,
+        };
+
+        console.log(`📤 New booking request: ${JSON.stringify(newBookingRequest)}`);
+
+        const newBooking = await octoRequest('POST', '/bookings', newBookingRequest);
+
+        console.log(`✅ New booking created: ${newBooking.uuid || newBooking.id || 'unknown'}`);
+
+        // Confirm the booking with contact details
+        if (newBooking.uuid) {
+          console.log(`✔️ Confirming new booking with contact details...`);
+          const confirmRequest = {
+            contact: {
+              firstName: customerContact.firstName || 'Guest',
+              lastName: customerContact.lastName || 'Customer',
+              emailAddress: customerContact.emailAddress || 'no-email@placeholder.com',
+              phoneNumber: customerContact.phoneNumber || '',
+            },
+          };
+          console.log(`📤 Confirm request: ${JSON.stringify(confirmRequest)}`);
+          await octoRequest('POST', `/bookings/${newBooking.uuid}/confirm`, confirmRequest);
+          console.log(`✅ Booking confirmed!`);
+        }
+
+        // Log success
+        await admin.firestore().collection('booking_actions').add({
+          bookingId,
+          confirmationCode: confirmationCode || foundBooking.confirmationCode,
+          customerName,
+          action: 'reschedule',
+          performedBy: userId || 'unknown',
+          performedAt: admin.firestore.FieldValue.serverTimestamp(),
+          reason: reason || 'Rescheduled via admin app',
+          originalData: { date: currentDate },
+          newData: {
+            date: newDate,
+            availabilityId,
+            newBookingUuid: newBooking.uuid,
+            newBookingId: newBooking.id,
+          },
+          success: true,
+          method: 'cancel_and_rebook',
+          source: 'octo_api',
+        });
+
+        await snapshot.ref.update({
+          status: 'completed',
+          method: 'cancel_and_rebook',
+          availabilityId,
+          newBookingUuid: newBooking.uuid || null,
+          newBookingId: newBooking.id || null,
+          customerName,
+          originalDate: currentDate,
+          completedAt: admin.firestore.FieldValue.serverTimestamp(),
+          message: `Booking rescheduled to ${newDate} via cancel + rebook`,
+        });
+
+        console.log(`✅ Reschedule completed via cancel + rebook: ${requestId}`);
+        return;
+      }
+
+      // Step 3: PATCH the booking with new availability
+      console.log(`📝 Updating booking ${octoBookingUuid} to new date...`);
+
+      const updateResult = await octoRequest('PATCH', `/bookings/${octoBookingUuid}`, {
+        availabilityId: availabilityId,
+        // Preserve the unit items from the original booking
+        unitItems: productBooking.priceCategoryBookings?.map(pcb => ({
+          unitId: pcb.priceCategoryBooking?.priceCategory?.id || pcb.id,
+        })) || [],
+      });
+
+      console.log(`✅ Booking updated successfully via OCTO API!`);
+
+      // Log success
+      await admin.firestore().collection('booking_actions').add({
+        bookingId,
+        confirmationCode: confirmationCode || foundBooking.confirmationCode,
+        customerName,
+        action: 'reschedule',
+        performedBy: userId || 'unknown',
+        performedAt: admin.firestore.FieldValue.serverTimestamp(),
+        reason: reason || 'Rescheduled via admin app',
+        originalData: { date: currentDate },
+        newData: { date: newDate, availabilityId },
+        success: true,
+        source: 'octo_api',
+      });
+
+      // Mark request as completed
+      await snapshot.ref.update({
+        status: 'completed',
+        availabilityId,
+        customerName,
+        originalDate: currentDate,
+        completedAt: admin.firestore.FieldValue.serverTimestamp(),
+        message: `Booking rescheduled to ${newDate}`,
+      });
+
+      console.log(`✅ Reschedule completed: ${requestId}`);
+    } catch (error) {
+      console.error(`❌ Reschedule failed: ${error.message}`);
+
+      // Log failure
+      await admin.firestore().collection('booking_actions').add({
+        bookingId,
+        confirmationCode: confirmationCode || '',
+        action: 'reschedule',
+        performedBy: userId || 'unknown',
+        performedAt: admin.firestore.FieldValue.serverTimestamp(),
+        reason: reason || 'Attempted reschedule',
+        newData: { date: newDate },
+        success: false,
+        errorMessage: error.message,
+        source: 'firestore_trigger',
+      });
+
+      // Mark request as failed
+      await snapshot.ref.update({
+        status: 'failed',
+        error: error.message,
+        failedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+  }
+);
+
+/**
+ * Firestore Trigger: Check availability for a booking reschedule
+ * Returns available time slots for a given date so Flutter can display them
+ */
+exports.checkRescheduleAvailability = onDocumentCreated(
+  {
+    document: 'availability_checks/{checkId}',
+    region: 'us-central1',
+    secrets: ['BOKUN_ACCESS_KEY', 'BOKUN_SECRET_KEY', 'BOKUN_OCTO_TOKEN'],
+  },
+  async (event) => {
+    const snapshot = event.data;
+    if (!snapshot) return;
+
+    const data = snapshot.data();
+    const { bookingId, targetDate, confirmationCode } = data;
+    const checkId = event.params.checkId;
+
+    console.log(`🔍 Checking availability for booking ${bookingId} on ${targetDate}`);
+
+    await snapshot.ref.update({ status: 'processing' });
+
+    try {
+      const accessKey = process.env.BOKUN_ACCESS_KEY;
+      const secretKey = process.env.BOKUN_SECRET_KEY;
+      const octoToken = process.env.BOKUN_OCTO_TOKEN;
+
+      if (!octoToken) {
+        throw new Error('OCTO token not configured');
+      }
+
+      // First, find the booking to get product details
+      const now = new Date();
+      const bokunDate = now.toISOString().replace('T', ' ').substring(0, 19);
+      const searchPath = '/booking.json/booking-search';
+      const message = bokunDate + accessKey + 'POST' + searchPath;
+      const signature = crypto
+        .createHmac('sha1', secretKey)
+        .update(message)
+        .digest('base64');
+
+      const searchResult = await new Promise((resolve, reject) => {
+        const postData = JSON.stringify({ id: parseInt(bookingId), limit: 10 });
+        const options = {
+          hostname: 'api.bokun.io',
+          path: searchPath,
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json;charset=UTF-8',
+            'Content-Length': Buffer.byteLength(postData),
+            'X-Bokun-AccessKey': accessKey,
+            'X-Bokun-Date': bokunDate,
+            'X-Bokun-Signature': signature,
+          },
+        };
+
+        const apiReq = https.request(options, (apiRes) => {
+          let data = '';
+          apiRes.on('data', (chunk) => { data += chunk; });
+          apiRes.on('end', () => {
+            if (apiRes.statusCode >= 200 && apiRes.statusCode < 300) {
+              resolve(JSON.parse(data));
+            } else {
+              reject(new Error(`Search error: ${apiRes.statusCode}`));
+            }
+          });
+        });
+        apiReq.on('error', reject);
+        apiReq.write(postData);
+        apiReq.end();
+      });
+
+      const foundBooking = searchResult.items?.find(b => String(b.id) === String(bookingId));
+      if (!foundBooking) {
+        throw new Error('Booking not found');
+      }
+
+      const productBooking = foundBooking.productBookings?.[0];
+      const productId = productBooking?.product?.id;
+
+      // Log complete productBooking structure to find correct optionId
+      console.log(`📋 Full productBooking structure: ${JSON.stringify(productBooking, null, 2).substring(0, 2000)}`);
+
+      // Try to get the correct optionId - might be the activity ID or a specific rate
+      const optionId = productBooking?.activity?.id || productBooking?.rate?.id || productId;
+
+      console.log(`📦 Product ID: ${productId}, Option ID: ${optionId}`);
+
+      // Query OCTO API for availability
+      const availabilityResult = await new Promise((resolve, reject) => {
+        const body = JSON.stringify({
+          productId: String(productId),
+          optionId: String(optionId),
+          localDate: targetDate,
+        });
+
+        console.log(`📡 OCTO availability request: ${body}`);
+
+        const options = {
+          hostname: 'api.bokun.io',
+          path: '/octo/v1/availability',
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(body),
+            'Authorization': `Bearer ${octoToken}`,
+          },
+        };
+
+        const apiReq = https.request(options, (apiRes) => {
+          let data = '';
+          apiRes.on('data', (chunk) => { data += chunk; });
+          apiRes.on('end', () => {
+            console.log(`📡 OCTO availability response: ${apiRes.statusCode} - ${data.substring(0, 500)}`);
+            if (apiRes.statusCode >= 200 && apiRes.statusCode < 300) {
+              try {
+                resolve(JSON.parse(data));
+              } catch (e) {
+                resolve([]);
+              }
+            } else {
+              // Log as error but don't throw - return empty availability
+              console.error(`OCTO error: ${data}`);
+              resolve([]);
+            }
+          });
+        });
+        apiReq.on('error', (e) => {
+          console.error(`OCTO request error: ${e.message}`);
+          resolve([]);
+        });
+        apiReq.write(body);
+        apiReq.end();
+      });
+
+      // Format available slots for Flutter UI
+      const slots = (Array.isArray(availabilityResult) ? availabilityResult : []).map(slot => ({
+        id: slot.id,
+        localDateTimeStart: slot.localDateTimeStart,
+        localDateTimeEnd: slot.localDateTimeEnd,
+        available: slot.available,
+        status: slot.status,
+        vacancies: slot.vacancies,
+      }));
+
+      console.log(`📅 Found ${slots.length} availability slots`);
+
+      await snapshot.ref.update({
+        status: 'completed',
+        productId,
+        optionId,
+        currentDate: productBooking?.startDate,
+        customerName: foundBooking.customer?.firstName
+          ? `${foundBooking.customer.firstName} ${foundBooking.customer.lastName || ''}`.trim()
+          : 'Unknown',
+        slots,
+        completedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+    } catch (error) {
+      console.error(`❌ Availability check failed: ${error.message}`);
+      await snapshot.ref.update({
+        status: 'failed',
+        error: error.message,
+        failedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+  }
+);
+
+/**
  * Cancel a booking
  */
 exports.cancelBooking = onRequest(
   {
     cors: true,
     secrets: ['BOKUN_ACCESS_KEY', 'BOKUN_SECRET_KEY'],
-    
+
   },
   async (req, res) => {
     if (req.method !== 'POST') {
@@ -4030,27 +4700,50 @@ async function makeBokunRequest(method, path, body, accessKey, secretKey) {
     .update(message)
     .digest('base64');
 
+  console.log(`📡 Bokun API Request: ${method} ${path}`);
+  console.log(`📅 Date: ${bokunDate}`);
+  if (body) {
+    console.log(`📦 Body: ${JSON.stringify(body)}`);
+  }
+
   const options = {
     hostname: 'api.bokun.io',
     path: path,
     method: method,
     headers: {
-      'Content-Type': 'application/json',
+      'Content-Type': 'application/json;charset=UTF-8',
       'X-Bokun-AccessKey': accessKey,
       'X-Bokun-Date': bokunDate,
       'X-Bokun-Signature': signature,
     },
   };
 
+  // Add Content-Length header for POST requests (matching getBookings function)
+  const postData = body ? JSON.stringify(body) : null;
+  if (postData) {
+    options.headers['Content-Length'] = Buffer.byteLength(postData);
+  }
+
   return new Promise((resolve, reject) => {
     const apiReq = https.request(options, (apiRes) => {
       let data = '';
+
+      // Log response details for debugging
+      console.log(`📡 Bokun API Response: ${apiRes.statusCode}`);
+      console.log(`📡 Response Headers: ${JSON.stringify(apiRes.headers)}`);
+
+      // Handle redirects
+      if (apiRes.statusCode === 301 || apiRes.statusCode === 302 || apiRes.statusCode === 303) {
+        console.log(`🔄 Redirect detected! Location: ${apiRes.headers.location}`);
+      }
 
       apiRes.on('data', (chunk) => {
         data += chunk;
       });
 
       apiRes.on('end', () => {
+        console.log(`📡 Response Body: ${data.substring(0, 500)}`);
+
         if (apiRes.statusCode >= 200 && apiRes.statusCode < 300) {
           try {
             const jsonData = JSON.parse(data);
@@ -4068,8 +4761,8 @@ async function makeBokunRequest(method, path, body, accessKey, secretKey) {
       reject(error);
     });
 
-    if (body) {
-      apiReq.write(JSON.stringify(body));
+    if (postData) {
+      apiReq.write(postData);
     }
     apiReq.end();
   });
