@@ -4358,19 +4358,19 @@ exports.onRescheduleRequest = onDocumentCreated(
               .update(editMessage)
               .digest('base64');
 
-            const editRequest = {
-              actions: [{
-                type: 'SET_PICKUP',
-                productBookingId: parseInt(newBooking.id) || null,
-                pickup: true,
-                pickupPlaceId: parseInt(pickupLocationId),
-                pickupDescription: pickupLocation,
-              }],
-            };
+            // ActivityPickupAction - body must be an ARRAY directly (NOT wrapped in { actions: [...] })
+            // This is the working format as documented in BOKUN_API_REFERENCE.md
+            const editActions = [{
+              type: 'ActivityPickupAction',
+              activityBookingId: parseInt(newBooking.id) || null,
+              pickup: true,
+              pickupPlaceId: parseInt(pickupLocationId),
+              description: pickupLocation,
+            }];
 
             try {
               const editResult = await new Promise((resolve, reject) => {
-                const editBody = JSON.stringify(editRequest);
+                const editBody = JSON.stringify(editActions);
 
                 const options = {
                   hostname: 'api.bokun.io',
