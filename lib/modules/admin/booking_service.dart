@@ -54,6 +54,83 @@ class BookingService {
     }
   }
 
+  /// Fast loading: Firebase cache first, then API refresh in background
+  /// Returns cached data immediately for instant display
+  Future<List<Booking>> getBookingsForDateRangeFast(
+    DateTime start, 
+    DateTime end, {
+    Function(List<Booking>)? onRefreshed,
+  }) async {
+    print('⚡ Fast loading bookings from ${_formatDate(start)} to ${_formatDate(end)}');
+    
+    // 1. Try Firebase cache first
+    final cached = await _getCachedBookingsForRange(start, end);
+    
+    // 2. If we have cached data, refresh in background
+    if (cached.isNotEmpty) {
+      print('📂 Found ${cached.length} cached bookings, showing immediately');
+      if (onRefreshed != null) {
+        _refreshBookingsInBackground(start, end, onRefreshed);
+      }
+      return cached;
+    }
+    
+    // 3. No cache - fall back to API (will be slow)
+    print('⏳ No cache found, loading from API...');
+    return getBookingsForDateRange(start, end);
+  }
+
+  /// Get bookings from Firebase cached_bookings collection
+  Future<List<Booking>> _getCachedBookingsForRange(DateTime start, DateTime end) async {
+    try {
+      final List<Booking> allBookings = [];
+      
+      // Iterate through each day in the range
+      DateTime current = start;
+      while (!current.isAfter(end)) {
+        final dateStr = _formatDate(current);
+        final doc = await _firestore.collection('cached_bookings').doc(dateStr).get();
+        
+        if (doc.exists) {
+          final data = doc.data();
+          final bookingsData = data?['bookings'] as List<dynamic>? ?? [];
+          
+          for (final b in bookingsData) {
+            try {
+              // Convert cached PickupBooking to Booking
+              final booking = Booking.fromCachedPickupBooking(b as Map<String, dynamic>);
+              allBookings.add(booking);
+            } catch (e) {
+              print('⚠️ Error parsing cached booking: $e');
+            }
+          }
+        }
+        
+        current = current.add(const Duration(days: 1));
+      }
+      
+      return allBookings;
+    } catch (e) {
+      print('⚠️ Error loading cached bookings: $e');
+      return [];
+    }
+  }
+
+  /// Refresh bookings from API in background
+  void _refreshBookingsInBackground(
+    DateTime start, 
+    DateTime end, 
+    Function(List<Booking>) onRefreshed,
+  ) {
+    print('🔄 Starting background refresh from API...');
+    getBookingsForDateRange(start, end).then((freshBookings) {
+      print('✅ Background refresh complete: ${freshBookings.length} bookings');
+      onRefreshed(freshBookings);
+    }).catchError((e) {
+      print('⚠️ Background refresh failed: $e');
+    });
+  }
+
   /// Get available pickup places for a product
   Future<List<PickupPlace>> getPickupPlaces(String productId) async {
     try {
@@ -548,6 +625,59 @@ class Booking {
       participants: participantsList,
       notes: json['internalNote'] ?? json['notes'],
       createdAt: createdAt,
+    );
+  }
+  
+  /// Create Booking from cached PickupBooking data (from Firebase cached_bookings)
+  factory Booking.fromCachedPickupBooking(Map<String, dynamic> json) {
+    // Parse date from cached format
+    DateTime startDate;
+    try {
+      final dateStr = json['date'] ?? json['tourDate'];
+      if (dateStr is String) {
+        startDate = DateTime.parse(dateStr);
+      } else {
+        startDate = DateTime.now();
+      }
+    } catch (e) {
+      startDate = DateTime.now();
+    }
+    
+    // Customer info
+    final customer = Customer(
+      firstName: json['customerFirstName'] ?? '',
+      lastName: json['customerLastName'] ?? '',
+      email: json['email'] ?? '',
+      phone: json['phoneNumber'] ?? '',
+    );
+    
+    // Pickup info
+    PickupInfo? pickup;
+    final pickupPlace = json['pickupPlaceName'] ?? json['pickupLocation'];
+    if (pickupPlace != null && pickupPlace.isNotEmpty) {
+      pickup = PickupInfo(
+        location: pickupPlace,
+        time: json['pickupTime'] ?? '',
+        address: '',
+      );
+    }
+    
+    return Booking(
+      id: json['id']?.toString() ?? json['bookingId']?.toString() ?? '',
+      confirmationCode: json['confirmationCode'] ?? '',
+      status: json['status'] ?? 'CONFIRMED',
+      startDate: startDate,
+      endDate: null,
+      productTitle: json['tourName'] ?? json['productTitle'] ?? 'Northern Lights Tour',
+      productId: json['productId']?.toString(),
+      totalParticipants: json['totalParticipants'] ?? json['passengers'] ?? 1,
+      totalPrice: 0,
+      currency: 'ISK',
+      customer: customer,
+      pickup: pickup,
+      participants: [],
+      notes: json['notes'],
+      createdAt: startDate,
     );
   }
   

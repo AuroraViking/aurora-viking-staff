@@ -45,7 +45,20 @@ class _BookingManagementScreenState extends State<BookingManagementScreen> {
       final firstDay = DateTime(_focusedDay.year, _focusedDay.month, 1);
       final lastDay = DateTime(_focusedDay.year, _focusedDay.month + 1, 0);
       
-      final bookings = await _service.getBookingsForDateRange(firstDay, lastDay);
+      // Use fast loading - cache first, then refresh in background
+      final bookings = await _service.getBookingsForDateRangeFast(
+        firstDay, 
+        lastDay,
+        onRefreshed: (freshBookings) {
+          // Update UI when fresh data arrives
+          if (mounted) {
+            setState(() {
+              _allBookings = freshBookings;
+              _bookingsByDate = _service.groupBookingsByDate(freshBookings);
+            });
+          }
+        },
+      );
       
       if (!mounted) return;
       
