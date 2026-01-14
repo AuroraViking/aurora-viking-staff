@@ -8,6 +8,7 @@ import 'package:table_calendar/table_calendar.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../core/theme/colors.dart';
 import '../../core/services/firebase_service.dart';
+import '../pickup/pickup_service.dart';
 import 'booking_service.dart';
 
 class BookingDetailScreen extends StatefulWidget {
@@ -34,15 +35,32 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
   void initState() {
     super.initState();
     _booking = widget.booking;
-    _loadPickupFromFirebase();
+    _loadPickupFromPickupService();
   }
 
-  Future<void> _loadPickupFromFirebase() async {
-    final pickup = await FirebaseService.getPickupForBooking(_booking.id);
-    if (pickup != null && mounted) {
-      setState(() {
-        _pickupFromFirebase = pickup;
-      });
+  Future<void> _loadPickupFromPickupService() async {
+    try {
+      // Use PickupService like Pickup Management does - fetches from Bokun API
+      final pickupService = PickupService();
+      final bookings = await pickupService.fetchBookingsForDate(_booking.startDate);
+      
+      // Find the matching booking by ID or confirmation code
+      for (final pb in bookings) {
+        if (pb.bookingId == _booking.id || 
+            pb.confirmationCode == _booking.confirmationCode ||
+            pb.id == _booking.id) {
+          if (pb.pickupPlaceName.isNotEmpty && mounted) {
+            print('📍 Found pickup from PickupService: ${pb.pickupPlaceName}');
+            setState(() {
+              _pickupFromFirebase = pb.pickupPlaceName;
+            });
+            return;
+          }
+        }
+      }
+      print('ℹ️ No pickup found from PickupService for booking ${_booking.id}');
+    } catch (e) {
+      print('⚠️ Error loading pickup from PickupService: $e');
     }
   }
 
