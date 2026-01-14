@@ -90,8 +90,8 @@ class BookingService {
       final data = doc.data();
       final bookingsData = data?['bookings'] as List<dynamic>? ?? [];
       
-      // Parse cached Bokun booking data (same format as API)
-      return bookingsData.map((b) => Booking.fromBokunJson(b as Map<String, dynamic>)).toList();
+      // Parse cached simplified booking data
+      return bookingsData.map((b) => Booking.fromCachedPickupBooking(b as Map<String, dynamic>)).toList();
     } catch (e) {
       print('⚠️ Error loading cache: $e');
       return [];
@@ -150,17 +150,43 @@ class BookingService {
       
       final items = result['items'] as List;
       
-      // Cache the raw Bokun response
-      await _firestore.collection('booking_management_cache').doc(cacheKey).set({
-        'bookings': items,
-        'cachedAt': FieldValue.serverTimestamp(),
-        'count': items.length,
-      });
-      print('💾 Cached ${items.length} bookings for $cacheKey');
+      // Parse bookings first
+      final bookings = items.map((item) => Booking.fromBokunJson(item)).toList();
       
-      return items.map((item) => Booking.fromBokunJson(item)).toList();
+      // Cache simplified booking data (avoid Firestore field name issues)
+      try {
+        final cacheData = bookings.map((b) => {
+          'id': b.id,
+          'confirmationCode': b.confirmationCode,
+          'status': b.status,
+          'startDate': b.startDate.toIso8601String(),
+          'productTitle': b.productTitle,
+          'productId': b.productId ?? '',
+          'totalParticipants': b.totalParticipants,
+          'totalPrice': b.totalPrice,
+          'currency': b.currency,
+          'customerFirstName': b.customer.firstName,
+          'customerLastName': b.customer.lastName,
+          'customerEmail': b.customer.email,
+          'customerPhone': b.customer.phone,
+          'pickupLocation': b.pickup?.location ?? '',
+          'pickupTime': b.pickup?.time ?? '',
+          'notes': b.notes ?? '',
+        }).toList();
+        
+        await _firestore.collection('booking_management_cache').doc(cacheKey).set({
+          'bookings': cacheData,
+          'cachedAt': FieldValue.serverTimestamp(),
+          'count': cacheData.length,
+        });
+        print('💾 Cached ${cacheData.length} bookings for $cacheKey');
+      } catch (cacheError) {
+        print('⚠️ Cache save failed (non-fatal): $cacheError');
+      }
+      
+      return bookings;
     } catch (e) {
-      print('❌ Error fetching/caching bookings: $e');
+      print('❌ Error fetching bookings: $e');
       rethrow;
     }
   }
