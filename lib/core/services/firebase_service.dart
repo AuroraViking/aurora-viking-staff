@@ -606,24 +606,50 @@ class FirebaseService {
   }
 
   // Get pickup place for a specific booking (regardless of date)
+  // Checks both updated_pickup_places (manual changes) and cached_bookings (original from Bokun)
   static Future<String?> getPickupForBooking(String bookingId) async {
     if (!_initialized || _firestore == null) {
       return null;
     }
     
     try {
-      // Search the updated_pickup_places collection for this booking ID
-      final querySnapshot = await _firestore!
+      // First check updated_pickup_places (manual overrides)
+      final updateQuery = await _firestore!
           .collection('updated_pickup_places')
           .where('bookingId', isEqualTo: bookingId)
           .limit(1)
           .get();
 
-      if (querySnapshot.docs.isNotEmpty) {
-        final pickupPlace = querySnapshot.docs.first.data()['pickupPlace'] as String?;
-        print('📍 Found pickup for booking $bookingId: $pickupPlace');
+      if (updateQuery.docs.isNotEmpty) {
+        final pickupPlace = updateQuery.docs.first.data()['pickupPlace'] as String?;
+        print('📍 Found updated pickup for booking $bookingId: $pickupPlace');
         return pickupPlace;
       }
+      
+      // If no manual update, check cached_bookings for the original
+      // We need to search through all dates since we don't know the booking date
+      final cachedQuery = await _firestore!
+          .collection('cached_bookings')
+          .orderBy('date', descending: true)
+          .limit(30) // Check last 30 days of caches
+          .get();
+      
+      for (final doc in cachedQuery.docs) {
+        final bookingsData = doc.data()['bookings'] as List<dynamic>? ?? [];
+        for (final b in bookingsData) {
+          final bData = b as Map<String, dynamic>;
+          if (bData['id'] == bookingId || bData['bookingId'] == bookingId || 
+              bData['confirmationCode'] == bookingId) {
+            final pickupPlace = bData['pickupPlaceName'] as String?;
+            if (pickupPlace != null && pickupPlace.isNotEmpty) {
+              print('📍 Found cached pickup for booking $bookingId: $pickupPlace');
+              return pickupPlace;
+            }
+          }
+        }
+      }
+      
+      print('ℹ️ No pickup found in Firebase for booking $bookingId');
       return null;
     } catch (e) {
       print('⚠️ Error getting pickup for booking: $e');
