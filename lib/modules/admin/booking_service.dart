@@ -77,10 +77,7 @@ class BookingService {
     
     // 3. No cache - load from API (will be slow) and cache result
     print('⏳ No cache found, loading from API...');
-    final fresh = await getBookingsForDateRange(start, end);
-    // Cache for next time
-    await _saveBookingManagementCache(cacheKey, fresh);
-    return fresh;
+    return await _fetchAndCacheBookingsRaw(start, end, cacheKey);
   }
 
   /// Get bookings from dedicated booking_management_cache collection
@@ -98,17 +95,6 @@ class BookingService {
     } catch (e) {
       print('⚠️ Error loading cache: $e');
       return [];
-    }
-  }
-
-  /// Save bookings to dedicated cache
-  Future<void> _saveBookingManagementCache(String cacheKey, List<Booking> bookings) async {
-    try {
-      // We need to save the raw Bokun JSON, but we don't have it
-      // Instead, we'll refetch and cache the raw response
-      print('💾 Caching ${bookings.length} bookings for: $cacheKey');
-    } catch (e) {
-      print('⚠️ Error saving cache: $e');
     }
   }
 
