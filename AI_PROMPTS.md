@@ -21,8 +21,8 @@ a Northern Lights and aurora borealis tour company based in Reykjavik, Iceland.
 - No-shows are non-refundable
 
 **Booking Reference Format:**
-- All bookings use format: AV-XXXXX (e.g., AV-12345)
-- Customers may also reference Bokun confirmation codes
+- All bookings use confirmation code format: AUR-xxxxxxxx (e.g., AUR-82245225)
+- 8 digits after the AUR- prefix
 
 **What to Wear:**
 - Warm layers (thermal underwear, fleece, down jacket)
@@ -93,7 +93,7 @@ Many of our guests have amazing sightings on their second attempt!"
 ```json
 {
   "system": "Classify the customer's intent from their email. Return ONLY valid JSON.",
-  "prompt": "Classify this customer message:\n\n{MESSAGE}\n\nReturn JSON:\n{\n  \"intent\": \"RESCHEDULE|CANCEL|PICKUP_CHANGE|WEATHER_QUERY|BOOKING_INFO|GENERAL_INFO|COMPLAINT|OTHER\",\n  \"confidence\": 0.0-1.0,\n  \"entities\": {\n    \"newDate\": \"YYYY-MM-DD\" (if reschedule),\n    \"newPickup\": \"location\" (if pickup change),\n    \"bookingRef\": \"AV-XXXXX\" (if mentioned)\n  },\n  \"urgency\": \"low|normal|high\",\n  \"sentiment\": \"positive|neutral|negative\"\n}"
+  "prompt": "Classify this customer message:\n\n{MESSAGE}\n\nReturn JSON:\n{\n  \"intent\": \"RESCHEDULE|CANCEL|PICKUP_CHANGE|WEATHER_QUERY|BOOKING_INFO|GENERAL_INFO|COMPLAINT|OTHER\",\n  \"confidence\": 0.0-1.0,\n  \"entities\": {\n    \"newDate\": \"YYYY-MM-DD\" (if reschedule),\n    \"newPickup\": \"location\" (if pickup change),\n    \"bookingRef\": \"AUR-xxxxxxxx\" (if mentioned)\n  },\n  \"urgency\": \"low|normal|high\",\n  \"sentiment\": \"positive|neutral|negative\"\n}"
 }
 ```
 
@@ -117,7 +117,7 @@ Many of our guests have amazing sightings on their second attempt!"
 ```json
 {
   "type": "RESCHEDULE",
-  "booking": "AV-12345",
+  "booking": "AUR-82245225",
   "currentDate": "2026-01-15",
   "proposedDate": "2026-01-16",
   "requiresApproval": true,
@@ -130,7 +130,7 @@ Many of our guests have amazing sightings on their second attempt!"
 ```json
 {
   "type": "CHANGE_PICKUP",
-  "booking": "AV-12345",
+  "booking": "AUR-82245225",
   "currentPickup": "Hilton Reykjavik Nordica",
   "proposedPickup": "Centerhotel Plaza",
   "pickupTime": "21:30",
@@ -144,7 +144,7 @@ Many of our guests have amazing sightings on their second attempt!"
 ```json
 {
   "type": "CANCEL",
-  "booking": "AV-12345",
+  "booking": "AUR-82245225",
   "refundEligible": true,
   "refundAmount": 15900,
   "currency": "ISK",
