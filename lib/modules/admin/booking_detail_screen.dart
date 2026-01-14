@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../core/theme/colors.dart';
+import '../../core/services/firebase_service.dart';
 import 'booking_service.dart';
 
 class BookingDetailScreen extends StatefulWidget {
@@ -27,11 +28,22 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
   final BookingService _service = BookingService();
   bool _isLoading = false;
   late Booking _booking;
+  String? _pickupFromFirebase; // Pickup loaded from Firebase (same as Pickup Management)
 
   @override
   void initState() {
     super.initState();
     _booking = widget.booking;
+    _loadPickupFromFirebase();
+  }
+
+  Future<void> _loadPickupFromFirebase() async {
+    final pickup = await FirebaseService.getPickupForBooking(_booking.id);
+    if (pickup != null && mounted) {
+      setState(() {
+        _pickupFromFirebase = pickup;
+      });
+    }
   }
 
   @override
@@ -164,6 +176,10 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
   }
 
   Widget _buildCustomerCard() {
+    // Use Firebase pickup first (same as Pickup Management), fallback to API pickup
+    final pickupLocation = _pickupFromFirebase ?? _booking.pickup?.location;
+    final hasPickup = pickupLocation != null && pickupLocation.isNotEmpty;
+    
     return _buildCard(
       title: 'Customer',
       icon: Icons.person,
@@ -173,7 +189,7 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
           _buildInfoRow('Email', _booking.customer.email, copyable: true),
         if (_booking.customer.phone.isNotEmpty)
           _buildInfoRow('Phone', _booking.customer.phone, copyable: true),
-        if (_booking.pickup?.location != null && _booking.pickup!.location.isNotEmpty)
+        if (hasPickup)
           Padding(
             padding: const EdgeInsets.only(top: 8),
             child: Container(
@@ -196,10 +212,10 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
                           style: TextStyle(color: Colors.white54, fontSize: 11),
                         ),
                         Text(
-                          _booking.pickup!.location,
+                          pickupLocation!,
                           style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
                         ),
-                        if (_booking.pickup!.time.isNotEmpty)
+                        if (_booking.pickup?.time != null && _booking.pickup!.time.isNotEmpty)
                           Text(
                             _booking.pickup!.time,
                             style: const TextStyle(color: AppColors.primary, fontSize: 12),

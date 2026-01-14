@@ -605,6 +605,32 @@ class FirebaseService {
     }
   }
 
+  // Get pickup place for a specific booking (regardless of date)
+  static Future<String?> getPickupForBooking(String bookingId) async {
+    if (!_initialized || _firestore == null) {
+      return null;
+    }
+    
+    try {
+      // Search the updated_pickup_places collection for this booking ID
+      final querySnapshot = await _firestore!
+          .collection('updated_pickup_places')
+          .where('bookingId', isEqualTo: bookingId)
+          .limit(1)
+          .get();
+
+      if (querySnapshot.docs.isNotEmpty) {
+        final pickupPlace = querySnapshot.docs.first.data()['pickupPlace'] as String?;
+        print('📍 Found pickup for booking $bookingId: $pickupPlace');
+        return pickupPlace;
+      }
+      return null;
+    } catch (e) {
+      print('⚠️ Error getting pickup for booking: $e');
+      return null;
+    }
+  }
+
   // Save bus-guide assignment for a specific date
   static Future<void> saveBusGuideAssignment({
     required String guideId,
