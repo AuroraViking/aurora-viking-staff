@@ -1,0 +1,377 @@
+﻿2026-01-14T13:24:05.117162Z ? onreschedulerequest: ≡ƒôí OCTO Response: 200
+
+2026-01-14T13:24:05.117308Z ? onreschedulerequest: ≡ƒôí OCTO Body: [{"id":"2026-01-15_2310624","localDateTimeStart":"2026-01-15T20:00:00Z","localDateTimeEnd":"2026-01-15T20:00:00Z","allDay":false,"available":true,"status":"AVAILABLE","vacancies":34,"capacity":48,"maxUnits":null,"utcCutoffAt":"2026-01-15T19:50:00Z","openingHours":[{"from":"20:30","to":"01:00"}]}]
+
+2026-01-14T13:24:05.117801Z ? onreschedulerequest: ≡ƒôà Found 1 availability slots
+
+2026-01-14T13:24:05.117894Z ? onreschedulerequest: Γ£à Found availability: 2026-01-15_2310624
+
+2026-01-14T13:24:05.117984Z ? onreschedulerequest: ≡ƒöì Looking up booking in OCTO...
+
+2026-01-14T13:24:05.118102Z ? onreschedulerequest: ≡ƒôí OCTO GET /octo/v1/bookings?supplierReference=82239890
+
+2026-01-14T13:24:05.331827Z ? onreschedulerequest: ≡ƒôí OCTO Response: 200
+
+2026-01-14T13:24:05.331913Z ? onreschedulerequest: ≡ƒôí OCTO Body: []
+
+2026-01-14T13:24:05.332292Z ? onreschedulerequest: ΓÜá∩╕Å OCTO booking not found - using cancel + rebook strategy
+
+2026-01-14T13:24:05.332415Z ? onreschedulerequest: ≡ƒôï Customer: Kolbeinn  Kristjansson, Email: kolbeinnhelgii@gmail.com
+
+2026-01-14T13:24:05.332525Z ? onreschedulerequest: ≡ƒôï Total participants: 1, Unit ID: 708710
+
+2026-01-14T13:24:05.332604Z ? onreschedulerequest: ≡ƒôï Unit items: [{"unitId":"708710"}]
+
+2026-01-14T13:24:05.332686Z ? onreschedulerequest: ≡ƒôï Pickup: Alva Hotel (ID: 9547232)
+
+2026-01-14T13:24:05.332762Z ? onreschedulerequest: ≡ƒÜ½ Cancelling existing booking 82239890 (AUR-82239890)...
+
+2026-01-14T13:24:05.610985Z ? onreschedulerequest: ≡ƒÜ½ Cancel response: 200
+
+2026-01-14T13:24:05.611319Z ? onreschedulerequest: Γ£à Booking cancelled successfully
+
+2026-01-14T13:24:05.611413Z ? onreschedulerequest: ≡ƒô¥ Creating new booking for 2026-01-15...
+
+2026-01-14T13:24:05.611540Z ? onreschedulerequest: ≡ƒôñ New booking request: {"productId":"728888","optionId":"1364827","availabilityId":"2026-01-15_2310624","unitItems":[{"unitId":"708710"}],"notes":"Rebook from AUR-82239890. Original date: 1768521600000. Pickup: Alva Hotel. Reason: Rescheduled via admin app"}
+
+2026-01-14T13:24:05.611655Z ? onreschedulerequest: ≡ƒôí OCTO POST /octo/v1/bookings
+
+2026-01-14T13:24:06.253569Z ? onreschedulerequest: ≡ƒôí OCTO Response: 200
+
+2026-01-14T13:24:06.254232Z ? onreschedulerequest: Γ£à New booking created: eb27f81b-440f-44d6-94de-2ba9c5800942
+
+2026-01-14T13:24:06.254345Z ? onreschedulerequest: Γ£ö∩╕Å Confirming new booking with contact details...
+
+2026-01-14T13:24:06.254437Z ? onreschedulerequest: ≡ƒôñ Confirm request: {"contact":{"firstName":"Kolbeinn ","lastName":"Kristjansson","emailAddress":"kolbeinnhelgii@gmail.com","phoneNumber":"+354 8578480"}}
+
+2026-01-14T13:24:06.254579Z ? onreschedulerequest: ≡ƒôí OCTO POST /octo/v1/bookings/eb27f81b-440f-44d6-94de-2ba9c5800942/confirm
+
+2026-01-14T13:24:06.683858Z ? onreschedulerequest: ≡ƒôí OCTO Response: 200
+
+2026-01-14T13:24:06.684529Z ? onreschedulerequest: Γ£à Booking confirmed!
+
+2026-01-14T13:24:06.684677Z ? onreschedulerequest: ≡ƒôì Setting pickup location via REST API: Alva Hotel (ID: 9547232)
+
+2026-01-14T13:24:06.778379Z ? onreschedulerequest: ≡ƒôì Edit pickup response: 400
+
+2026-01-14T13:24:06.778525Z ? onreschedulerequest: ΓÜá∩╕Å Edit pickup failed: {"errorCode":"VALIDATION_ERROR","defaultMessage":"Invalid property \u0027actions[0]\u0027 of bean class [models.dto.booking.action.BookingEditResult]: Illegal attempt to get property \u0027actions\u0027 threw exception; nested exception is org.springframework.beans.NullValueInNestedPathException: Invalid property \u0027actions\u0027 of bean class [models.dto.booking.action.BookingEditResult]: Could not instantiate property type [models.dto.booking.action.Action] to auto-grow nested property path; nested exception is org.springframework.beans.BeanInstantiationException: Failed to instantiate [models.dto.booking.action.Action]: Is it an abstract class?; nested exception is java.lang.InstantiationException"}
+
+2026-01-14T13:24:06.778836Z ? onreschedulerequest: ΓÜá∩╕Å Pickup location not set - booking still created
+
+2026-01-14T13:24:06.907695Z ? onreschedulerequest: Γ£à Reschedule completed via cancel + rebook: aVSQxqLYMQ9jlG9W82w5
+
+2026-01-14T13:41:09.567147131Z N onRescheduleRequest: {"@type":"type.googleapis.com/google.cloud.audit.AuditLog","authenticationInfo":{"principalEmail":"info@auroraviking.com","principalSubject":"user:info@auroraviking.com","oauthInfo":{"oauthClientId":"563584335869-fgrhgmd47bqnekij5i8b5pr03ho849e6.apps.googleusercontent.com"}},"requestMetadata":{"callerIp":"194.144.168.154","callerSuppliedUserAgent":"FirebaseCLI/14.12.0,gzip(gfe),gzip(gfe)","requestAttributes":{"time":"2026-01-14T13:41:08.728293241Z","auth":{}},"destinationAttributes":{}},"serviceName":"cloudfunctions.googleapis.com","methodName":"google.cloud.functions.v2.FunctionService.UpdateFunction","authorizationInfo":[{"resource":"projects/aurora-viking-staff/locations/us-central1/functions/onRescheduleRequest","permission":"cloudfunctions.functions.update","granted":true,"resourceAttributes":{"service":"cloudfunctions.googleapis.com","name":"projects/aurora-viking-staff/locations/us-central1/functions/onRescheduleRequest","type":"cloudfunctions.googleapis.com/Function"},"permissionType":"ADMIN_WRITE"}],"resourceName":"projects/aurora-viking-staff/locations/us-central1/functions/onRescheduleRequest","request":{"@type":"type.googleapis.com/google.cloud.functions.v2.UpdateFunctionRequest","update_mask":{"paths":["name","build_config.runtime","build_config.entry_point","build_config.source.storage_source.bucket","build_config.source.storage_source.object","build_config.environment_variables","build_config.source_token","service_config.environment_variables","service_config.secret_environment_variables","service_config.ingress_settings","service_config.timeout_seconds","service_config.service_account_email","service_config.available_memory","service_config.min_instance_count","service_config.max_instance_count","service_config.max_instance_request_concurrency","service_config.available_cpu","service_config.vpc_connector","service_config.vpc_connector_egress_settings","labels","event_trigger.event_type","event_trigger.retry_policy","event_trigger.event_filters","event_trigger.trigger_region"]},"function":{"name":"projects/aurora-viking-staff/locations/us-central1/functions/onRescheduleRequest","build_config":{"source":{},"runtime":"nodejs22","source_token":"Cldwcm9qZWN0cy85NzU3ODM3OTE3MTgvbG9jYXRpb25zL3VzLWNlbnRyYWwxL2J1aWxkcy8yNzA4MGZlZi0wZTg3LTQ0NTktOGIyOC03NDE3ODI0YzY1ZDgSfXVzLWNlbnRyYWwxLWRvY2tlci5wa2cuZGV2L2F1cm9yYS12aWtpbmctc3RhZmYvZ2NmLWFydGlmYWN0cy9hdXJvcmEtLXZpa2luZy0tc3RhZmZfX3VzLS1jZW50cmFsMV9fZ2V0X3BpY2t1cF9wbGFjZXM6dmVyc2lvbl8xGOaY/ImzHCJMcHJvamVjdHMvYXVyb3JhLXZpa2luZy1zdGFmZi9sb2NhdGlvbnMvdXMtY2VudHJhbDEvZnVuY3Rpb25zL2dldFBpY2t1cFBsYWNlcyoMCPG5nssGEOjXkNABMghub2RlanMyMjp2CiNnY3IuaW8vZ2FlLXJ1bnRpbWVzL25vZGVqczIyOnN0YWJsZRJPdXMtY2VudHJhbDEtZG9ja2VyLnBrZy5kZXYvc2VydmVybGVzcy1ydW50aW1lcy9nb29nbGUtMjItZnVsbC9ydW50aW1lcy9ub2RlanMyMkAB","entry_point":"onRescheduleRequest"},"service_config":{"available_memory":"256Mi","available_cpu":"1","secret_environment_variables":[{"version":"2","key":"BOKUN_ACCESS_KEY","project_id":"aurora-viking-staff","secret":"BOKUN_ACCESS_KEY"},{"version":"1","secret":"BOKUN_SECRET_KEY","key":"BOKUN_SECRET_KEY","project_id":"aurora-viking-staff"},{"secret":"BOKUN_OCTO_TOKEN","project_id":"aurora-viking-staff","key":"BOKUN_OCTO_TOKEN","version":"1"}],"max_instance_request_concurrency":80},"event_trigger":{"event_type":"google.cloud.firestore.document.v1.created","retry_policy":"RETRY_POLICY_DO_NOT_RETRY","trigger_region":"nam5","event_filters":[{"attribute":"database","value":"(default)"},{"attribute":"namespace","value":"(default)"},{"value":"reschedule_requests/{requestId}","attribute":"document","operator":"match-path-pattern"}]},"labels":{"firebase-functions-hash":"1be03b2db5f094d8b85bdaebe52e464514f31c77","deployment-tool":"cli-firebase"}}},"response":{"@type":"type.googleapis.com/google.longrunning.Operation"},"resourceLocation":{"currentLocations":["us-central1"]}}
+2026-01-14T13:41:17.456292Z I onreschedulerequest: Starting new instance. Reason: DEPLOYMENT_ROLLOUT - Instance started due to traffic shifting between revisions due to deployment, traffic split adjustment, or deployment health check.
+2026-01-14T13:41:21.324183Z I onreschedulerequest: Default STARTUP TCP probe succeeded after 1 attempt for container "worker" on port 8080.
+2026-01-14T13:41:23.091135734Z N onRescheduleRequest: {"@type":"type.googleapis.com/google.cloud.audit.AuditLog","status":{},"authenticationInfo":{"principalEmail":"info@auroraviking.com","principalSubject":"user:info@auroraviking.com","oauthInfo":{"oauthClientId":"563584335869-fgrhgmd47bqnekij5i8b5pr03ho849e6.apps.googleusercontent.com"}},"requestMetadata":{"requestAttributes":{},"destinationAttributes":{}},"serviceName":"cloudfunctions.googleapis.com","methodName":"google.cloud.functions.v2.FunctionService.UpdateFunction","resourceName":"projects/aurora-viking-staff/locations/us-central1/functions/onRescheduleRequest","response":{"satisfiesPzi":true,"@type":"type.googleapis.com/google.cloud.functions.v2.Function","buildConfig":{"source":{},"entryPoint":"onRescheduleRequest","automaticUpdatePolicy":{},"dockerRegistry":"ARTIFACT_REGISTRY","serviceAccount":"projects/aurora-viking-staff/serviceAccounts/975783791718-compute@developer.gserviceaccount.com","dockerRepository":"projects/aurora-viking-staff/locations/us-central1/repositories/gcf-artifacts","runtime":"nodejs22"},"createTime":"2026-01-12T22:10:37.571653478Z","eventTrigger":{"pubsubTopic":"projects/aurora-viking-staff/topics/eventarc-nam5-onreschedulerequest-154995-430","eventType":"google.cloud.firestore.document.v1.created","triggerRegion":"nam5","retryPolicy":"RETRY_POLICY_DO_NOT_RETRY","eventFilters":[{"operator":"match-path-pattern","attribute":"document","value":"reschedule_requests/{requestId}"},{"value":"(default)","attribute":"database"},{"value":"(default)","attribute":"namespace"}],"trigger":"projects/aurora-viking-staff/locations/nam5/triggers/onreschedulerequest-154995","serviceAccountEmail":"975783791718-compute@developer.gserviceaccount.com"},"url":"https://us-central1-aurora-viking-staff.cloudfunctions.net/onRescheduleRequest","updateTime":"2026-01-14T13:41:09.555214292Z","state":"ACTIVE","labels":{"deployment-tool":"cli-firebase","firebase-functions-hash":"1be03b2db5f094d8b85bdaebe52e464514f31c77"},"serviceConfig":{"serviceAccountEmail":"975783791718-compute@developer.gserviceaccount.com","maxInstanceCount":20,"availableMemory":"256Mi","ingressSettings":"ALLOW_ALL","timeoutSeconds":60,"maxInstanceRequestConcurrency":80,"secretEnvironmentVariables":[{"version":"2","projectId":"aurora-viking-staff","key":"BOKUN_ACCESS_KEY","secret":"BOKUN_ACCESS_KEY"},{"projectId":"aurora-viking-staff","key":"BOKUN_SECRET_KEY","version":"1","secret":"BOKUN_SECRET_KEY"},{"version":"1","secret":"BOKUN_OCTO_TOKEN","key":"BOKUN_OCTO_TOKEN","projectId":"aurora-viking-staff"}],"availableCpu":"1","uri":"https://onreschedulerequest-kyj6qn3nbq-uc.a.run.app","allTrafficOnLatestRevision":true,"revision":"onreschedulerequest-00025-poy"},"name":"projects/aurora-viking-staff/locations/us-central1/functions/onRescheduleRequest","environment":"GEN_2"},"resourceLocation":{"currentLocations":["us-central1"]}}
+2026-01-14T14:18:17.310471257Z N onRescheduleRequest: {"@type":"type.googleapis.com/google.cloud.audit.AuditLog","authenticationInfo":{"principalEmail":"info@auroraviking.com","principalSubject":"user:info@auroraviking.com","oauthInfo":{"oauthClientId":"563584335869-fgrhgmd47bqnekij5i8b5pr03ho849e6.apps.googleusercontent.com"}},"requestMetadata":{"callerIp":"194.144.168.154","callerSuppliedUserAgent":"FirebaseCLI/14.12.0,gzip(gfe),gzip(gfe)","requestAttributes":{"time":"2026-01-14T14:18:16.538448987Z","auth":{}},"destinationAttributes":{}},"serviceName":"cloudfunctions.googleapis.com","methodName":"google.cloud.functions.v2.FunctionService.UpdateFunction","authorizationInfo":[{"resource":"projects/aurora-viking-staff/locations/us-central1/functions/onRescheduleRequest","permission":"cloudfunctions.functions.update","granted":true,"resourceAttributes":{"service":"cloudfunctions.googleapis.com","name":"projects/aurora-viking-staff/locations/us-central1/functions/onRescheduleRequest","type":"cloudfunctions.googleapis.com/Function"},"permissionType":"ADMIN_WRITE"}],"resourceName":"projects/aurora-viking-staff/locations/us-central1/functions/onRescheduleRequest","request":{"update_mask":{"paths":["name","build_config.runtime","build_config.entry_point","build_config.source.storage_source.bucket","build_config.source.storage_source.object","build_config.environment_variables","build_config.source_token","service_config.environment_variables","service_config.secret_environment_variables","service_config.ingress_settings","service_config.timeout_seconds","service_config.service_account_email","service_config.available_memory","service_config.min_instance_count","service_config.max_instance_count","service_config.max_instance_request_concurrency","service_config.available_cpu","service_config.vpc_connector","service_config.vpc_connector_egress_settings","labels","event_trigger.event_type","event_trigger.retry_policy","event_trigger.event_filters","event_trigger.trigger_region"]},"function":{"event_trigger":{"retry_policy":"RETRY_POLICY_DO_NOT_RETRY","event_type":"google.cloud.firestore.document.v1.created","event_filters":[{"value":"(default)","attribute":"database"},{"value":"(default)","attribute":"namespace"},{"operator":"match-path-pattern","value":"reschedule_requests/{requestId}","attribute":"document"}],"trigger_region":"nam5"},"name":"projects/aurora-viking-staff/locations/us-central1/functions/onRescheduleRequest","labels":{"deployment-tool":"cli-firebase","firebase-functions-hash":"5f2a83cbcb301a4d32641aa42ebd4af9286a57f6"},"service_config":{"available_memory":"256Mi","available_cpu":"1","secret_environment_variables":[{"secret":"BOKUN_ACCESS_KEY","key":"BOKUN_ACCESS_KEY","version":"2","project_id":"aurora-viking-staff"},{"project_id":"aurora-viking-staff","version":"1","key":"BOKUN_SECRET_KEY","secret":"BOKUN_SECRET_KEY"},{"project_id":"aurora-viking-staff","version":"1","key":"BOKUN_OCTO_TOKEN","secret":"BOKUN_OCTO_TOKEN"}],"max_instance_request_concurrency":80},"build_config":{"source":{},"runtime":"nodejs22","source_token":"Cldwcm9qZWN0cy85NzU3ODM3OTE3MTgvbG9jYXRpb25zL3VzLWNlbnRyYWwxL2J1aWxkcy84OTgzNzQ0MS01MmMwLTRkN2QtYTJjMC0yZmFiN2MxZWZhY2MSggF1cy1jZW50cmFsMS1kb2NrZXIucGtnLmRldi9hdXJvcmEtdmlraW5nLXN0YWZmL2djZi1hcnRpZmFjdHMvYXVyb3JhLS12aWtpbmctLXN0YWZmX191cy0tY2VudHJhbDFfX3VwZGF0ZV9waWNrdXBfbG9jYXRpb246dmVyc2lvbl8xGOaY/ImzHCJRcHJvamVjdHMvYXVyb3JhLXZpa2luZy1zdGFmZi9sb2NhdGlvbnMvdXMtY2VudHJhbDEvZnVuY3Rpb25zL3VwZGF0ZVBpY2t1cExvY2F0aW9uKgwIpsueywYQkOLstQIyCG5vZGVqczIyOnYKI2djci5pby9nYWUtcnVudGltZXMvbm9kZWpzMjI6c3RhYmxlEk91cy1jZW50cmFsMS1kb2NrZXIucGtnLmRldi9zZXJ2ZXJsZXNzLXJ1bnRpbWVzL2dvb2dsZS0yMi1mdWxsL3J1bnRpbWVzL25vZGVqczIyQAE=","entry_point":"onRescheduleRequest"}},"@type":"type.googleapis.com/google.cloud.functions.v2.UpdateFunctionRequest"},"response":{"@type":"type.googleapis.com/google.longrunning.Operation"},"resourceLocation":{"currentLocations":["us-central1"]}}
+2026-01-14T14:18:24.709368Z I onreschedulerequest: Starting new instance. Reason: DEPLOYMENT_ROLLOUT - Instance started due to traffic shifting between revisions due to deployment, traffic split adjustment, or deployment health check.
+2026-01-14T14:18:30.884054Z I onreschedulerequest: Default STARTUP TCP probe succeeded after 1 attempt for container "worker" on port 8080.
+2026-01-14T14:18:35.058024673Z N onRescheduleRequest: {"@type":"type.googleapis.com/google.cloud.audit.AuditLog","status":{},"authenticationInfo":{"principalEmail":"info@auroraviking.com","principalSubject":"user:info@auroraviking.com","oauthInfo":{"oauthClientId":"563584335869-fgrhgmd47bqnekij5i8b5pr03ho849e6.apps.googleusercontent.com"}},"requestMetadata":{"requestAttributes":{},"destinationAttributes":{}},"serviceName":"cloudfunctions.googleapis.com","methodName":"google.cloud.functions.v2.FunctionService.UpdateFunction","resourceName":"projects/aurora-viking-staff/locations/us-central1/functions/onRescheduleRequest","response":{"environment":"GEN_2","url":"https://us-central1-aurora-viking-staff.cloudfunctions.net/onRescheduleRequest","satisfiesPzi":true,"serviceConfig":{"ingressSettings":"ALLOW_ALL","uri":"https://onreschedulerequest-kyj6qn3nbq-uc.a.run.app","allTrafficOnLatestRevision":true,"serviceAccountEmail":"975783791718-compute@developer.gserviceaccount.com","maxInstanceRequestConcurrency":80,"maxInstanceCount":20,"timeoutSeconds":60,"secretEnvironmentVariables":[{"key":"BOKUN_ACCESS_KEY","version":"2","secret":"BOKUN_ACCESS_KEY","projectId":"aurora-viking-staff"},{"version":"1","key":"BOKUN_SECRET_KEY","projectId":"aurora-viking-staff","secret":"BOKUN_SECRET_KEY"},{"key":"BOKUN_OCTO_TOKEN","secret":"BOKUN_OCTO_TOKEN","version":"1","projectId":"aurora-viking-staff"}],"availableCpu":"1","availableMemory":"256Mi","revision":"onreschedulerequest-00026-sar"},"@type":"type.googleapis.com/google.cloud.functions.v2.Function","buildConfig":{"dockerRepository":"projects/aurora-viking-staff/locations/us-central1/repositories/gcf-artifacts","dockerRegistry":"ARTIFACT_REGISTRY","automaticUpdatePolicy":{},"runtime":"nodejs22","entryPoint":"onRescheduleRequest","serviceAccount":"projects/aurora-viking-staff/serviceAccounts/975783791718-compute@developer.gserviceaccount.com","source":{}},"labels":{"firebase-functions-hash":"5f2a83cbcb301a4d32641aa42ebd4af9286a57f6","deployment-tool":"cli-firebase"},"name":"projects/aurora-viking-staff/locations/us-central1/functions/onRescheduleRequest","createTime":"2026-01-12T22:10:37.571653478Z","updateTime":"2026-01-14T14:18:17.300112408Z","eventTrigger":{"triggerRegion":"nam5","trigger":"projects/aurora-viking-staff/locations/nam5/triggers/onreschedulerequest-154995","pubsubTopic":"projects/aurora-viking-staff/topics/eventarc-nam5-onreschedulerequest-154995-430","eventType":"google.cloud.firestore.document.v1.created","serviceAccountEmail":"975783791718-compute@developer.gserviceaccount.com","retryPolicy":"RETRY_POLICY_DO_NOT_RETRY","eventFilters":[{"attribute":"namespace","value":"(default)"},{"operator":"match-path-pattern","value":"reschedule_requests/{requestId}","attribute":"document"},{"value":"(default)","attribute":"database"}]},"state":"ACTIVE"},"resourceLocation":{"currentLocations":["us-central1"]}}
+2026-01-14T14:57:35.844547Z I onreschedulerequest: 
+2026-01-14T14:57:35.876771Z I onreschedulerequest: Starting new instance. Reason: AUTOSCALING - Instance started due to configured scaling factors (e.g. CPU utilization, request throughput, etc.) or no existing capacity for current traffic.
+2026-01-14T14:57:40.176850Z I onreschedulerequest: Default STARTUP TCP probe succeeded after 1 attempt for container "worker" on port 8080.
+2026-01-14T14:57:40.244405Z ? onreschedulerequest: ≡ƒôà Processing reschedule request: XGw3BMiX6CahZPhxTPOY for booking 82240027
+
+2026-01-14T14:57:40.916236Z ? onreschedulerequest: ≡ƒöì Searching for booking 82240027...
+
+2026-01-14T14:57:41.845305Z ? onreschedulerequest: Γ£à Found booking 82240027 (AUR-82240027)
+
+2026-01-14T14:57:41.845772Z ? onreschedulerequest: ≡ƒôï ProductBooking keys: id, parentBookingId, confirmationCode, productConfirmationCode, status, externalBookingReference, externalBookingEntityName, externalBookingEntityCode, productCategory, resold, channelId, hasNotes, conversationOpen, conversationAwaitingVendorIds, assignedResources, channel, product, productExternalId, vendor, seller, agent, affiliate, saleSource, extranetUser, customer, creationDate, bookingCreationDate, productType, cancellationDate, cancelledBy, cancelNote, customerInvoice, resellerInvoice, affiliateInvoice, lastFourDigits, totalPrice, totalPriceAmount, rateTitle, currency, prepaid, paidAmount, paidType, resellerPaidType, discountPercentage, discountAmount, startDate, endDate, startDateTime, endDateTime, sellerCommission, affiliateCommission, agentCommission, inventoryServiceRefNumber, notes, fields, boxBooking, boxProduct, boxSupplier, contactDetailsHidden, contactDetailsHiddenUntil, specialRequests, inventoryConfirmFailed, refundProtection, labels, totalParticipants, activityCategories, modificationConfigStatus, offerUsage
+
+2026-01-14T14:57:41.846119Z ? onreschedulerequest: ≡ƒôï Product: {"id":728888,"title":"Northern Lights w/Aurora Viking - free pro photos - unlimited retries ΓÇô minibus","flags":[]}
+
+2026-01-14T14:57:41.846619Z ? onreschedulerequest: ≡ƒôª Product ID: 728888, Option ID: 728888, Current date: 1768435200000, New date: 2026-01-16
+
+2026-01-14T14:57:41.848822Z ? onreschedulerequest: ≡ƒöì Fetching OCTO products to find correct product/option IDs...
+
+2026-01-14T14:57:41.849308Z ? onreschedulerequest: ≡ƒôí OCTO GET /octo/v1/products
+
+2026-01-14T14:57:44.119237Z ? onreschedulerequest: ≡ƒôí OCTO Response: 200
+
+2026-01-14T14:57:44.122881Z ? onreschedulerequest: ≡ƒôª OCTO returned 85 products
+
+2026-01-14T14:57:44.122973Z ? onreschedulerequest: ≡ƒôª Sample OCTO product: id=827406, internalName=Private South Coast tour with glacier hike
+
+2026-01-14T14:57:44.123105Z ? onreschedulerequest: ≡ƒôª Sample options: [{"id":"1591540","defaultOption":true,"internalName":"1-7 passengers","reference":null,"availabilityLocalStartTimes":["07:00","08:00","09:00","10:00"],"cancellationCutoff":"24 hour","cancellationCutoffAmount":24,"cancellationCutoffUnit":"hour","requiredContactFields":["firstName","lastName","emailAddress","phoneNumber"],"restrictions":{"minUnits":1,"maxUnits":7},"units":[{"id":"745374","internalName":"Passengers","reference":null,"type":"ADULT","requiredContactFields":[],"restrictions":{"minAge":0,"maxAge":199,"idRequired":false,"minQuantity":1,"maxQuantity":7,"paxCount":1,"accompaniedBy":[]}},{"id":"745376","internalName":"Children","reference":null,"type":"CHILD","requiredContactFields":[],"restrictions":{"minAge":3,"maxAge":12,"idRequired":false,"minQuantity":1,"maxQuantity":7,"paxCount":1,"accompaniedBy":[]}},{"id":"745377","internalName":"Infant","reference":null,"type":"INFANT","requiredContactFields":[],"restrictions":{"minAge":0,"maxAge":2,"idRequired":false,"minQuantity":1,"maxQuantity":7,"paxCount":1,"accompaniedBy":[]}}]}]
+
+2026-01-14T14:57:44.127712Z ? onreschedulerequest: Γ£à Found matching OCTO product: 728888
+
+2026-01-14T14:57:44.127763Z ? onreschedulerequest: Γ£à Using OCTO option: 1364827
+
+2026-01-14T14:57:44.127897Z ? onreschedulerequest: ≡ƒôª Available unit IDs: 708710, 713086
+
+2026-01-14T14:57:44.127983Z ? onreschedulerequest: ≡ƒôª Default unit ID: 708710
+
+2026-01-14T14:57:44.128066Z ? onreschedulerequest: ≡ƒöì Checking availability for 2026-01-16 with productId=728888, optionId=1364827...
+
+2026-01-14T14:57:44.128241Z ? onreschedulerequest: ≡ƒôí OCTO POST /octo/v1/availability
+
+2026-01-14T14:57:44.301518Z ? onreschedulerequest: ≡ƒôí OCTO Response: 200
+
+2026-01-14T14:57:44.301657Z ? onreschedulerequest: ≡ƒôí OCTO Body: [{"id":"2026-01-16_2310624","localDateTimeStart":"2026-01-16T20:00:00Z","localDateTimeEnd":"2026-01-16T20:00:00Z","allDay":false,"available":true,"status":"AVAILABLE","vacancies":28,"capacity":48,"maxUnits":null,"utcCutoffAt":"2026-01-16T19:50:00Z","openingHours":[{"from":"20:30","to":"01:00"}]}]
+
+2026-01-14T14:57:44.302377Z ? onreschedulerequest: ≡ƒôà Found 1 availability slots
+
+2026-01-14T14:57:44.302534Z ? onreschedulerequest: Γ£à Found availability: 2026-01-16_2310624
+
+2026-01-14T14:57:44.302582Z ? onreschedulerequest: ≡ƒöì Looking up booking in OCTO...
+
+2026-01-14T14:57:44.302681Z ? onreschedulerequest: ≡ƒôí OCTO GET /octo/v1/bookings?supplierReference=82240027
+
+2026-01-14T14:57:44.557138Z ? onreschedulerequest: ≡ƒôí OCTO Response: 200
+
+2026-01-14T14:57:44.557346Z ? onreschedulerequest: ≡ƒôí OCTO Body: []
+
+2026-01-14T14:57:44.557702Z ? onreschedulerequest: ΓÜá∩╕Å OCTO booking not found - using cancel + rebook strategy
+
+2026-01-14T14:57:44.557865Z ? onreschedulerequest: ≡ƒôï Customer: Kolbeinn  Kristjansson, Email: kolbeinnhelgii@gmail.com
+
+2026-01-14T14:57:44.557954Z ? onreschedulerequest: ≡ƒôï Total participants: 1, Unit ID: 708710
+
+2026-01-14T14:57:44.558043Z ? onreschedulerequest: ≡ƒôï Unit items: [{"unitId":"708710"}]
+
+2026-01-14T14:57:44.558146Z ? onreschedulerequest: ≡ƒôï Pickup: BSI bus terminal (ID: 9605120)
+
+2026-01-14T14:57:44.558232Z ? onreschedulerequest: ≡ƒÜ½ Cancelling existing booking 82240027 (AUR-82240027)...
+
+2026-01-14T14:57:44.853664Z ? onreschedulerequest: ≡ƒÜ½ Cancel response: 200
+
+2026-01-14T14:57:44.854359Z ? onreschedulerequest: Γ£à Booking cancelled successfully
+
+2026-01-14T14:57:44.854507Z ? onreschedulerequest: ≡ƒô¥ Creating new booking for 2026-01-16...
+
+2026-01-14T14:57:44.854643Z ? onreschedulerequest: ≡ƒôñ New booking request: {"productId":"728888","optionId":"1364827","availabilityId":"2026-01-16_2310624","unitItems":[{"unitId":"708710"}],"notes":"Rebook from AUR-82240027. Original date: 1768435200000. Pickup: BSI bus terminal. Reason: Rescheduled via admin app"}
+
+2026-01-14T14:57:44.854827Z ? onreschedulerequest: ≡ƒôí OCTO POST /octo/v1/bookings
+
+2026-01-14T14:57:45.510589Z ? onreschedulerequest: ≡ƒôí OCTO Response: 200
+
+2026-01-14T14:57:45.511242Z ? onreschedulerequest: Γ£à New booking created: dbfe4ca2-4544-4f5c-b4a5-910c807b8ba3
+
+2026-01-14T14:57:45.511347Z ? onreschedulerequest: Γ£ö∩╕Å Confirming new booking with contact details...
+
+2026-01-14T14:57:45.511500Z ? onreschedulerequest: ≡ƒôñ Confirm request: {"contact":{"firstName":"Kolbeinn ","lastName":"Kristjansson","emailAddress":"kolbeinnhelgii@gmail.com","phoneNumber":"+354 8578480"}}
+
+2026-01-14T14:57:45.511653Z ? onreschedulerequest: ≡ƒôí OCTO POST /octo/v1/bookings/dbfe4ca2-4544-4f5c-b4a5-910c807b8ba3/confirm
+
+2026-01-14T14:57:45.974427Z ? onreschedulerequest: ≡ƒôí OCTO Response: 200
+
+2026-01-14T14:57:45.975405Z ? onreschedulerequest: Γ£à Booking confirmed!
+
+2026-01-14T14:57:45.975749Z ? onreschedulerequest: ≡ƒôì Setting pickup location via REST API: BSI bus terminal (ID: 9605120)
+
+2026-01-14T14:57:46.222313Z ? onreschedulerequest: ≡ƒôì Edit pickup response: 400
+
+2026-01-14T14:57:46.222893Z ? onreschedulerequest: ΓÜá∩╕Å Edit pickup failed: {"errorCode":"VALIDATION_ERROR","defaultMessage":"Invalid property \u0027actions[0]\u0027 of bean class [models.dto.booking.action.BookingEditResult]: Illegal attempt to get property \u0027actions\u0027 threw exception; nested exception is org.springframework.beans.NullValueInNestedPathException: Invalid property \u0027actions\u0027 of bean class [models.dto.booking.action.BookingEditResult]: Could not instantiate property type [models.dto.booking.action.Action] to auto-grow nested property path; nested exception is org.springframework.beans.BeanInstantiationException: Failed to instantiate [models.dto.booking.action.Action]: Is it an abstract class?; nested exception is java.lang.InstantiationException"}
+
+2026-01-14T14:57:46.223260Z ? onreschedulerequest: ΓÜá∩╕Å Pickup location not set - booking still created
+
+2026-01-14T14:57:46.352851Z ? onreschedulerequest: Γ£à Reschedule completed via cancel + rebook: XGw3BMiX6CahZPhxTPOY
+
+2026-01-14T15:20:02.407820611Z N onRescheduleRequest: {"@type":"type.googleapis.com/google.cloud.audit.AuditLog","authenticationInfo":{"principalEmail":"info@auroraviking.com","principalSubject":"user:info@auroraviking.com","oauthInfo":{"oauthClientId":"563584335869-fgrhgmd47bqnekij5i8b5pr03ho849e6.apps.googleusercontent.com"}},"requestMetadata":{"callerIp":"194.144.168.154","callerSuppliedUserAgent":"FirebaseCLI/14.12.0,gzip(gfe),gzip(gfe)","requestAttributes":{"time":"2026-01-14T15:20:01.514883276Z","auth":{}},"destinationAttributes":{}},"serviceName":"cloudfunctions.googleapis.com","methodName":"google.cloud.functions.v2.FunctionService.UpdateFunction","authorizationInfo":[{"resource":"projects/aurora-viking-staff/locations/us-central1/functions/onRescheduleRequest","permission":"cloudfunctions.functions.update","granted":true,"resourceAttributes":{"service":"cloudfunctions.googleapis.com","name":"projects/aurora-viking-staff/locations/us-central1/functions/onRescheduleRequest","type":"cloudfunctions.googleapis.com/Function"},"permissionType":"ADMIN_WRITE"}],"resourceName":"projects/aurora-viking-staff/locations/us-central1/functions/onRescheduleRequest","request":{"update_mask":{"paths":["name","build_config.runtime","build_config.entry_point","build_config.source.storage_source.bucket","build_config.source.storage_source.object","build_config.environment_variables","build_config.source_token","service_config.environment_variables","service_config.secret_environment_variables","service_config.ingress_settings","service_config.timeout_seconds","service_config.service_account_email","service_config.available_memory","service_config.min_instance_count","service_config.max_instance_count","service_config.max_instance_request_concurrency","service_config.available_cpu","service_config.vpc_connector","service_config.vpc_connector_egress_settings","labels","event_trigger.event_type","event_trigger.retry_policy","event_trigger.event_filters","event_trigger.trigger_region"]},"function":{"name":"projects/aurora-viking-staff/locations/us-central1/functions/onRescheduleRequest","labels":{"deployment-tool":"cli-firebase","firebase-functions-hash":"a5405fe6854db4dc96e1405834e750bea6125b57"},"event_trigger":{"trigger_region":"nam5","event_filters":[{"attribute":"database","value":"(default)"},{"attribute":"namespace","value":"(default)"},{"attribute":"document","operator":"match-path-pattern","value":"reschedule_requests/{requestId}"}],"event_type":"google.cloud.firestore.document.v1.created","retry_policy":"RETRY_POLICY_DO_NOT_RETRY"},"service_config":{"available_memory":"256Mi","available_cpu":"1","max_instance_request_concurrency":80,"secret_environment_variables":[{"version":"2","secret":"BOKUN_ACCESS_KEY","key":"BOKUN_ACCESS_KEY","project_id":"aurora-viking-staff"},{"version":"1","key":"BOKUN_SECRET_KEY","project_id":"aurora-viking-staff","secret":"BOKUN_SECRET_KEY"},{"version":"1","key":"BOKUN_OCTO_TOKEN","secret":"BOKUN_OCTO_TOKEN","project_id":"aurora-viking-staff"}]},"build_config":{"runtime":"nodejs22","entry_point":"onRescheduleRequest","source":{}}},"@type":"type.googleapis.com/google.cloud.functions.v2.UpdateFunctionRequest"},"response":{"@type":"type.googleapis.com/google.longrunning.Operation"},"resourceLocation":{"currentLocations":["us-central1"]}}
+2026-01-14T15:23:22.559823Z I onreschedulerequest: Starting new instance. Reason: DEPLOYMENT_ROLLOUT - Instance started due to traffic shifting between revisions due to deployment, traffic split adjustment, or deployment health check.
+2026-01-14T15:23:28.401432Z I onreschedulerequest: Default STARTUP TCP probe succeeded after 1 attempt for container "worker" on port 8080.
+2026-01-14T15:23:33.136880106Z N onRescheduleRequest: {"@type":"type.googleapis.com/google.cloud.audit.AuditLog","status":{},"authenticationInfo":{"principalEmail":"info@auroraviking.com","principalSubject":"user:info@auroraviking.com","oauthInfo":{"oauthClientId":"563584335869-fgrhgmd47bqnekij5i8b5pr03ho849e6.apps.googleusercontent.com"}},"requestMetadata":{"requestAttributes":{},"destinationAttributes":{}},"serviceName":"cloudfunctions.googleapis.com","methodName":"google.cloud.functions.v2.FunctionService.UpdateFunction","resourceName":"projects/aurora-viking-staff/locations/us-central1/functions/onRescheduleRequest","response":{"environment":"GEN_2","createTime":"2026-01-12T22:10:37.571653478Z","url":"https://us-central1-aurora-viking-staff.cloudfunctions.net/onRescheduleRequest","name":"projects/aurora-viking-staff/locations/us-central1/functions/onRescheduleRequest","@type":"type.googleapis.com/google.cloud.functions.v2.Function","state":"ACTIVE","buildConfig":{"automaticUpdatePolicy":{},"source":{},"runtime":"nodejs22","serviceAccount":"projects/aurora-viking-staff/serviceAccounts/975783791718-compute@developer.gserviceaccount.com","dockerRepository":"projects/aurora-viking-staff/locations/us-central1/repositories/gcf-artifacts","dockerRegistry":"ARTIFACT_REGISTRY","entryPoint":"onRescheduleRequest"},"satisfiesPzi":true,"updateTime":"2026-01-14T15:20:02.396129306Z","serviceConfig":{"maxInstanceRequestConcurrency":80,"serviceAccountEmail":"975783791718-compute@developer.gserviceaccount.com","availableCpu":"1","ingressSettings":"ALLOW_ALL","allTrafficOnLatestRevision":true,"revision":"onreschedulerequest-00027-him","maxInstanceCount":20,"availableMemory":"256Mi","timeoutSeconds":60,"uri":"https://onreschedulerequest-kyj6qn3nbq-uc.a.run.app","secretEnvironmentVariables":[{"secret":"BOKUN_ACCESS_KEY","version":"2","projectId":"aurora-viking-staff","key":"BOKUN_ACCESS_KEY"},{"version":"1","projectId":"aurora-viking-staff","secret":"BOKUN_SECRET_KEY","key":"BOKUN_SECRET_KEY"},{"key":"BOKUN_OCTO_TOKEN","version":"1","secret":"BOKUN_OCTO_TOKEN","projectId":"aurora-viking-staff"}]},"labels":{"firebase-functions-hash":"a5405fe6854db4dc96e1405834e750bea6125b57","deployment-tool":"cli-firebase"},"eventTrigger":{"eventFilters":[{"operator":"match-path-pattern","value":"reschedule_requests/{requestId}","attribute":"document"},{"value":"(default)","attribute":"database"},{"attribute":"namespace","value":"(default)"}],"trigger":"projects/aurora-viking-staff/locations/nam5/triggers/onreschedulerequest-154995","serviceAccountEmail":"975783791718-compute@developer.gserviceaccount.com","triggerRegion":"nam5","retryPolicy":"RETRY_POLICY_DO_NOT_RETRY","eventType":"google.cloud.firestore.document.v1.created","pubsubTopic":"projects/aurora-viking-staff/topics/eventarc-nam5-onreschedulerequest-154995-430"}},"resourceLocation":{"currentLocations":["us-central1"]}}
+2026-01-14T15:23:52.304545Z I onreschedulerequest: 
+2026-01-14T15:23:52.319083Z I onreschedulerequest: Starting new instance. Reason: AUTOSCALING - Instance started due to configured scaling factors (e.g. CPU utilization, request throughput, etc.) or no existing capacity for current traffic.
+2026-01-14T15:23:56.974916Z I onreschedulerequest: Default STARTUP TCP probe succeeded after 1 attempt for container "worker" on port 8080.
+2026-01-14T15:23:57.081773Z ? onreschedulerequest: ≡ƒôà Processing reschedule request: IheEiJbW6g2SNOeziFUG for booking 82245225
+
+2026-01-14T15:23:57.818333Z ? onreschedulerequest: ≡ƒöì Searching for booking 82245225...
+
+2026-01-14T15:23:58.780111Z ? onreschedulerequest: Γ£à Found booking 82245225 (AUR-82245225)
+
+2026-01-14T15:23:58.780126Z ? onreschedulerequest: ≡ƒôï ProductBooking keys: id, parentBookingId, confirmationCode, productConfirmationCode, status, externalBookingReference, externalBookingEntityName, externalBookingEntityCode, productCategory, resold, channelId, hasNotes, conversationOpen, conversationAwaitingVendorIds, assignedResources, channel, product, productExternalId, vendor, seller, agent, affiliate, saleSource, extranetUser, customer, creationDate, bookingCreationDate, productType, cancellationDate, cancelledBy, cancelNote, customerInvoice, resellerInvoice, affiliateInvoice, lastFourDigits, totalPrice, totalPriceAmount, rateTitle, currency, prepaid, paidAmount, paidType, resellerPaidType, discountPercentage, discountAmount, startDate, endDate, startDateTime, endDateTime, sellerCommission, affiliateCommission, agentCommission, inventoryServiceRefNumber, notes, fields, boxBooking, boxProduct, boxSupplier, contactDetailsHidden, contactDetailsHiddenUntil, specialRequests, inventoryConfirmFailed, refundProtection, labels, totalParticipants, activityCategories, modificationConfigStatus, offerUsage
+
+2026-01-14T15:23:58.780132Z ? onreschedulerequest: ≡ƒôï Product: {"id":728888,"title":"Northern Lights w/Aurora Viking - free pro photos - unlimited retries ΓÇô minibus","flags":[]}
+
+2026-01-14T15:23:58.780137Z ? onreschedulerequest: ≡ƒôª Product ID: 728888, Option ID: 728888, Current date: 1768521600000, New date: 2026-01-15
+
+2026-01-14T15:23:58.780198Z ? onreschedulerequest: ≡ƒöì Fetching OCTO products to find correct product/option IDs...
+
+2026-01-14T15:23:58.780576Z ? onreschedulerequest: ≡ƒôí OCTO GET /octo/v1/products
+
+2026-01-14T15:24:00.670902Z ? onreschedulerequest: ≡ƒôí OCTO Response: 200
+
+2026-01-14T15:24:00.673435Z ? onreschedulerequest: ≡ƒôª OCTO returned 85 products
+
+2026-01-14T15:24:00.673596Z ? onreschedulerequest: ≡ƒôª Sample OCTO product: id=827406, internalName=Private South Coast tour with glacier hike
+
+2026-01-14T15:24:00.673711Z ? onreschedulerequest: ≡ƒôª Sample options: [{"id":"1591540","defaultOption":true,"internalName":"1-7 passengers","reference":null,"availabilityLocalStartTimes":["07:00","08:00","09:00","10:00"],"cancellationCutoff":"24 hour","cancellationCutoffAmount":24,"cancellationCutoffUnit":"hour","requiredContactFields":["firstName","lastName","emailAddress","phoneNumber"],"restrictions":{"minUnits":1,"maxUnits":7},"units":[{"id":"745374","internalName":"Passengers","reference":null,"type":"ADULT","requiredContactFields":[],"restrictions":{"minAge":0,"maxAge":199,"idRequired":false,"minQuantity":1,"maxQuantity":7,"paxCount":1,"accompaniedBy":[]}},{"id":"745376","internalName":"Children","reference":null,"type":"CHILD","requiredContactFields":[],"restrictions":{"minAge":3,"maxAge":12,"idRequired":false,"minQuantity":1,"maxQuantity":7,"paxCount":1,"accompaniedBy":[]}},{"id":"745377","internalName":"Infant","reference":null,"type":"INFANT","requiredContactFields":[],"restrictions":{"minAge":0,"maxAge":2,"idRequired":false,"minQuantity":1,"maxQuantity":7,"paxCount":1,"accompaniedBy":[]}}]}]
+
+2026-01-14T15:24:00.673976Z ? onreschedulerequest: Γ£à Found matching OCTO product: 728888
+
+2026-01-14T15:24:00.674068Z ? onreschedulerequest: Γ£à Using OCTO option: 1364827
+
+2026-01-14T15:24:00.674241Z ? onreschedulerequest: ≡ƒôª Available unit IDs: 708710, 713086
+
+2026-01-14T15:24:00.674368Z ? onreschedulerequest: ≡ƒôª Default unit ID: 708710
+
+2026-01-14T15:24:00.674517Z ? onreschedulerequest: ≡ƒöì Checking availability for 2026-01-15 with productId=728888, optionId=1364827...
+
+2026-01-14T15:24:00.674699Z ? onreschedulerequest: ≡ƒôí OCTO POST /octo/v1/availability
+
+2026-01-14T15:24:00.835692Z ? onreschedulerequest: ≡ƒôí OCTO Response: 200
+
+2026-01-14T15:24:00.835791Z ? onreschedulerequest: ≡ƒôí OCTO Body: [{"id":"2026-01-15_2310624","localDateTimeStart":"2026-01-15T20:00:00Z","localDateTimeEnd":"2026-01-15T20:00:00Z","allDay":false,"available":true,"status":"AVAILABLE","vacancies":37,"capacity":48,"maxUnits":null,"utcCutoffAt":"2026-01-15T19:50:00Z","openingHours":[{"from":"20:30","to":"01:00"}]}]
+
+2026-01-14T15:24:00.836334Z ? onreschedulerequest: ≡ƒôà Found 1 availability slots
+
+2026-01-14T15:24:00.836493Z ? onreschedulerequest: Γ£à Found availability: 2026-01-15_2310624
+
+2026-01-14T15:24:00.836540Z ? onreschedulerequest: ≡ƒöì Looking up booking in OCTO...
+
+2026-01-14T15:24:00.836633Z ? onreschedulerequest: ≡ƒôí OCTO GET /octo/v1/bookings?supplierReference=82245225
+
+2026-01-14T15:24:01.086415Z ? onreschedulerequest: ≡ƒôí OCTO Response: 200
+
+2026-01-14T15:24:01.086426Z ? onreschedulerequest: ≡ƒôí OCTO Body: []
+
+2026-01-14T15:24:01.086767Z ? onreschedulerequest: ΓÜá∩╕Å OCTO booking not found - using cancel + rebook strategy
+
+2026-01-14T15:24:01.086897Z ? onreschedulerequest: ≡ƒôï Customer: Kolbeinn  Kristjansson, Email: kolbeinnhelgii@gmail.com
+
+2026-01-14T15:24:01.086987Z ? onreschedulerequest: ≡ƒôï Total participants: 1, Unit ID: 708710
+
+2026-01-14T15:24:01.087063Z ? onreschedulerequest: ≡ƒôï Unit items: [{"unitId":"708710"}]
+
+2026-01-14T15:24:01.087146Z ? onreschedulerequest: ≡ƒôï Pickup: Alva Hotel (ID: 9547232)
+
+2026-01-14T15:24:01.087217Z ? onreschedulerequest: ≡ƒÜ½ Cancelling existing booking 82245225 (AUR-82245225)...
+
+2026-01-14T15:24:01.394001Z ? onreschedulerequest: ≡ƒÜ½ Cancel response: 200
+
+2026-01-14T15:24:01.394413Z ? onreschedulerequest: Γ£à Booking cancelled successfully
+
+2026-01-14T15:24:01.394777Z ? onreschedulerequest: ≡ƒô¥ Creating new booking for 2026-01-15...
+
+2026-01-14T15:24:01.394787Z ? onreschedulerequest: ≡ƒôñ New booking request: {"productId":"728888","optionId":"1364827","availabilityId":"2026-01-15_2310624","unitItems":[{"unitId":"708710"}],"notes":"Rebook from AUR-82245225. Original date: 1768521600000. Pickup: Alva Hotel. Reason: Rescheduled via admin app"}
+
+2026-01-14T15:24:01.394793Z ? onreschedulerequest: ≡ƒôí OCTO POST /octo/v1/bookings
+
+2026-01-14T15:24:01.875642Z ? onreschedulerequest: ≡ƒôí OCTO Response: 200
+
+2026-01-14T15:24:01.875655Z ? onreschedulerequest: Γ£à New booking created: e7ec2c77-17d2-4a56-9281-1f19a3c2fc96
+
+2026-01-14T15:24:01.875662Z ? onreschedulerequest: Γ£ö∩╕Å Confirming new booking with contact details...
+
+2026-01-14T15:24:01.875668Z ? onreschedulerequest: ≡ƒôñ Confirm request: {"contact":{"firstName":"Kolbeinn ","lastName":"Kristjansson","emailAddress":"kolbeinnhelgii@gmail.com","phoneNumber":"+354 8578480"}}
+
+2026-01-14T15:24:01.875674Z ? onreschedulerequest: ≡ƒôí OCTO POST /octo/v1/bookings/e7ec2c77-17d2-4a56-9281-1f19a3c2fc96/confirm
+
+2026-01-14T15:24:02.299556Z ? onreschedulerequest: ≡ƒôí OCTO Response: 200
+
+2026-01-14T15:24:02.300424Z ? onreschedulerequest: Γ£à Booking confirmed!
+
+2026-01-14T15:24:02.300533Z ? onreschedulerequest: ≡ƒôì Setting pickup location via REST API: Alva Hotel (ID: 9547232)
+
+2026-01-14T15:24:02.566431Z ? onreschedulerequest: ≡ƒôì Edit pickup response: 403
+
+2026-01-14T15:24:02.566444Z ? onreschedulerequest: ΓÜá∩╕Å Edit pickup failed: {"status":"ERROR","statusMessage":"You do not have permission to change this booking."}
+
+2026-01-14T15:24:02.566840Z ? onreschedulerequest: ΓÜá∩╕Å Pickup location not set - booking still created
+
+2026-01-14T15:24:03.065701Z ? onreschedulerequest: Γ£à Reschedule completed via cancel + rebook: IheEiJbW6g2SNOeziFUG
+
+2026-01-14T15:35:29.194197036Z N onRescheduleRequest: {"@type":"type.googleapis.com/google.cloud.audit.AuditLog","authenticationInfo":{"principalEmail":"info@auroraviking.com","principalSubject":"user:info@auroraviking.com","oauthInfo":{"oauthClientId":"563584335869-fgrhgmd47bqnekij5i8b5pr03ho849e6.apps.googleusercontent.com"}},"requestMetadata":{"callerIp":"194.144.168.154","callerSuppliedUserAgent":"FirebaseCLI/14.12.0,gzip(gfe),gzip(gfe)","requestAttributes":{"time":"2026-01-14T15:35:28.312072649Z","auth":{}},"destinationAttributes":{}},"serviceName":"cloudfunctions.googleapis.com","methodName":"google.cloud.functions.v2.FunctionService.UpdateFunction","authorizationInfo":[{"resource":"projects/aurora-viking-staff/locations/us-central1/functions/onRescheduleRequest","permission":"cloudfunctions.functions.update","granted":true,"resourceAttributes":{"service":"cloudfunctions.googleapis.com","name":"projects/aurora-viking-staff/locations/us-central1/functions/onRescheduleRequest","type":"cloudfunctions.googleapis.com/Function"},"permissionType":"ADMIN_WRITE"}],"resourceName":"projects/aurora-viking-staff/locations/us-central1/functions/onRescheduleRequest","request":{"function":{"name":"projects/aurora-viking-staff/locations/us-central1/functions/onRescheduleRequest","build_config":{"source":{},"entry_point":"onRescheduleRequest","runtime":"nodejs22"},"event_trigger":{"event_filters":[{"value":"(default)","attribute":"database"},{"value":"(default)","attribute":"namespace"},{"value":"reschedule_requests/{requestId}","operator":"match-path-pattern","attribute":"document"}],"event_type":"google.cloud.firestore.document.v1.created","trigger_region":"nam5","retry_policy":"RETRY_POLICY_DO_NOT_RETRY"},"labels":{"deployment-tool":"cli-firebase","firebase-functions-hash":"79dea5d53c822e6a76c4be4080cb4d876e86ba6a"},"service_config":{"secret_environment_variables":[{"secret":"BOKUN_ACCESS_KEY","key":"BOKUN_ACCESS_KEY","version":"2","project_id":"aurora-viking-staff"},{"version":"1","secret":"BOKUN_SECRET_KEY","project_id":"aurora-viking-staff","key":"BOKUN_SECRET_KEY"},{"version":"1","secret":"BOKUN_OCTO_TOKEN","project_id":"aurora-viking-staff","key":"BOKUN_OCTO_TOKEN"}],"available_memory":"256Mi","available_cpu":"1","max_instance_request_concurrency":80}},"update_mask":{"paths":["name","build_config.runtime","build_config.entry_point","build_config.source.storage_source.bucket","build_config.source.storage_source.object","build_config.environment_variables","build_config.source_token","service_config.environment_variables","service_config.secret_environment_variables","service_config.ingress_settings","service_config.timeout_seconds","service_config.service_account_email","service_config.available_memory","service_config.min_instance_count","service_config.max_instance_count","service_config.max_instance_request_concurrency","service_config.available_cpu","service_config.vpc_connector","service_config.vpc_connector_egress_settings","labels","event_trigger.event_type","event_trigger.retry_policy","event_trigger.event_filters","event_trigger.trigger_region"]},"@type":"type.googleapis.com/google.cloud.functions.v2.UpdateFunctionRequest"},"response":{"@type":"type.googleapis.com/google.longrunning.Operation"},"resourceLocation":{"currentLocations":["us-central1"]}}
+2026-01-14T15:36:49.770748Z I onreschedulerequest: Starting new instance. Reason: DEPLOYMENT_ROLLOUT - Instance started due to traffic shifting between revisions due to deployment, traffic split adjustment, or deployment health check.
+2026-01-14T15:36:55.142588Z I onreschedulerequest: Default STARTUP TCP probe succeeded after 1 attempt for container "worker" on port 8080.
+2026-01-14T15:36:57.535033933Z N onRescheduleRequest: {"@type":"type.googleapis.com/google.cloud.audit.AuditLog","status":{},"authenticationInfo":{"principalEmail":"info@auroraviking.com","principalSubject":"user:info@auroraviking.com","oauthInfo":{"oauthClientId":"563584335869-fgrhgmd47bqnekij5i8b5pr03ho849e6.apps.googleusercontent.com"}},"requestMetadata":{"requestAttributes":{},"destinationAttributes":{}},"serviceName":"cloudfunctions.googleapis.com","methodName":"google.cloud.functions.v2.FunctionService.UpdateFunction","resourceName":"projects/aurora-viking-staff/locations/us-central1/functions/onRescheduleRequest","response":{"environment":"GEN_2","buildConfig":{"automaticUpdatePolicy":{},"dockerRegistry":"ARTIFACT_REGISTRY","entryPoint":"onRescheduleRequest","source":{},"serviceAccount":"projects/aurora-viking-staff/serviceAccounts/975783791718-compute@developer.gserviceaccount.com","runtime":"nodejs22","dockerRepository":"projects/aurora-viking-staff/locations/us-central1/repositories/gcf-artifacts"},"labels":{"firebase-functions-hash":"79dea5d53c822e6a76c4be4080cb4d876e86ba6a","deployment-tool":"cli-firebase"},"updateTime":"2026-01-14T15:35:29.179004787Z","serviceConfig":{"serviceAccountEmail":"975783791718-compute@developer.gserviceaccount.com","uri":"https://onreschedulerequest-kyj6qn3nbq-uc.a.run.app","ingressSettings":"ALLOW_ALL","availableCpu":"1","availableMemory":"256Mi","revision":"onreschedulerequest-00028-zud","maxInstanceRequestConcurrency":80,"allTrafficOnLatestRevision":true,"timeoutSeconds":60,"secretEnvironmentVariables":[{"version":"2","secret":"BOKUN_ACCESS_KEY","key":"BOKUN_ACCESS_KEY","projectId":"aurora-viking-staff"},{"version":"1","secret":"BOKUN_SECRET_KEY","key":"BOKUN_SECRET_KEY","projectId":"aurora-viking-staff"},{"key":"BOKUN_OCTO_TOKEN","secret":"BOKUN_OCTO_TOKEN","projectId":"aurora-viking-staff","version":"1"}],"maxInstanceCount":20},"name":"projects/aurora-viking-staff/locations/us-central1/functions/onRescheduleRequest","satisfiesPzi":true,"@type":"type.googleapis.com/google.cloud.functions.v2.Function","createTime":"2026-01-12T22:10:37.571653478Z","state":"ACTIVE","eventTrigger":{"eventFilters":[{"value":"reschedule_requests/{requestId}","attribute":"document","operator":"match-path-pattern"},{"value":"(default)","attribute":"database"},{"value":"(default)","attribute":"namespace"}],"eventType":"google.cloud.firestore.document.v1.created","pubsubTopic":"projects/aurora-viking-staff/topics/eventarc-nam5-onreschedulerequest-154995-430","trigger":"projects/aurora-viking-staff/locations/nam5/triggers/onreschedulerequest-154995","serviceAccountEmail":"975783791718-compute@developer.gserviceaccount.com","triggerRegion":"nam5","retryPolicy":"RETRY_POLICY_DO_NOT_RETRY"},"url":"https://us-central1-aurora-viking-staff.cloudfunctions.net/onRescheduleRequest"},"resourceLocation":{"currentLocations":["us-central1"]}}
+2026-01-14T15:39:31.363989Z I onreschedulerequest: 
+2026-01-14T15:39:31.411530Z ? onreschedulerequest: ≡ƒôà Processing reschedule request: bCo2gPUKD2SdznVHo8jI for booking 82246753
+
+2026-01-14T15:39:32.343486Z ? onreschedulerequest: ≡ƒöì Searching for booking 82246753...
+
+2026-01-14T15:39:33.183854Z ? onreschedulerequest: Γ£à Found booking 82246753 (AUR-82246753)
+
+2026-01-14T15:39:33.184353Z ? onreschedulerequest: ≡ƒôï ProductBooking keys: id, parentBookingId, confirmationCode, productConfirmationCode, status, externalBookingReference, externalBookingEntityName, externalBookingEntityCode, productCategory, resold, channelId, hasNotes, conversationOpen, conversationAwaitingVendorIds, assignedResources, channel, product, productExternalId, vendor, seller, agent, affiliate, saleSource, extranetUser, customer, creationDate, bookingCreationDate, productType, cancellationDate, cancelledBy, cancelNote, customerInvoice, resellerInvoice, affiliateInvoice, lastFourDigits, totalPrice, totalPriceAmount, rateTitle, currency, prepaid, paidAmount, paidType, resellerPaidType, discountPercentage, discountAmount, startDate, endDate, startDateTime, endDateTime, sellerCommission, affiliateCommission, agentCommission, inventoryServiceRefNumber, notes, fields, boxBooking, boxProduct, boxSupplier, contactDetailsHidden, contactDetailsHiddenUntil, specialRequests, inventoryConfirmFailed, refundProtection, labels, totalParticipants, activityCategories, modificationConfigStatus, offerUsage
+
+2026-01-14T15:39:33.185182Z ? onreschedulerequest: ≡ƒôï Product: {"id":728888,"title":"Northern Lights w/Aurora Viking - free pro photos - unlimited retries ΓÇô minibus","flags":[]}
+
+2026-01-14T15:39:33.185444Z ? onreschedulerequest: ≡ƒôª Product ID: 728888, Option ID: 728888, Current date: 1768435200000, New date: 2026-01-16
+
+2026-01-14T15:39:33.185662Z ? onreschedulerequest: ≡ƒöì Fetching OCTO products to find correct product/option IDs...
+
+2026-01-14T15:39:33.186388Z ? onreschedulerequest: ≡ƒôí OCTO GET /octo/v1/products
+
+2026-01-14T15:39:34.765530Z ? onreschedulerequest: ≡ƒôí OCTO Response: 200
+
+2026-01-14T15:39:34.768301Z ? onreschedulerequest: ≡ƒôª OCTO returned 85 products
+
+2026-01-14T15:39:34.768460Z ? onreschedulerequest: ≡ƒôª Sample OCTO product: id=827406, internalName=Private South Coast tour with glacier hike
+
+2026-01-14T15:39:34.768559Z ? onreschedulerequest: ≡ƒôª Sample options: [{"id":"1591540","defaultOption":true,"internalName":"1-7 passengers","reference":null,"availabilityLocalStartTimes":["07:00","08:00","09:00","10:00"],"cancellationCutoff":"24 hour","cancellationCutoffAmount":24,"cancellationCutoffUnit":"hour","requiredContactFields":["firstName","lastName","emailAddress","phoneNumber"],"restrictions":{"minUnits":1,"maxUnits":7},"units":[{"id":"745374","internalName":"Passengers","reference":null,"type":"ADULT","requiredContactFields":[],"restrictions":{"minAge":0,"maxAge":199,"idRequired":false,"minQuantity":1,"maxQuantity":7,"paxCount":1,"accompaniedBy":[]}},{"id":"745376","internalName":"Children","reference":null,"type":"CHILD","requiredContactFields":[],"restrictions":{"minAge":3,"maxAge":12,"idRequired":false,"minQuantity":1,"maxQuantity":7,"paxCount":1,"accompaniedBy":[]}},{"id":"745377","internalName":"Infant","reference":null,"type":"INFANT","requiredContactFields":[],"restrictions":{"minAge":0,"maxAge":2,"idRequired":false,"minQuantity":1,"maxQuantity":7,"paxCount":1,"accompaniedBy":[]}}]}]
+
+2026-01-14T15:39:34.770708Z ? onreschedulerequest: Γ£à Found matching OCTO product: 728888
+
+2026-01-14T15:39:34.770799Z ? onreschedulerequest: Γ£à Using OCTO option: 1364827
+
+2026-01-14T15:39:34.771039Z ? onreschedulerequest: ≡ƒôª Available unit IDs: 708710, 713086
+
+2026-01-14T15:39:34.771106Z ? onreschedulerequest: ≡ƒôª Default unit ID: 708710
+
+2026-01-14T15:39:34.771170Z ? onreschedulerequest: ≡ƒöì Checking availability for 2026-01-16 with productId=728888, optionId=1364827...
+
+2026-01-14T15:39:34.771325Z ? onreschedulerequest: ≡ƒôí OCTO POST /octo/v1/availability
+
+2026-01-14T15:39:35.080562Z ? onreschedulerequest: ≡ƒôí OCTO Response: 200
+
+2026-01-14T15:39:35.081294Z ? onreschedulerequest: ≡ƒôí OCTO Body: [{"id":"2026-01-16_2310624","localDateTimeStart":"2026-01-16T20:00:00Z","localDateTimeEnd":"2026-01-16T20:00:00Z","allDay":false,"available":true,"status":"AVAILABLE","vacancies":28,"capacity":48,"maxUnits":null,"utcCutoffAt":"2026-01-16T19:50:00Z","openingHours":[{"from":"20:30","to":"01:00"}]}]
+
+2026-01-14T15:39:35.082187Z ? onreschedulerequest: ≡ƒôà Found 1 availability slots
+
+2026-01-14T15:39:35.082251Z ? onreschedulerequest: Γ£à Found availability: 2026-01-16_2310624
+
+2026-01-14T15:39:35.082318Z ? onreschedulerequest: ≡ƒöì Looking up booking in OCTO...
+
+2026-01-14T15:39:35.082421Z ? onreschedulerequest: ≡ƒôí OCTO GET /octo/v1/bookings?supplierReference=82246753
+
+2026-01-14T15:39:35.337875Z ? onreschedulerequest: ≡ƒôí OCTO Response: 200
+
+2026-01-14T15:39:35.337898Z ? onreschedulerequest: ≡ƒôí OCTO Body: []
+
+2026-01-14T15:39:35.338427Z ? onreschedulerequest: ΓÜá∩╕Å OCTO booking not found - using cancel + rebook strategy
+
+2026-01-14T15:39:35.338536Z ? onreschedulerequest: ≡ƒôï Customer: Kolbeinn  Kristjansson, Email: kolbeinnhelgii@gmail.com
+
+2026-01-14T15:39:35.338621Z ? onreschedulerequest: ≡ƒôï Total participants: 1, Unit ID: 708710
+
+2026-01-14T15:39:35.338700Z ? onreschedulerequest: ≡ƒôï Unit items: [{"unitId":"708710"}]
+
+2026-01-14T15:39:35.338746Z ? onreschedulerequest: ≡ƒôï Pickup: BSI bus terminal (ID: 9605120)
+
+2026-01-14T15:39:35.338800Z ? onreschedulerequest: ≡ƒÜ½ Cancelling existing booking 82246753 (AUR-82246753)...
+
+2026-01-14T15:39:35.634225Z ? onreschedulerequest: ≡ƒÜ½ Cancel response: 200
+
+2026-01-14T15:39:35.634666Z ? onreschedulerequest: Γ£à Booking cancelled successfully
+
+2026-01-14T15:39:35.634735Z ? onreschedulerequest: ≡ƒô¥ Creating new booking for 2026-01-16...
+
+2026-01-14T15:39:35.634870Z ? onreschedulerequest: ≡ƒôñ New booking request: {"productId":"728888","optionId":"1364827","availabilityId":"2026-01-16_2310624","unitItems":[{"unitId":"708710"}],"notes":"Rebook from AUR-82246753. Original date: 1768435200000. Pickup: BSI bus terminal. Reason: Rescheduled via admin app"}
+
+2026-01-14T15:39:35.634933Z ? onreschedulerequest: ≡ƒôí OCTO POST /octo/v1/bookings
+
+2026-01-14T15:39:36.127403Z ? onreschedulerequest: ≡ƒôí OCTO Response: 200
+
+2026-01-14T15:39:36.128245Z ? onreschedulerequest: Γ£à New booking created: 05a23c66-ae4c-43b0-b306-3fbdaa206297
+
+2026-01-14T15:39:36.128259Z ? onreschedulerequest: Γ£ö∩╕Å Confirming new booking with contact details...
+
+2026-01-14T15:39:36.128559Z ? onreschedulerequest: ≡ƒôñ Confirm request: {"contact":{"firstName":"Kolbeinn ","lastName":"Kristjansson","emailAddress":"kolbeinnhelgii@gmail.com","phoneNumber":"+354 8578480"}}
+
+2026-01-14T15:39:36.128735Z ? onreschedulerequest: ≡ƒôí OCTO POST /octo/v1/bookings/05a23c66-ae4c-43b0-b306-3fbdaa206297/confirm
+
+2026-01-14T15:39:36.711460Z ? onreschedulerequest: ≡ƒôí OCTO Response: 200
+
+2026-01-14T15:39:36.712253Z ? onreschedulerequest: Γ£à Booking confirmed!
+
+2026-01-14T15:39:36.712376Z ? onreschedulerequest: ≡ƒôì Setting pickup location via REST API: BSI bus terminal (ID: 9605120)
+
+2026-01-14T15:39:38.714982Z ? onreschedulerequest: ≡ƒöì Searching for new booking: AUR-82247617
+
+2026-01-14T15:39:39.068600Z ? onreschedulerequest: ΓÜá∩╕Å Could not find productBookingId - pickup not set
+
+2026-01-14T15:39:39.318841Z ? onreschedulerequest: Γ£à Reschedule completed via cancel + rebook: bCo2gPUKD2SdznVHo8jI
+

@@ -4352,7 +4352,9 @@ exports.onRescheduleRequest = onDocumentCreated(
 
             // Search for the new booking by confirmation code to get productBookingId
             const newConfirmationCode = newBooking.supplierReference;
-            console.log(`🔍 Searching for new booking: ${newConfirmationCode}`);
+            // Extract numeric ID from confirmation code (e.g., AUR-82247617 -> 82247617)
+            const newBookingId = newConfirmationCode.replace(/[^0-9]/g, '');
+            console.log(`🔍 Searching for new booking: ${newConfirmationCode} (ID: ${newBookingId})`);
 
             const searchPath2 = '/booking.json/booking-search';
             const searchDate2 = new Date().toISOString().replace('T', ' ').substring(0, 19);
@@ -4365,7 +4367,8 @@ exports.onRescheduleRequest = onDocumentCreated(
             let actualProductBookingId = null;
             try {
               const searchResult2 = await new Promise((resolve, reject) => {
-                const searchBody = JSON.stringify({ confirmationCode: newConfirmationCode });
+                // Use bookingId search like updatePickupLocation does
+                const searchBody = JSON.stringify({ bookingId: parseInt(newBookingId) });
                 const options = {
                   hostname: 'api.bokun.io',
                   path: searchPath2,
