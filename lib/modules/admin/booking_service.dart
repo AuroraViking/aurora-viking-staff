@@ -54,6 +54,72 @@ class BookingService {
     }
   }
 
+  /// Get available pickup places for a product
+  Future<List<PickupPlace>> getPickupPlaces(String productId) async {
+    try {
+      final user = _auth.currentUser;
+      if (user == null) throw Exception('Not authenticated');
+      
+      final token = await user.getIdToken();
+      
+      final response = await http.get(
+        Uri.parse('$_functionsBaseUrl/getPickupPlaces?productId=$productId'),
+        headers: {
+          'Authorization': 'Bearer $token',
+        },
+      );
+      
+      if (response.statusCode != 200) {
+        throw Exception('Failed to fetch pickup places: ${response.body}');
+      }
+      
+      final data = jsonDecode(response.body);
+      final List<dynamic> places = data['pickupPlaces'] ?? [];
+      return places.map((p) => PickupPlace.fromJson(p)).toList();
+    } catch (e) {
+      print('❌ Error fetching pickup places: $e');
+      return [];
+    }
+  }
+
+  /// Update pickup location on an existing booking
+  Future<bool> updatePickupLocation({
+    required String bookingId,
+    required int pickupPlaceId,
+    required String pickupPlaceName,
+  }) async {
+    try {
+      final user = _auth.currentUser;
+      if (user == null) throw Exception('Not authenticated');
+      
+      final token = await user.getIdToken();
+      
+      final response = await http.post(
+        Uri.parse('$_functionsBaseUrl/updatePickupLocation'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({
+          'bookingId': bookingId,
+          'pickupPlaceId': pickupPlaceId,
+          'pickupPlaceName': pickupPlaceName,
+        }),
+      );
+      
+      if (response.statusCode != 200) {
+        final error = jsonDecode(response.body);
+        throw Exception(error['error'] ?? 'Failed to update pickup');
+      }
+      
+      print('✅ Pickup updated to: $pickupPlaceName');
+      return true;
+    } catch (e) {
+      print('❌ Error updating pickup: $e');
+      rethrow;
+    }
+  }
+
   /// Get booking details by ID
   Future<Booking?> getBookingDetails(String bookingId) async {
     try {
@@ -93,6 +159,8 @@ class BookingService {
     required String confirmationCode,
     required DateTime newDate,
     required String reason,
+    int? pickupPlaceId,
+    String? pickupPlaceName,
   }) async {
     try {
       final user = _auth.currentUser;
@@ -100,8 +168,8 @@ class BookingService {
       
       print('📅 Creating reschedule request for booking: $bookingId');
       
-      // Write to Firestore - trigger will process it
-      final requestRef = await _firestore.collection('reschedule_requests').add({
+      // Build request data
+      final requestData = {
         'bookingId': bookingId,
         'confirmationCode': confirmationCode,
         'newDate': _formatDate(newDate),
@@ -109,7 +177,16 @@ class BookingService {
         'userId': user.uid,
         'status': 'pending',
         'createdAt': FieldValue.serverTimestamp(),
-      });
+      };
+      
+      // Add pickup info if provided
+      if (pickupPlaceId != null) {
+        requestData['pickupPlaceId'] = pickupPlaceId;
+        requestData['pickupPlaceName'] = pickupPlaceName ?? '';
+      }
+      
+      // Write to Firestore - trigger will process it
+      final requestRef = await _firestore.collection('reschedule_requests').add(requestData);
       
       print('📨 Reschedule request created: ${requestRef.id}');
       print('⏳ Waiting for Cloud Function to process...');
@@ -440,7 +517,9 @@ class Booking {
       startDate: startDate,
       endDate: null,
       productTitle: json['productTitle'] ?? json['product']?['title'] ?? 'Northern Lights Tour',
-      productId: json['productId']?.toString() ?? json['product']?['id']?.toString(),
+      productId: json['productId']?.toString() 
+          ?? json['product']?['id']?.toString()
+          ?? (json['productBookings'] as List?)?.firstOrNull?['product']?['id']?.toString(),
       totalParticipants: totalParticipants,
       totalPrice: (json['totalPrice'] ?? json['totalAmount'] ?? 0).toDouble(),
       currency: json['currency'] ?? 'ISK',
@@ -513,4 +592,33 @@ class Participant {
   });
   
   String get fullName => '$firstName $lastName'.trim();
+}
+
+class PickupPlace {
+  final int id;
+  final String title;
+  final String address;
+  final String city;
+  final String type;
+  
+  PickupPlace({
+    required this.id,
+    required this.title,
+    this.address = '',
+    this.city = '',
+    this.type = 'HOTEL',
+  });
+  
+  factory PickupPlace.fromJson(Map<String, dynamic> json) {
+    return PickupPlace(
+      id: json['id'] ?? 0,
+      title: json['title'] ?? '',
+      address: json['address'] ?? '',
+      city: json['city'] ?? '',
+      type: json['type'] ?? 'HOTEL',
+    );
+  }
+  
+  @override
+  String toString() => title;
 }

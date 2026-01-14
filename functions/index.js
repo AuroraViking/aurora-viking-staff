@@ -4229,9 +4229,32 @@ exports.onRescheduleRequest = onDocumentCreated(
           unitItems.push({ unitId: unitIdToUse });
         }
 
+        // Extract pickup info from original booking
+        const fields = productBooking.fields || {};
+        let pickupLocation = null;
+        let pickupLocationId = null;
+
+        // Try pickupPlace object first (predefined locations)
+        if (fields.pickupPlace) {
+          const pp = fields.pickupPlace;
+          pickupLocation = pp.title || pp.name || pp.description || null;
+          pickupLocationId = pp.id ? String(pp.id) : null;
+        }
+        // Then try pickupPlaceDescription (free text)
+        if (!pickupLocation && fields.pickupPlaceDescription) {
+          pickupLocation = fields.pickupPlaceDescription;
+        }
+        // Also check productBooking.pickupPlace directly
+        if (!pickupLocation && productBooking.pickupPlace) {
+          const pp = productBooking.pickupPlace;
+          pickupLocation = pp.title || pp.name || pp.description || null;
+          pickupLocationId = pp.id ? String(pp.id) : null;
+        }
+
         console.log(`📋 Customer: ${customerContact.fullName}, Email: ${customerContact.emailAddress}`);
         console.log(`📋 Total participants: ${totalParticipants}, Unit ID: ${unitIdToUse}`);
         console.log(`📋 Unit items: ${JSON.stringify(unitItems)}`);
+        console.log(`📋 Pickup: ${pickupLocation || 'None'} (ID: ${pickupLocationId || 'None'})`);
 
         // Step 2a: Cancel the existing booking
         // Use the correct Bokun cancel endpoint format with confirmation code
@@ -4292,7 +4315,7 @@ exports.onRescheduleRequest = onDocumentCreated(
           optionId: octoOptionId,
           availabilityId: availabilityId,
           unitItems: unitItems.length > 0 ? unitItems : [{ unitId: defaultUnitId || octoUnitIds[0] }],
-          notes: `Rebook from ${confirmationCode || bookingId}. Original date: ${currentDate}. Reason: ${reason || 'Customer request'}`,
+          notes: `Rebook from ${confirmationCode || bookingId}. Original date: ${currentDate}. ${pickupLocation ? 'Pickup: ' + pickupLocation + '. ' : ''}Reason: ${reason || 'Customer request'}`,
         };
 
         console.log(`📤 New booking request: ${JSON.stringify(newBookingRequest)}`);
@@ -4301,7 +4324,7 @@ exports.onRescheduleRequest = onDocumentCreated(
 
         console.log(`✅ New booking created: ${newBooking.uuid || newBooking.id || 'unknown'}`);
 
-        // Confirm the booking with contact details
+        // Confirm the booking with contact details and pickup info
         if (newBooking.uuid) {
           console.log(`✔️ Confirming new booking with contact details...`);
           const confirmRequest = {
@@ -4312,9 +4335,87 @@ exports.onRescheduleRequest = onDocumentCreated(
               phoneNumber: customerContact.phoneNumber || '',
             },
           };
+          // Note: Bokun OCTO confirm only supports: contact, resellerReference, emailReceipt, unitItems
+          // Pickup info is preserved in the booking notes field instead
+
           console.log(`📤 Confirm request: ${JSON.stringify(confirmRequest)}`);
           await octoRequest('POST', `/bookings/${newBooking.uuid}/confirm`, confirmRequest);
           console.log(`✅ Booking confirmed!`);
+
+          // Step 2c: Update pickup location via Bokun REST API (OCTO doesn't support pickup)
+          if (pickupLocation && pickupLocationId) {
+            console.log(`📍 Setting pickup location via REST API: ${pickupLocation} (ID: ${pickupLocationId})`);
+
+            // Get the new booking's confirmation code from OCTO response
+            const newConfirmationCode = newBooking.supplierReference || newBooking.id;
+
+            // Use the edit endpoint to set pickup
+            const editPath = '/booking.json/edit';
+            const editDate = new Date().toISOString().replace('T', ' ').substring(0, 19);
+            const editMessage = editDate + accessKey + 'POST' + editPath;
+            const editSignature = crypto
+              .createHmac('sha1', secretKey)
+              .update(editMessage)
+              .digest('base64');
+
+            const editRequest = {
+              actions: [{
+                type: 'SET_PICKUP',
+                productBookingId: parseInt(newBooking.id) || null,
+                pickup: true,
+                pickupPlaceId: parseInt(pickupLocationId),
+                pickupDescription: pickupLocation,
+              }],
+            };
+
+            try {
+              const editResult = await new Promise((resolve, reject) => {
+                const editBody = JSON.stringify(editRequest);
+
+                const options = {
+                  hostname: 'api.bokun.io',
+                  path: editPath,
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json;charset=UTF-8',
+                    'Content-Length': Buffer.byteLength(editBody),
+                    'X-Bokun-AccessKey': accessKey,
+                    'X-Bokun-Date': editDate,
+                    'X-Bokun-Signature': editSignature,
+                  },
+                };
+
+                const apiReq = https.request(options, (apiRes) => {
+                  let data = '';
+                  apiRes.on('data', (chunk) => { data += chunk; });
+                  apiRes.on('end', () => {
+                    console.log(`📍 Edit pickup response: ${apiRes.statusCode}`);
+                    if (apiRes.statusCode >= 200 && apiRes.statusCode < 400) {
+                      resolve({ success: true, statusCode: apiRes.statusCode });
+                    } else {
+                      console.log(`⚠️ Edit pickup failed: ${data}`);
+                      resolve({ success: false, error: data }); // Don't reject - booking is created
+                    }
+                  });
+                });
+
+                apiReq.on('error', (error) => {
+                  console.log(`⚠️ Edit pickup error: ${error.message}`);
+                  resolve({ success: false, error: error.message });
+                });
+                apiReq.write(editBody);
+                apiReq.end();
+              });
+
+              if (editResult.success) {
+                console.log(`✅ Pickup location set successfully!`);
+              } else {
+                console.log(`⚠️ Pickup location not set - booking still created`);
+              }
+            } catch (e) {
+              console.log(`⚠️ Could not set pickup: ${e.message}`);
+            }
+          }
         }
 
         // Log success
@@ -4586,6 +4687,309 @@ exports.checkRescheduleAvailability = onDocumentCreated(
         error: error.message,
         failedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
+    }
+  }
+);
+
+/**
+ * Get pickup places for an activity/product
+ */
+exports.getPickupPlaces = onRequest(
+  {
+    cors: true,
+    secrets: ['BOKUN_ACCESS_KEY', 'BOKUN_SECRET_KEY'],
+  },
+  async (req, res) => {
+    if (req.method !== 'GET' && req.method !== 'POST') {
+      res.status(405).json({ error: 'Method not allowed' });
+      return;
+    }
+
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const idToken = authHeader.split('Bearer ')[1];
+    try {
+      await admin.auth().verifyIdToken(idToken);
+    } catch (error) {
+      res.status(401).json({ error: 'Invalid token' });
+      return;
+    }
+
+    // Get productId from query or body
+    const productId = req.query.productId || req.body.productId;
+    if (!productId) {
+      res.status(400).json({ error: 'productId is required' });
+      return;
+    }
+
+    const accessKey = process.env.BOKUN_ACCESS_KEY;
+    const secretKey = process.env.BOKUN_SECRET_KEY;
+
+    if (!accessKey || !secretKey) {
+      res.status(500).json({ error: 'Bokun API keys not configured' });
+      return;
+    }
+
+    try {
+      console.log(`📍 Fetching pickup places for product ${productId}`);
+
+      const pickupPath = `/activity.json/${productId}/pickup-places`;
+      const pickupDate = new Date().toISOString().replace('T', ' ').substring(0, 19);
+      const pickupMessage = pickupDate + accessKey + 'GET' + pickupPath;
+      const pickupSignature = crypto
+        .createHmac('sha1', secretKey)
+        .update(pickupMessage)
+        .digest('base64');
+
+      const pickupPlaces = await new Promise((resolve, reject) => {
+        const options = {
+          hostname: 'api.bokun.io',
+          path: pickupPath,
+          method: 'GET',
+          headers: {
+            'X-Bokun-AccessKey': accessKey,
+            'X-Bokun-Date': pickupDate,
+            'X-Bokun-Signature': pickupSignature,
+          },
+        };
+
+        const apiReq = https.request(options, (apiRes) => {
+          let data = '';
+          apiRes.on('data', (chunk) => { data += chunk; });
+          apiRes.on('end', () => {
+            console.log(`📍 Pickup places response: ${apiRes.statusCode}`);
+            console.log(`📍 Raw response: ${data.substring(0, 500)}`);
+            if (apiRes.statusCode >= 200 && apiRes.statusCode < 300) {
+              try {
+                const parsed = JSON.parse(data);
+                console.log(`📍 Response type: ${typeof parsed}, isArray: ${Array.isArray(parsed)}`);
+                // Check for nested structures
+                if (parsed.pickupPlaces) {
+                  resolve(parsed.pickupPlaces);
+                } else if (parsed.pickupDropoffPlaces) {
+                  resolve(parsed.pickupDropoffPlaces);
+                } else if (parsed.items) {
+                  resolve(parsed.items);
+                } else {
+                  resolve(parsed);
+                }
+              } catch (e) {
+                reject(new Error('Failed to parse pickup places response'));
+              }
+            } else {
+              reject(new Error(`Bokun API error: ${apiRes.statusCode} - ${data}`));
+            }
+          });
+        });
+
+        apiReq.on('error', (error) => {
+          reject(error);
+        });
+        apiReq.end();
+      });
+
+      // Format the pickup places for the UI
+      const places = (Array.isArray(pickupPlaces) ? pickupPlaces : []).map(place => ({
+        id: place.id,
+        title: place.title || place.name,
+        address: place.address?.streetAddress || place.address || '',
+        city: place.address?.city || '',
+        type: place.type || 'HOTEL',
+      }));
+
+      console.log(`✅ Found ${places.length} pickup places`);
+      res.json({ pickupPlaces: places });
+
+    } catch (error) {
+      console.error(`❌ Error fetching pickup places: ${error.message}`);
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
+
+/**
+ * Update pickup location on an existing booking
+ * Uses Bokun GraphQL API since REST API booking.json/edit has issues with action types
+ */
+exports.updatePickupLocation = onRequest(
+  {
+    cors: true,
+    secrets: ['BOKUN_ACCESS_KEY', 'BOKUN_SECRET_KEY'],
+  },
+  async (req, res) => {
+    if (req.method !== 'POST') {
+      res.status(405).json({ error: 'Method not allowed' });
+      return;
+    }
+
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const idToken = authHeader.split('Bearer ')[1];
+    try {
+      await admin.auth().verifyIdToken(idToken);
+    } catch (error) {
+      res.status(401).json({ error: 'Invalid token' });
+      return;
+    }
+
+    const { bookingId, productBookingId, pickupPlaceId, pickupPlaceName } = req.body;
+
+    if (!bookingId || !pickupPlaceId) {
+      res.status(400).json({ error: 'bookingId and pickupPlaceId are required' });
+      return;
+    }
+
+    const accessKey = process.env.BOKUN_ACCESS_KEY;
+    const secretKey = process.env.BOKUN_SECRET_KEY;
+
+    if (!accessKey || !secretKey) {
+      res.status(500).json({ error: 'Bokun API keys not configured' });
+      return;
+    }
+
+    try {
+      console.log(`📍 Updating pickup for booking ${bookingId} to place ${pickupPlaceId} (${pickupPlaceName})`);
+
+      // First, get the booking to find the productBookingId if not provided
+      let actualProductBookingId = productBookingId;
+
+      if (!actualProductBookingId) {
+        // Search for the booking to get productBookingId
+        const searchPath = '/booking.json/booking-search';
+        const searchDate = new Date().toISOString().replace('T', ' ').substring(0, 19);
+        const searchMessage = searchDate + accessKey + 'POST' + searchPath;
+        const searchSignature = crypto
+          .createHmac('sha1', secretKey)
+          .update(searchMessage)
+          .digest('base64');
+
+        const searchResult = await new Promise((resolve, reject) => {
+          const searchBody = JSON.stringify({ bookingId: parseInt(bookingId) });
+          const options = {
+            hostname: 'api.bokun.io',
+            path: searchPath,
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json;charset=UTF-8',
+              'Content-Length': Buffer.byteLength(searchBody),
+              'X-Bokun-AccessKey': accessKey,
+              'X-Bokun-Date': searchDate,
+              'X-Bokun-Signature': searchSignature,
+            },
+          };
+
+          const apiReq = https.request(options, (apiRes) => {
+            let data = '';
+            apiRes.on('data', (chunk) => { data += chunk; });
+            apiRes.on('end', () => {
+              if (apiRes.statusCode >= 200 && apiRes.statusCode < 300) {
+                resolve(JSON.parse(data));
+              } else {
+                reject(new Error(`Search failed: ${apiRes.statusCode}`));
+              }
+            });
+          });
+          apiReq.on('error', reject);
+          apiReq.write(searchBody);
+          apiReq.end();
+        });
+
+        const booking = searchResult.items?.find(b => String(b.id) === String(bookingId));
+        if (!booking) {
+          throw new Error(`Booking ${bookingId} not found`);
+        }
+        actualProductBookingId = booking.productBookings?.[0]?.id;
+        console.log(`📋 Found productBookingId: ${actualProductBookingId}`);
+      }
+
+      if (!actualProductBookingId) {
+        throw new Error('Could not find productBookingId');
+      }
+
+      // Use REST API with ActivityPickupAction - body must be an ARRAY directly
+      const editPath = '/booking.json/edit';
+      const editDate = new Date().toISOString().replace('T', ' ').substring(0, 19);
+      const editMessage = editDate + accessKey + 'POST' + editPath;
+      const editSignature = crypto
+        .createHmac('sha1', secretKey)
+        .update(editMessage)
+        .digest('base64');
+
+      // ActivityPickupAction - the body is an ARRAY of actions directly (NOT wrapped in { actions: [...] })
+      const editActions = [{
+        type: 'ActivityPickupAction',
+        activityBookingId: parseInt(actualProductBookingId),
+        pickup: true,
+        pickupPlaceId: parseInt(pickupPlaceId),
+        description: pickupPlaceName || '',
+      }];
+
+      console.log(`📤 Edit request: ${JSON.stringify(editActions)}`);
+
+      const editResult = await new Promise((resolve, reject) => {
+        const editBody = JSON.stringify(editActions);
+        const options = {
+          hostname: 'api.bokun.io',
+          path: editPath,
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json;charset=UTF-8',
+            'Content-Length': Buffer.byteLength(editBody),
+            'X-Bokun-AccessKey': accessKey,
+            'X-Bokun-Date': editDate,
+            'X-Bokun-Signature': editSignature,
+          },
+        };
+
+        const apiReq = https.request(options, (apiRes) => {
+          let data = '';
+          apiRes.on('data', (chunk) => { data += chunk; });
+          apiRes.on('end', () => {
+            console.log(`📍 Edit response: ${apiRes.statusCode} - ${data.substring(0, 500)}`);
+            if (apiRes.statusCode >= 200 && apiRes.statusCode < 300) {
+              try {
+                resolve(JSON.parse(data));
+              } catch (e) {
+                resolve({ success: true, raw: data });
+              }
+            } else {
+              reject(new Error(`Edit failed: ${apiRes.statusCode} - ${data}`));
+            }
+          });
+        });
+        apiReq.on('error', reject);
+        apiReq.write(editBody);
+        apiReq.end();
+      });
+
+      console.log(`✅ Pickup updated successfully`);
+
+      // Log the action
+      await admin.firestore().collection('booking_actions').add({
+        bookingId,
+        action: 'update_pickup',
+        pickupPlaceId,
+        pickupPlaceName: pickupPlaceName || '',
+        performedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      res.json({
+        success: true,
+        message: `Pickup updated to ${pickupPlaceName || pickupPlaceId}`,
+        result: editResult,
+      });
+
+    } catch (error) {
+      console.error(`❌ Error updating pickup: ${error.message}`);
+      res.status(500).json({ error: error.message });
     }
   }
 );

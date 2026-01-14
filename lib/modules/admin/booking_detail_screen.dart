@@ -173,6 +173,44 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
           _buildInfoRow('Email', _booking.customer.email, copyable: true),
         if (_booking.customer.phone.isNotEmpty)
           _buildInfoRow('Phone', _booking.customer.phone, copyable: true),
+        if (_booking.pickup?.location != null && _booking.pickup!.location.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AppColors.primary.withOpacity(0.3)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.location_on, color: AppColors.primary, size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Pickup Location',
+                          style: TextStyle(color: Colors.white54, fontSize: 11),
+                        ),
+                        Text(
+                          _booking.pickup!.location,
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+                        ),
+                        if (_booking.pickup!.time.isNotEmpty)
+                          Text(
+                            _booking.pickup!.time,
+                            style: const TextStyle(color: AppColors.primary, fontSize: 12),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
       ],
     );
   }
@@ -338,6 +376,21 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
                   textAlign: TextAlign.center,
                 ),
               ),
+            const SizedBox(height: 12),
+            // Change Pickup button
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: canModify ? _showChangePickupDialog : null,
+                icon: const Icon(Icons.location_on),
+                label: const Text('Change Pickup Location'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  side: const BorderSide(color: Colors.white38),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -418,11 +471,55 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
   void _showRescheduleDialog() {
     DateTime selectedDate = _booking.startDate;
     final reasonController = TextEditingController();
+    List<PickupPlace> pickupPlaces = [];
+    PickupPlace? selectedPickup;
+    bool loadingPickups = true;
+    
+    // Load pickup places
+    void loadPickups(StateSetter setDialogState) async {
+      try {
+        // Extract productId from booking
+        final productId = _booking.productId;
+        print('🔍 DEBUG: Product ID = $productId');
+        print('🔍 DEBUG: Booking ID = ${_booking.id}');
+        
+        if (productId != null && productId.isNotEmpty) {
+          print('📍 Calling getPickupPlaces for product: $productId');
+          final places = await _service.getPickupPlaces(productId);
+          print('📍 Got ${places.length} pickup places');
+          
+          setDialogState(() {
+            pickupPlaces = places;
+            loadingPickups = false;
+            // Pre-select current pickup if exists
+            final currentPickup = _booking.pickup?.location;
+            if (currentPickup != null && currentPickup.isNotEmpty) {
+              selectedPickup = pickupPlaces.where((p) => 
+                p.title.toLowerCase().contains(currentPickup.toLowerCase()) ||
+                currentPickup.toLowerCase().contains(p.title.toLowerCase())
+              ).firstOrNull;
+            }
+          });
+        } else {
+          print('⚠️ DEBUG: No productId found on booking!');
+          setDialogState(() => loadingPickups = false);
+        }
+      } catch (e) {
+        print('❌ Error loading pickups: $e');
+        setDialogState(() => loadingPickups = false);
+      }
+    }
     
     showDialog(
       context: context,
       builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
+        builder: (context, setDialogState) {
+          // Load pickups on first build
+          if (loadingPickups && pickupPlaces.isEmpty) {
+            loadPickups(setDialogState);
+          }
+          
+          return AlertDialog(
           backgroundColor: const Color(0xFF1A1A2E),
           title: const Text(
             'Reschedule Booking',
@@ -488,6 +585,50 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
+                  // Pickup dropdown
+                  const Text(
+                    'Pickup Location:',
+                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  if (loadingPickups)
+                    const Center(child: CircularProgressIndicator())
+                  else if (pickupPlaces.isEmpty)
+                    Text(
+                      'No pickup locations available',
+                      style: TextStyle(color: Colors.white54),
+                    )
+                  else
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<PickupPlace>(
+                          value: selectedPickup,
+                          hint: const Text('Select pickup location', style: TextStyle(color: Colors.white54)),
+                          dropdownColor: const Color(0xFF1A1A2E),
+                          isExpanded: true,
+                          items: pickupPlaces.map((place) => DropdownMenuItem(
+                            value: place,
+                            child: Text(place.title, style: const TextStyle(color: Colors.white)),
+                          )).toList(),
+                          onChanged: (value) {
+                            setDialogState(() => selectedPickup = value);
+                          },
+                        ),
+                      ),
+                    ),
+                  if (_booking.pickup?.location != null && _booking.pickup!.location.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      'Current: ${_booking.pickup?.location}',
+                      style: const TextStyle(color: Colors.white54, fontSize: 12),
+                    ),
+                  ],
+                  const SizedBox(height: 16),
                   TextField(
                     controller: reasonController,
                     style: const TextStyle(color: Colors.white),
@@ -519,7 +660,12 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
                   ? null
                   : () {
                       Navigator.pop(context);
-                      _executeReschedule(selectedDate, reasonController.text);
+                      _executeReschedule(
+                        selectedDate, 
+                        reasonController.text,
+                        pickupPlaceId: selectedPickup?.id,
+                        pickupPlaceName: selectedPickup?.title,
+                      );
                     },
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.primary,
@@ -528,7 +674,134 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
               child: const Text('Confirm Reschedule'),
             ),
           ],
-        ),
+        );
+        },
+      ),
+    );
+  }
+
+  void _showChangePickupDialog() {
+    List<PickupPlace> pickupPlaces = [];
+    PickupPlace? selectedPickup;
+    bool loadingPickups = true;
+    bool isUpdating = false;
+    
+    void loadPickups(StateSetter setDialogState) async {
+      try {
+        final productId = _booking.productId;
+        if (productId != null && productId.isNotEmpty) {
+          final places = await _service.getPickupPlaces(productId);
+          setDialogState(() {
+            pickupPlaces = places;
+            loadingPickups = false;
+          });
+        } else {
+          setDialogState(() => loadingPickups = false);
+        }
+      } catch (e) {
+        print('Error loading pickups: $e');
+        setDialogState(() => loadingPickups = false);
+      }
+    }
+    
+    showDialog(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          if (loadingPickups && pickupPlaces.isEmpty) {
+            loadPickups(setDialogState);
+          }
+          
+          return AlertDialog(
+            backgroundColor: const Color(0xFF1A1A2E),
+            title: const Text('Change Pickup Location', style: TextStyle(color: Colors.white)),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (_booking.pickup?.location != null) ...[
+                  Text(
+                    'Current: ${_booking.pickup?.location}',
+                    style: const TextStyle(color: Colors.white70, fontSize: 14),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+                const Text('Select new pickup:', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                if (loadingPickups)
+                  const Center(child: CircularProgressIndicator())
+                else if (pickupPlaces.isEmpty)
+                  const Text('No pickup locations available', style: TextStyle(color: Colors.white54))
+                else
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<PickupPlace>(
+                        value: selectedPickup,
+                        hint: const Text('Select pickup location', style: TextStyle(color: Colors.white54)),
+                        dropdownColor: const Color(0xFF1A1A2E),
+                        isExpanded: true,
+                        items: pickupPlaces.map((place) => DropdownMenuItem(
+                          value: place,
+                          child: Text(place.title, style: const TextStyle(color: Colors.white)),
+                        )).toList(),
+                        onChanged: (value) => setDialogState(() => selectedPickup = value),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: isUpdating ? null : () => Navigator.pop(dialogContext),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: selectedPickup == null || isUpdating
+                    ? null
+                    : () async {
+                        setDialogState(() => isUpdating = true);
+                        try {
+                          await _service.updatePickupLocation(
+                            bookingId: _booking.id,
+                            pickupPlaceId: selectedPickup!.id,
+                            pickupPlaceName: selectedPickup!.title,
+                          );
+                          Navigator.pop(dialogContext);
+                          if (mounted) {
+                            ScaffoldMessenger.of(this.context).showSnackBar(
+                              SnackBar(
+                                content: Text('Pickup updated to ${selectedPickup!.title}'),
+                                backgroundColor: AppColors.success,
+                              ),
+                            );
+                            widget.onUpdated?.call();
+                          }
+                        } catch (e) {
+                          setDialogState(() => isUpdating = false);
+                          ScaffoldMessenger.of(this.context).showSnackBar(
+                            SnackBar(
+                              content: Text('Failed to update pickup: $e'),
+                              backgroundColor: AppColors.error,
+                            ),
+                          );
+                        }
+                      },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                ),
+                child: isUpdating
+                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Text('Update Pickup'),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -610,7 +883,12 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
     );
   }
 
-  Future<void> _executeReschedule(DateTime newDate, String reason) async {
+  Future<void> _executeReschedule(
+    DateTime newDate, 
+    String reason, {
+    int? pickupPlaceId,
+    String? pickupPlaceName,
+  }) async {
     setState(() => _isLoading = true);
     
     try {
@@ -619,6 +897,8 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
         confirmationCode: _booking.confirmationCode,
         newDate: newDate,
         reason: reason.isNotEmpty ? reason : 'Rescheduled via admin app',
+        pickupPlaceId: pickupPlaceId,
+        pickupPlaceName: pickupPlaceName,
       );
       
       if (mounted) {
