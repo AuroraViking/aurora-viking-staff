@@ -3564,6 +3564,8 @@ const Anthropic = require('@anthropic-ai/sdk');
 
 /**
  * Generate AI draft response when new inbound message is created
+ * DEPRECATED: Now using on-demand generateBookingAiAssist instead to save tokens
+ * This function is disabled but kept for reference
  */
 exports.generateAiDraft = onDocumentCreated(
   {
@@ -3572,6 +3574,12 @@ exports.generateAiDraft = onDocumentCreated(
     secrets: ['ANTHROPIC_API_KEY'],
   },
   async (event) => {
+    // DISABLED: Auto AI draft generation is disabled to save on API tokens
+    // Use the on-demand generateBookingAiAssist function instead
+    console.log('⏭️ Auto AI draft generation is DISABLED - use AI Assist button instead');
+    return null;
+
+    // Original code below (kept for reference)
     const snapshot = event.data;
     if (!snapshot) {
       console.log('No data in snapshot');
@@ -5238,5 +5246,801 @@ async function makeBokunRequest(method, path, body, accessKey, secretKey) {
     }
     apiReq.end();
   });
+}
+
+// ============================================
+// AI BOOKING ASSIST - Generate personalized replies with booking context
+// ============================================
+// This function is called on-demand when staff clicks "AI Assist" in the inbox
+// It looks up customer bookings, understands their intent, and suggests a reply + action
+
+const AI_SYSTEM_PROMPT = `You are Aurora Viking Staff AI, a trusted senior team member at Aurora Viking.
+
+ABOUT AURORA VIKING:
+- Premium Northern Lights tour operator in Reykjavik, Iceland
+- Tours run from September through the end of April (aurora season)
+- Pickup from hotels and designated bus stops in Reykjavik area
+- Tours last 4-5 hours depending on conditions
+- Small groups, expert guides, quality-focused
+
+PICKUP LOCATIONS (Reykjavik only - we do NOT pick up outside Reykjavik):
+- Bus Stop #1 - Ráðhúsið - City Hall
+- Bus Stop #3 - Lækjargata
+- Bus Stop #4
+- Bus stop #5
+- Bus stop #6 - Culture House
+- Bus Stop #8 - Hallgrimstorg
+- Bus Stop #9
+- Bus Stop #12, #13, #14, #15
+- BSI Bus Terminal
+- Skarfabakki Harbour / Cruise port (pickup 15 min earlier)
+- Hotels: Hilton Reykjavik Nordica, Grand Hotel Reykjavik, The Reykjavik EDITION, Fosshotel Baron, Hotel Klettur, Hotel Cabin, Exeter Hotel, Alva Hotel, Eyja Guldsmeden, Hotel Island Spa & Wellness, Reykjavik Natura, Reykjavik Lights by Keahotels, Oddsson Hotel, Kex Hostel, Bus Hostel, Dalur HI Hostel, and many more
+- If customer is staying OUTSIDE Reykjavik (e.g., Garðabær, Kópavogur, Hafnarfjörður), recommend they come to a bus stop in central Reykjavik or BSI terminal
+
+COMMUNICATION STYLE:
+- Be professional, calm, and confident
+- No excessive enthusiasm or emojis
+- Direct answers first, context second
+- Responses should be SHORT: 2-3 sentences max unless details are truly needed
+- Use customer's name when known
+- Reference their booking details when relevant
+- Slightly Icelandic directness (polite, not American-corporate)
+
+BOOKING ACTIONS YOU CAN SUGGEST:
+1. RESCHEDULE - Customer wants to change their tour date
+2. CANCEL - Customer wants to cancel and get a refund
+3. CHANGE_PICKUP - Customer wants to change pickup location
+4. INFO_ONLY - No booking change needed, just information
+
+POLICIES (CRITICAL - FOLLOW EXACTLY):
+- UNLIMITED FREE RETRY: If tour operates and no Northern Lights seen with naked eye, guests get unlimited free retries for 2 years
+- NO REFUNDS for no lights seen - only retry option
+- Guests MUST attend original booking to qualify for retry
+- Retry bookings must be made BEFORE 12:00 noon on tour day, subject to availability
+- Rescheduling within 24 hours of departure = treated as cancellation = NON-REFUNDABLE
+- If we allow a courtesy reschedule, it becomes FINAL (non-refundable, no further changes)
+- If AURORA VIKING cancels (weather, safety): guests choose free rebooking OR full refund
+- PAYMENT: We only accept CASH on departure (no card machines at pickup)
+- If customer wants to pay by card, they must make a NEW booking online, pay there, and we cancel the old booking
+
+NEVER SAY:
+- NEVER offer percentage refunds (we don't do 50% refunds, etc.)
+- NEVER promise refunds for no Northern Lights
+- NEVER guarantee seats for retry on specific nights
+- For complex refund/cancellation requests, say you'll check with the team
+
+OUTPUT FORMAT (JSON):
+{
+  "suggestedReply": "Your response to the customer...",
+  "suggestedAction": {
+    "type": "RESCHEDULE|CANCEL|CHANGE_PICKUP|INFO_ONLY",
+    "bookingId": "booking ID if action needed",
+    "confirmationCode": "AUR-XXXXXXXX if found",
+    "params": {
+      "newDate": "YYYY-MM-DD if reschedule",
+      "newPickupLocation": "location name if pickup change",
+      "cancelReason": "reason if cancel"
+    },
+    "humanReadableDescription": "e.g., Reschedule from Jan 15 to Jan 16"
+  },
+  "confidence": 0.0 to 1.0,
+  "reasoning": "Brief explanation of why you suggest this action"
+}`;
+
+exports.generateBookingAiAssist = onCall(
+  {
+    region: 'us-central1',
+    secrets: ['ANTHROPIC_API_KEY', 'BOKUN_ACCESS_KEY', 'BOKUN_SECRET_KEY'],
+  },
+  async (request) => {
+    console.log('🤖 AI Booking Assist requested');
+
+    // Verify user is authenticated
+    if (!request.auth) {
+      throw new Error('You must be logged in to use AI Assist');
+    }
+
+    const { conversationId, messageContent, customerEmail, customerName, bookingRefs } = request.data;
+
+    if (!conversationId || !messageContent) {
+      throw new Error('conversationId and messageContent are required');
+    }
+
+    try {
+      // Step 0: Extract booking references from the message content itself
+      // Support multiple booking formats:
+      // - AUR-12345678 (Aurora Viking direct)
+      // - VIA-76777741 (Viator)
+      // - GET-81930966 (GetYourGuide)
+      // - TDI-79829623 (TourDesk)
+      // - AV-12345678 (shorthand)
+      // - External booking refs (alphanumeric like GYGBLHXM9R2Y)
+      const bookingPatterns = [
+        /\b(?:AUR|VIA|GET|TDI|AV|aur|via|get|tdi|av)[-\s]?(\d{6,10})\b/gi,  // Prefixed booking refs
+        /\b(?:booking|confirmation|reference|ref|order)[:\.\s#]*(\d{6,15})\b/gi,  // booking: 12345678
+        /\b(\d{8,10})\b/g,  // 8-10 digit numbers (common booking ID length)
+        /\b([A-Z0-9]{10,15})\b/g,  // Alphanumeric refs like GYGBLHXM9R2Y (at least 10 chars)
+      ];
+
+      const extractedRefs = new Set(bookingRefs || []);
+      for (const pattern of bookingPatterns) {
+        const matches = messageContent.matchAll(pattern);
+        for (const match of matches) {
+          const ref = match[1] || match[0];
+          const numericRef = ref.replace(/\D/g, ''); // Just the digits
+          if (numericRef.length >= 6) { // Only add if at least 6 digits
+            extractedRefs.add(numericRef);
+            console.log(`🔍 Found booking reference in message: ${ref} -> ${numericRef}`);
+          }
+        }
+      }
+      const allBookingRefs = Array.from(extractedRefs);
+      console.log(`🔍 Total booking refs to search: ${allBookingRefs.join(', ') || 'none'}`);
+
+      // Step 1: Find related bookings
+      console.log('📋 Looking up bookings for:', { customerEmail, customerName, bookingRefs: allBookingRefs });
+      const bookings = await findCustomerBookings({
+        email: customerEmail,
+        name: customerName,
+        bookingRefs: allBookingRefs,
+      });
+      console.log(`📋 Found ${bookings.length} matching bookings`);
+
+      // Step 2: Build context for AI
+      const bookingContext = buildBookingContext(bookings);
+
+      // Step 3: Call Claude API
+      const Anthropic = require('@anthropic-ai/sdk').default;
+      const anthropic = new Anthropic({
+        apiKey: process.env.ANTHROPIC_API_KEY,
+      });
+
+      const userMessage = `
+CUSTOMER MESSAGE:
+${messageContent}
+
+CUSTOMER INFO:
+- Name: ${customerName || 'Unknown'}
+- Email: ${customerEmail || 'Unknown'}
+
+${bookingContext}
+
+Please analyze this customer message and provide a suggested reply and action in JSON format.`;
+
+      console.log('🤖 Calling Claude API...');
+      const response = await anthropic.messages.create({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1024,
+        messages: [
+          {
+            role: 'user',
+            content: userMessage,
+          },
+        ],
+        system: AI_SYSTEM_PROMPT,
+      });
+
+      // Parse the response
+      let aiResult;
+      try {
+        const responseText = response.content[0].text;
+        // Extract JSON from response (Claude sometimes wraps in markdown code blocks)
+        const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          aiResult = JSON.parse(jsonMatch[0]);
+        } else {
+          throw new Error('No JSON found in response');
+        }
+      } catch (parseError) {
+        console.error('Failed to parse AI response:', parseError);
+        aiResult = {
+          suggestedReply: response.content[0].text,
+          suggestedAction: { type: 'INFO_ONLY' },
+          confidence: 0.5,
+          reasoning: 'Could not parse structured response',
+        };
+      }
+
+      // Step 4: Log the AI assist request for training
+      await db.collection('ai_assist_logs').add({
+        conversationId,
+        customerEmail,
+        customerName,
+        bookingRefs: bookingRefs || [],
+        matchedBookings: bookings.map(b => b.confirmationCode || b.id),
+        messageContent: messageContent.substring(0, 500),
+        suggestedReply: aiResult.suggestedReply,
+        suggestedAction: aiResult.suggestedAction,
+        confidence: aiResult.confidence,
+        reasoning: aiResult.reasoning,
+        status: 'pending', // Will be updated when staff acts on it
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        createdBy: request.auth.uid,
+      });
+
+      console.log('✅ AI Assist generated successfully');
+
+      return {
+        success: true,
+        suggestedReply: aiResult.suggestedReply,
+        suggestedAction: aiResult.suggestedAction,
+        confidence: aiResult.confidence,
+        reasoning: aiResult.reasoning,
+        matchedBookings: bookings.map(b => ({
+          id: b.id,
+          confirmationCode: b.confirmationCode,
+          customerName: b.customerFullName || b.customerName,
+          productTitle: b.productTitle,
+          startDate: b.startDate,
+          status: b.status,
+          pickupLocation: b.pickupPlaceName,
+        })),
+      };
+    } catch (error) {
+      console.error('❌ AI Assist error:', error);
+      throw new Error(`AI Assist failed: ${error.message}`);
+    }
+  }
+);
+
+// Helper: Find bookings by customer email, name, or booking references
+// Uses dedicated ai_booking_cache collection with all searchable fields
+async function findCustomerBookings({ email, name, bookingRefs }) {
+  const matchedBookings = [];
+  const foundIds = new Set();
+  const accessKey = process.env.BOKUN_ACCESS_KEY;
+  const secretKey = process.env.BOKUN_SECRET_KEY;
+
+  console.log(`🔍 Searching for bookings - refs: ${bookingRefs.join(', ')}, name: ${name || 'N/A'}, email: ${email || 'N/A'}`);
+
+  try {
+    // Step 1: Check if we have a fresh AI booking cache (< 60 minutes old)
+    let aiCacheBookings = [];
+    const cacheDoc = await db.collection('ai_booking_cache').doc('current').get();
+
+    if (cacheDoc.exists) {
+      const cacheData = cacheDoc.data();
+      const cachedAt = cacheData.cachedAt?.toDate?.() || new Date(0);
+      const cacheAgeMinutes = (Date.now() - cachedAt.getTime()) / (1000 * 60);
+
+      // Cache valid for 60 minutes (fetching ~2000 bookings is expensive)
+      if (cacheAgeMinutes < 60 && cacheData.bookings) {
+        aiCacheBookings = cacheData.bookings;
+        console.log(`📋 Using AI cache (${cacheAgeMinutes.toFixed(1)} min old): ${aiCacheBookings.length} bookings`);
+      } else {
+        console.log(`⏰ AI cache stale (${cacheAgeMinutes.toFixed(1)} min old), will refresh`);
+      }
+    }
+
+    // Step 2: If cache is empty/stale, fetch from Bokun and update cache
+    if (aiCacheBookings.length === 0 && accessKey && secretKey) {
+      console.log('🔄 Refreshing AI booking cache from Bokun API...');
+      aiCacheBookings = await refreshAIBookingCache(accessKey, secretKey);
+    }
+
+    if (aiCacheBookings.length === 0) {
+      console.log('⚠️ No bookings in AI cache');
+      return [];
+    }
+
+    console.log(`📋 Searching ${aiCacheBookings.length} bookings in AI cache`);
+
+    // Step 3: Search through cached bookings for matches
+    for (const booking of aiCacheBookings) {
+      if (foundIds.has(booking.id)) continue;
+
+      const externalRef = booking.externalBookingReference || '';
+      const confirmationCode = booking.confirmationCode || '';
+      const bookingId = String(booking.id || '');
+      const customerName = (booking.customerName || '').toLowerCase();
+      const customerEmail = (booking.customerEmail || '').toLowerCase();
+      const phone = booking.phone || '';
+
+      // Try to match by booking references
+      for (const ref of bookingRefs) {
+        const numericRef = ref.replace(/\D/g, '');
+        if (!numericRef || numericRef.length < 6) continue;
+
+        // Match by external booking reference (e.g., "1341729451" from Viator)
+        if (externalRef && externalRef.includes(numericRef)) {
+          booking.matchConfidence = 'HIGH';
+          booking.matchReason = `External ref match: ${externalRef}`;
+          matchedBookings.push(booking);
+          foundIds.add(booking.id);
+          console.log(`✅ HIGH match by external ref: ${confirmationCode} (ext: ${externalRef})`);
+          break;
+        }
+
+        // Match by confirmation code number (e.g., "79818040" from "VIA-79818040")
+        const confirmationNumbers = confirmationCode.replace(/\D/g, '');
+        if (confirmationNumbers && confirmationNumbers === numericRef) {
+          booking.matchConfidence = 'HIGH';
+          booking.matchReason = `Confirmation code match: ${confirmationCode}`;
+          matchedBookings.push(booking);
+          foundIds.add(booking.id);
+          console.log(`✅ HIGH match by confirmation code: ${confirmationCode}`);
+          break;
+        }
+
+        // Match by booking ID
+        if (bookingId === numericRef) {
+          booking.matchConfidence = 'HIGH';
+          booking.matchReason = `Booking ID match: ${bookingId}`;
+          matchedBookings.push(booking);
+          foundIds.add(booking.id);
+          console.log(`✅ HIGH match by ID: ${confirmationCode}`);
+          break;
+        }
+      }
+    }
+
+    // Step 4: Try customer name matching if no matches yet
+    if (name && matchedBookings.length === 0) {
+      const searchName = name.toLowerCase().trim();
+      console.log(`🔍 Trying name match: "${searchName}"`);
+
+      for (const booking of aiCacheBookings) {
+        if (foundIds.has(booking.id)) continue;
+
+        const customerName = (booking.customerName || '').toLowerCase();
+        if (customerName && customerName.includes(searchName)) {
+          booking.matchConfidence = 'MEDIUM';
+          booking.matchReason = `Name match: "${booking.customerName}"`;
+          matchedBookings.push(booking);
+          foundIds.add(booking.id);
+          console.log(`👤 MEDIUM match by name: ${booking.confirmationCode} (${booking.customerName})`);
+        }
+      }
+    }
+
+    // Step 5: Try email matching as last resort (skip automated emails)
+    if (email && matchedBookings.length === 0 && !email.includes('expmessaging') && !email.includes('viator')) {
+      const searchEmail = email.toLowerCase();
+      for (const booking of aiCacheBookings) {
+        if (foundIds.has(booking.id)) continue;
+
+        if (booking.customerEmail && booking.customerEmail.toLowerCase() === searchEmail) {
+          booking.matchConfidence = 'MEDIUM';
+          booking.matchReason = `Email match: ${email}`;
+          matchedBookings.push(booking);
+          foundIds.add(booking.id);
+          console.log(`📧 MEDIUM match by email: ${booking.confirmationCode}`);
+        }
+      }
+    }
+
+  } catch (error) {
+    console.log('⚠️ Error searching AI booking cache:', error.message);
+  }
+
+  console.log(`📋 Total matched bookings: ${matchedBookings.length}`);
+  return matchedBookings;
+}
+
+// Helper: Refresh AI booking cache from Bokun API
+// Fetches ALL bookings with pagination
+async function refreshAIBookingCache(accessKey, secretKey) {
+  try {
+    const method = 'POST';
+    const path = '/booking.json/booking-search';
+
+    // Fetch bookings from -45 days to +60 days (reasonable range for customer inquiries)
+    // Reduced from ±90 to avoid Firestore 1 MB document size limit
+    const now = new Date();
+    const startDate = new Date(now);
+    startDate.setDate(startDate.getDate() - 45);
+    const endDate = new Date(now);
+    endDate.setDate(endDate.getDate() + 60);
+
+    const startDateStr = startDate.toISOString().split('T')[0];
+    const endDateStr = endDate.toISOString().split('T')[0];
+
+    console.log(`🔄 Fetching bookings from Bokun: ${startDateStr} to ${endDateStr}`);
+
+    // Paginate to get ALL bookings
+    let allBookings = [];
+    let offset = 0;
+    const pageSize = 50; // Bokun limits to 50 per page
+    let hasMore = true;
+    let totalHits = 0;
+
+    while (hasMore) {
+      const bokunDate = new Date().toISOString().replace('T', ' ').substring(0, 19);
+      const message = bokunDate + accessKey + method + path;
+      const signature = crypto.createHmac('sha1', secretKey).update(message).digest('base64');
+
+      const requestBody = JSON.stringify({
+        productConfirmationDateRange: { from: startDateStr, to: endDateStr },
+        offset: offset,
+        limit: pageSize,
+      });
+
+      const pageResult = await new Promise((resolve) => {
+        const options = {
+          hostname: 'api.bokun.io',
+          path,
+          method,
+          headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(requestBody),
+            'X-Bokun-AccessKey': accessKey,
+            'X-Bokun-Date': bokunDate,
+            'X-Bokun-Signature': signature,
+          },
+        };
+
+        const req = https.request(options, (res) => {
+          let data = '';
+          res.on('data', chunk => data += chunk);
+          res.on('end', () => {
+            if (res.statusCode >= 200 && res.statusCode < 300) {
+              try {
+                const result = JSON.parse(data);
+                resolve({ items: result.items || [], totalHits: result.totalHits || 0 });
+              } catch (e) {
+                resolve({ items: [], totalHits: 0 });
+              }
+            } else {
+              console.log(`Bokun API error: ${res.statusCode}`);
+              resolve({ items: [], totalHits: 0 });
+            }
+          });
+        });
+
+        req.on('error', () => resolve({ items: [], totalHits: 0 }));
+        req.write(requestBody);
+        req.end();
+      });
+
+      const items = pageResult.items;
+      allBookings = allBookings.concat(items);
+      totalHits = pageResult.totalHits || allBookings.length;
+
+      console.log(`📋 Fetched page ${Math.floor(offset / pageSize) + 1}: ${items.length} bookings (total: ${allBookings.length}/${totalHits})`);
+
+      // Check if there are more pages - continue as long as we got items AND haven't reached total
+      offset += pageSize;
+      // FIX: Bokun may return fewer items than requested - continue if we got ANY items and haven't reached total
+      hasMore = items.length > 0 && allBookings.length < totalHits;
+
+      // Safety limit to stay within Firestore 1 MB document limit
+      if (allBookings.length >= 2000) {
+        console.log('⚠️ Reached 2000 bookings limit (Firestore size constraint), stopping');
+        hasMore = false;
+      }
+    }
+
+    console.log(`📋 Fetched ${allBookings.length} total bookings from Bokun`);
+
+    // Transform to AI cache format with all searchable fields
+    const aiCacheBookings = allBookings.map(b => ({
+      id: b.id,
+      confirmationCode: b.confirmationCode || '',
+      externalBookingReference: b.externalBookingReference || '',
+      customerName: b.customer?.fullName || `${b.customer?.firstName || ''} ${b.customer?.lastName || ''}`.trim(),
+      customerEmail: b.customer?.email || '',
+      phone: b.customer?.phoneNumber || b.customer?.phone || '',
+      productTitle: b.productBookings?.[0]?.product?.title || 'Northern Lights Tour',
+      startDate: b.productBookings?.[0]?.startDate || b.startDate,
+      startTime: b.productBookings?.[0]?.startTime || '',
+      totalParticipants: b.productBookings?.[0]?.totalParticipants || b.totalParticipants || 1,
+      status: b.productBookings?.[0]?.status || b.status || 'CONFIRMED',
+      pickupPlace: b.productBookings?.[0]?.fields?.pickupPlace?.title || '',
+      fullyPaid: b.fullyPaid || false,
+    }));
+
+    // Save to Firestore
+    await db.collection('ai_booking_cache').doc('current').set({
+      bookings: aiCacheBookings,
+      cachedAt: new Date(),
+      count: aiCacheBookings.length,
+      dateRange: { from: startDateStr, to: endDateStr },
+    });
+
+    console.log(`💾 Saved ${aiCacheBookings.length} bookings to AI cache`);
+    return aiCacheBookings;
+
+  } catch (error) {
+    console.log('⚠️ Failed to refresh AI booking cache:', error.message);
+    return [];
+  }
+}
+
+// Helper: Search Bokun for booking by ID
+async function searchBokunBookingById(bookingId, accessKey, secretKey) {
+  const method = 'POST';
+  const path = '/booking.json/booking-search';
+
+  const now = new Date();
+  const bokunDate = now.toISOString().replace('T', ' ').substring(0, 19);
+  const message = bokunDate + accessKey + method + path;
+  const signature = crypto.createHmac('sha1', secretKey).update(message).digest('base64');
+
+  const requestBody = JSON.stringify({ bookingId: parseInt(bookingId) });
+
+  return new Promise((resolve, reject) => {
+    const options = {
+      hostname: 'api.bokun.io',
+      path,
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(requestBody),
+        'X-Bokun-AccessKey': accessKey,
+        'X-Bokun-Date': bokunDate,
+        'X-Bokun-Signature': signature,
+      },
+    };
+
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          try {
+            const result = JSON.parse(data);
+            if (result.items && result.items.length > 0) {
+              resolve(result.items[0]);
+            } else {
+              resolve(null);
+            }
+          } catch (e) {
+            reject(new Error('Failed to parse Bokun response'));
+          }
+        } else {
+          reject(new Error(`Bokun API error: ${res.statusCode}`));
+        }
+      });
+    });
+
+    req.on('error', reject);
+    req.write(requestBody);
+    req.end();
+  });
+}
+
+// Helper: Search Bokun for booking by confirmation code text (for external refs like Viator)
+// This searches the confirmationCode field which includes external booking refs
+async function searchBokunByConfirmationCode(searchText, accessKey, secretKey) {
+  const method = 'POST';
+  const path = '/booking.json/booking-search';
+
+  const now = new Date();
+  const bokunDate = now.toISOString().replace('T', ' ').substring(0, 19);
+  const message = bokunDate + accessKey + method + path;
+  const signature = crypto.createHmac('sha1', secretKey).update(message).digest('base64');
+
+  // Search by confirmation code text - this matches the external booking ref
+  const requestBody = JSON.stringify({
+    confirmationCode: searchText,
+    limit: 10
+  });
+
+  console.log(`🔍 Searching Bokun by confirmation code: ${searchText}`);
+
+  return new Promise((resolve, reject) => {
+    const options = {
+      hostname: 'api.bokun.io',
+      path,
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(requestBody),
+        'X-Bokun-AccessKey': accessKey,
+        'X-Bokun-Date': bokunDate,
+        'X-Bokun-Signature': signature,
+      },
+    };
+
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          try {
+            const result = JSON.parse(data);
+            console.log(`🔍 Confirmation code search returned ${result.items?.length || 0} results`);
+            if (result.items && result.items.length > 0) {
+              // Return the first matching booking
+              const match = result.items.find(b =>
+                b.confirmationCode?.includes(searchText) ||
+                b.externalBookingReference === searchText ||
+                String(b.id) === searchText
+              );
+              resolve(match || result.items[0]);
+            } else {
+              resolve(null);
+            }
+          } catch (e) {
+            console.log('Failed to parse Bokun confirmation code search response');
+            resolve(null);
+          }
+        } else {
+          console.log(`Bokun confirmation code search error: ${res.statusCode}`);
+          resolve(null);
+        }
+      });
+    });
+
+    req.on('error', (err) => {
+      console.log('Bokun confirmation code search request error:', err.message);
+      resolve(null);
+    });
+    req.write(requestBody);
+    req.end();
+  });
+}
+
+// Helper: Search Bokun for all recent bookings (for external ref matching)
+// Fetches bookings in the next 30 days without email filter
+async function searchBokunRecentBookings(accessKey, secretKey) {
+  const method = 'POST';
+  const path = '/booking.json/booking-search';
+
+  // Search for all bookings in the next 30 days
+  const now = new Date();
+  const startDate = new Date(now);
+  startDate.setDate(startDate.getDate() - 7); // Include 7 days in the past too
+  const endDate = new Date(now);
+  endDate.setDate(endDate.getDate() + 30);
+
+  const startDateStr = startDate.toISOString().split('T')[0];
+  const endDateStr = endDate.toISOString().split('T')[0];
+
+  const bokunDate = now.toISOString().replace('T', ' ').substring(0, 19);
+  const message = bokunDate + accessKey + method + path;
+  const signature = crypto.createHmac('sha1', secretKey).update(message).digest('base64');
+
+  const requestBody = JSON.stringify({
+    productConfirmationDateRange: {
+      from: startDateStr,
+      to: endDateStr,
+    },
+    limit: 100, // Get more bookings to search through
+  });
+
+  console.log(`🔍 Searching ALL recent bookings from ${startDateStr} to ${endDateStr}`);
+
+  return new Promise((resolve, reject) => {
+    const options = {
+      hostname: 'api.bokun.io',
+      path,
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(requestBody),
+        'X-Bokun-AccessKey': accessKey,
+        'X-Bokun-Date': bokunDate,
+        'X-Bokun-Signature': signature,
+      },
+    };
+
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          try {
+            const result = JSON.parse(data);
+            console.log(`📋 Recent bookings search returned ${result.items?.length || 0} bookings`);
+            resolve(result.items || []);
+          } catch (e) {
+            console.log('Failed to parse Bokun recent bookings response');
+            resolve([]);
+          }
+        } else {
+          console.log(`Bokun recent bookings search error: ${res.statusCode}`);
+          resolve([]);
+        }
+      });
+    });
+
+    req.on('error', (err) => {
+      console.log('Bokun recent bookings request error:', err.message);
+      resolve([]);
+    });
+    req.write(requestBody);
+    req.end();
+  });
+}
+
+// Helper: Search Bokun for bookings by customer email
+async function searchBokunBookingsByEmail(email, accessKey, secretKey) {
+  const method = 'POST';
+  const path = '/booking.json/booking-search';
+
+  // Search for bookings in the next 30 days (most relevant)
+  const now = new Date();
+  const endDate = new Date(now);
+  endDate.setDate(endDate.getDate() + 30);
+
+  const startDateStr = now.toISOString().split('T')[0];
+  const endDateStr = endDate.toISOString().split('T')[0];
+
+  const bokunDate = now.toISOString().replace('T', ' ').substring(0, 19);
+  const message = bokunDate + accessKey + method + path;
+  const signature = crypto.createHmac('sha1', secretKey).update(message).digest('base64');
+
+  const requestBody = JSON.stringify({
+    productConfirmationDateRange: {
+      from: startDateStr,
+      to: endDateStr,
+    },
+    customerEmail: email,
+    limit: 10,
+  });
+
+  return new Promise((resolve, reject) => {
+    const options = {
+      hostname: 'api.bokun.io',
+      path,
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(requestBody),
+        'X-Bokun-AccessKey': accessKey,
+        'X-Bokun-Date': bokunDate,
+        'X-Bokun-Signature': signature,
+      },
+    };
+
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          try {
+            const result = JSON.parse(data);
+            resolve(result.items || []);
+          } catch (e) {
+            reject(new Error('Failed to parse Bokun response'));
+          }
+        } else {
+          resolve([]); // Return empty if search fails
+        }
+      });
+    });
+
+    req.on('error', () => resolve([]));
+    req.write(requestBody);
+    req.end();
+  });
+}
+
+// Helper: Build booking context string for AI
+function buildBookingContext(bookings) {
+  if (bookings.length === 0) {
+    return 'BOOKING CONTEXT:\nNo bookings found for this customer.';
+  }
+
+  let context = 'BOOKING CONTEXT:\n';
+  bookings.forEach((booking, index) => {
+    // Extract product booking details if available
+    const productBooking = booking.productBookings?.[0];
+    const startDate = productBooking?.startDate || booking.startDate || 'Unknown';
+    const startTime = productBooking?.startTime || booking.startTime || booking.pickupTime || null;
+    const pickupPlace = productBooking?.fields?.pickupPlace?.title ||
+      booking.pickupPlaceName ||
+      'Unknown pickup';
+    const customerEmail = booking.customer?.email || booking.customerEmail || 'Unknown';
+
+    context += `
+Booking ${index + 1}${booking.matchConfidence ? ` [${booking.matchConfidence} CONFIDENCE MATCH]` : ''}:
+- Confirmation Code: ${booking.confirmationCode || booking.id}
+- External Ref: ${booking.externalBookingReference || 'N/A'}
+- Customer: ${booking.customer?.fullName || booking.customerFullName || 'Unknown'}
+- Email: ${customerEmail}
+- Product: ${productBooking?.product?.title || booking.productTitle || 'Northern Lights Tour'}
+- Tour Date: ${startDate}
+- Departure/Pickup Time: ${startTime || 'See pickup details'}
+- Pickup Location: ${pickupPlace}
+- Guests: ${booking.totalParticipants || booking.numberOfGuests || 1}
+- Status: ${booking.status || 'CONFIRMED'}
+- Paid: ${booking.fullyPaid ? 'Yes' : 'No - CASH payment on departure'}
+${booking.matchReason ? `- Match Reason: ${booking.matchReason}` : ''}
+`;
+  });
+
+  return context;
 }
 

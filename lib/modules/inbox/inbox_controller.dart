@@ -3,7 +3,9 @@
 
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import '../../core/models/messaging/messaging_models.dart';
+import '../admin/booking_service.dart' hide Customer;
 import 'messaging_service.dart';
 
 class InboxController extends ChangeNotifier {
@@ -24,6 +26,10 @@ class InboxController extends ChangeNotifier {
   bool _isSending = false;
   String? _error;
   bool _isInitialized = false;
+
+  // AI Assist state
+  bool _isAiAssistLoading = false;
+  Map<String, dynamic>? _aiAssistResult;
 
   // Subscriptions
   StreamSubscription<List<Conversation>>? _conversationsSubscription;
@@ -74,6 +80,11 @@ class InboxController extends ChangeNotifier {
   String? get error => _error;
   bool get hasError => _error != null;
   bool get isInitialized => _isInitialized;
+  
+  // AI Assist getters
+  bool get isAiAssistLoading => _isAiAssistLoading;
+  Map<String, dynamic>? get aiAssistResult => _aiAssistResult;
+  bool get hasAiAssistResult => _aiAssistResult != null;
 
   // Channel counts (respect inbox filter)
   List<Conversation> get _filteredByInbox => _selectedInboxFilter == null
@@ -346,6 +357,23 @@ class InboxController extends ChangeNotifier {
     }
   }
 
+  /// Delete conversation permanently (for spam cleanup)
+  Future<void> deleteConversation(String conversationId) async {
+    try {
+      await _messagingService.deleteConversation(conversationId);
+      print('🗑️ Deleted conversation $conversationId');
+      
+      // Clear selection if this was the selected conversation
+      if (_selectedConversation?.id == conversationId) {
+        clearSelectedConversation();
+      }
+    } catch (e) {
+      print('Error deleting conversation: $e');
+      _error = 'Failed to delete conversation';
+      notifyListeners();
+    }
+  }
+
   /// Assign conversation to current user
   Future<void> assignToMe(String conversationId, String userId, String userName) async {
     try {
@@ -476,6 +504,202 @@ class InboxController extends ChangeNotifier {
     } catch (e) {
       print('❌ Failed to log AI draft edit: $e');
     }
+  }
+
+  // ============================================
+  // AI BOOKING ASSIST
+  // ============================================
+
+  /// Generate AI-assisted reply with booking context
+  Future<void> generateAiAssist() async {
+    if (_selectedConversation == null || _messages.isEmpty) {
+      _error = 'No conversation or messages to analyze';
+      notifyListeners();
+      return;
+    }
+
+    _isAiAssistLoading = true;
+    _aiAssistResult = null;
+    _error = null;
+    notifyListeners();
+
+    try {
+      // Get the latest inbound message content
+      final latestInbound = _messages.lastWhere(
+        (m) => m.direction == MessageDirection.inbound,
+        orElse: () => _messages.last,
+      );
+
+      // Call the Cloud Function
+      final functions = FirebaseFunctions.instanceFor(region: 'us-central1');
+      final callable = functions.httpsCallable('generateBookingAiAssist');
+      
+      final result = await callable.call({
+        'conversationId': _selectedConversation!.id,
+        'messageContent': latestInbound.content,
+        'customerEmail': _selectedConversation!.customerEmail,
+        'customerName': _selectedConversation!.customerName,
+        'bookingRefs': _selectedConversation!.bookingIds,
+      });
+
+      _aiAssistResult = Map<String, dynamic>.from(result.data);
+      _isAiAssistLoading = false;
+      print('✅ AI Assist result: ${_aiAssistResult?['suggestedAction']?['type']}');
+      notifyListeners();
+    } catch (e) {
+      print('❌ AI Assist error: $e');
+      _error = 'AI Assist failed: $e';
+      _isAiAssistLoading = false;
+      notifyListeners();
+    }
+  }
+
+  /// Clear AI Assist result
+  void clearAiAssistResult() {
+    _aiAssistResult = null;
+    notifyListeners();
+  }
+
+  /// Accept the AI suggested reply (puts it in the message field)
+  String? getAiSuggestedReply() {
+    return _aiAssistResult?['suggestedReply'] as String?;
+  }
+
+  /// Get the suggested action from AI Assist
+  Map<String, dynamic>? getAiSuggestedAction() {
+    final rawAction = _aiAssistResult?['suggestedAction'];
+    if (rawAction is Map) {
+      return Map<String, dynamic>.from(rawAction);
+    }
+    return null;
+  }
+
+  /// Get matched bookings from AI Assist
+  List<dynamic>? getAiMatchedBookings() {
+    return _aiAssistResult?['matchedBookings'] as List<dynamic>?;
+  }
+
+  // AI Action execution state
+  bool _isExecutingAction = false;
+  String? _actionExecutionError;
+  String? _actionExecutionSuccess;
+
+  bool get isExecutingAction => _isExecutingAction;
+  String? get actionExecutionError => _actionExecutionError;
+  String? get actionExecutionSuccess => _actionExecutionSuccess;
+
+  /// Execute the AI-suggested booking action
+  Future<bool> executeAiAction() async {
+    final action = getAiSuggestedAction();
+    if (action == null) {
+      _actionExecutionError = 'No action to execute';
+      notifyListeners();
+      return false;
+    }
+
+    final actionType = action['type']?.toString();
+    final bookingId = action['bookingId']?.toString();
+    final confirmationCode = action['confirmationCode']?.toString();
+    // Safely cast the nested params map
+    final rawParams = action['params'];
+    final params = rawParams is Map ? Map<String, dynamic>.from(rawParams) : null;
+
+    if (bookingId == null || bookingId.isEmpty) {
+      _actionExecutionError = 'No booking ID found for action';
+      notifyListeners();
+      return false;
+    }
+
+    // Extract numeric booking ID (Bokun needs just the number, not AUR-XXXXXXXX)
+    final numericBookingId = RegExp(r'(\d+)').firstMatch(bookingId)?.group(1) ?? bookingId;
+    // Keep the full format as confirmation code if not provided
+    final finalConfirmationCode = confirmationCode ?? bookingId;
+
+    _isExecutingAction = true;
+    _actionExecutionError = null;
+    _actionExecutionSuccess = null;
+    notifyListeners();
+
+    try {
+      // Import and use BookingService
+      final bookingService = BookingService();
+      bool success = false;
+
+      switch (actionType) {
+        case 'RESCHEDULE':
+          final newDateStr = params?['newDate'] as String?;
+          if (newDateStr == null) {
+            throw Exception('New date not provided for reschedule');
+          }
+          final newDate = DateTime.parse(newDateStr);
+          
+          success = await bookingService.rescheduleBooking(
+            bookingId: numericBookingId,
+            confirmationCode: finalConfirmationCode,
+            newDate: newDate,
+            reason: 'AI-assisted reschedule via customer request',
+          );
+          _actionExecutionSuccess = 'Booking rescheduled to ${newDateStr}';
+          break;
+
+        case 'CANCEL':
+          final cancelReason = params?['cancelReason'] as String? ?? 'Customer requested cancellation';
+          
+          success = await bookingService.cancelBooking(
+            bookingId: numericBookingId,
+            confirmationCode: finalConfirmationCode,
+            reason: cancelReason,
+          );
+          _actionExecutionSuccess = 'Booking cancelled successfully';
+          break;
+
+        case 'CHANGE_PICKUP':
+          final newPickupLocation = params?['newPickupLocation'] as String?;
+          final pickupPlaceId = params?['pickupPlaceId'] as int?;
+          
+          if (pickupPlaceId == null) {
+            throw Exception('Pickup place ID not found - cannot change pickup automatically. Please change manually in Booking Management.');
+          }
+          
+          success = await bookingService.updatePickupLocation(
+            bookingId: numericBookingId,
+            pickupPlaceId: pickupPlaceId,
+            pickupPlaceName: newPickupLocation ?? 'Updated pickup',
+          );
+          _actionExecutionSuccess = 'Pickup changed to $newPickupLocation';
+          break;
+
+        default:
+          throw Exception('Unknown action type: $actionType');
+      }
+
+      _isExecutingAction = false;
+      
+      // Log the action execution
+      await _messagingService.logAiActionExecution(
+        conversationId: _selectedConversation?.id ?? '',
+        actionType: actionType ?? '',
+        bookingId: numericBookingId,
+        success: success,
+      );
+
+      notifyListeners();
+      return success;
+
+    } catch (e) {
+      print('❌ AI Action execution error: $e');
+      _actionExecutionError = e.toString();
+      _isExecutingAction = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Clear action execution state
+  void clearActionExecutionState() {
+    _actionExecutionError = null;
+    _actionExecutionSuccess = null;
+    notifyListeners();
   }
 }
 

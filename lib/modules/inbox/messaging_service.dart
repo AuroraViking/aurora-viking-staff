@@ -15,7 +15,7 @@ class MessagingService {
   Stream<List<Conversation>> getConversationsStream({
     ConversationStatus? status,
     String? customerId,
-    int limit = 50,
+    int limit = 100,
   }) {
     Query<Map<String, dynamic>> query = _firestore
         .collection('conversations')
@@ -36,7 +36,7 @@ class MessagingService {
   }
 
   /// Get active conversations stream (excludes archived only)
-  Stream<List<Conversation>> getActiveConversationsStream({int limit = 50}) {
+  Stream<List<Conversation>> getActiveConversationsStream({int limit = 100}) {
     // Get all conversations except archived
     // The UI will filter by isHandled for Main vs sub-inboxes
     return _firestore
@@ -170,6 +170,31 @@ class MessagingService {
       });
     } catch (e) {
       print('Error reopening conversation: $e');
+      rethrow;
+    }
+  }
+
+  /// Delete conversation and its messages (for spam cleanup)
+  Future<void> deleteConversation(String conversationId) async {
+    try {
+      // Delete all messages in the conversation
+      final messagesQuery = await _firestore
+          .collection('messages')
+          .where('conversationId', isEqualTo: conversationId)
+          .get();
+      
+      final batch = _firestore.batch();
+      for (final doc in messagesQuery.docs) {
+        batch.delete(doc.reference);
+      }
+      
+      // Delete the conversation
+      batch.delete(_firestore.collection('conversations').doc(conversationId));
+      
+      await batch.commit();
+      print('🗑️ Deleted conversation $conversationId and ${messagesQuery.docs.length} messages');
+    } catch (e) {
+      print('❌ Error deleting conversation: $e');
       rethrow;
     }
   }
@@ -554,6 +579,30 @@ class MessagingService {
     } catch (e) {
       print('❌ Error getting AI learning stats: $e');
       return {};
+    }
+  }
+
+  /// Log AI action execution (for tracking and learning)
+  Future<void> logAiActionExecution({
+    required String conversationId,
+    required String actionType,
+    required String bookingId,
+    required bool success,
+    String? errorMessage,
+  }) async {
+    try {
+      await _firestore.collection('ai_learning').add({
+        'type': 'action_execution',
+        'conversationId': conversationId,
+        'actionType': actionType,
+        'bookingId': bookingId,
+        'success': success,
+        'errorMessage': errorMessage,
+        'timestamp': FieldValue.serverTimestamp(),
+      });
+      print('📊 AI action execution logged: $actionType ($success)');
+    } catch (e) {
+      print('❌ Error logging AI action execution: $e');
     }
   }
 }

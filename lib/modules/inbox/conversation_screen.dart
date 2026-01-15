@@ -113,6 +113,16 @@ class _ConversationScreenState extends State<ConversationScreen> {
                       ],
                     ),
                   ),
+                  const PopupMenuItem(
+                    value: 'delete',
+                    child: Row(
+                      children: [
+                        Icon(Icons.delete_outline, size: 20, color: Colors.red),
+                        SizedBox(width: 8),
+                        Text('Delete', style: TextStyle(color: Colors.red)),
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ],
@@ -159,8 +169,14 @@ class _ConversationScreenState extends State<ConversationScreen> {
                       ),
               ),
 
-              // AI Draft suggestion panel
-              _buildAiDraftPanel(controller),
+              // AI Draft suggestion panel (auto-generated on message receipt)
+              // Hide when AI Assist panel is showing to avoid confusion
+              if (!controller.hasAiAssistResult)
+                _buildAiDraftPanel(controller),
+
+              // AI Assist panel (on-demand when staff clicks AI button)
+              if (controller.hasAiAssistResult)
+                _buildAiAssistPanel(controller),
 
               // Message input
               _buildMessageInput(controller),
@@ -596,6 +612,39 @@ class _ConversationScreenState extends State<ConversationScreen> {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
+            // AI Assist button
+            Container(
+              decoration: BoxDecoration(
+                color: controller.isAiAssistLoading
+                    ? AVColors.auroraGreen.withOpacity(0.3)
+                    : AVColors.slateElev,
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: AVColors.auroraGreen.withOpacity(0.5),
+                  width: 1,
+                ),
+              ),
+              child: IconButton(
+                icon: controller.isAiAssistLoading
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: AVColors.auroraGreen,
+                        ),
+                      )
+                    : const Icon(
+                        Icons.auto_awesome,
+                        color: AVColors.auroraGreen,
+                      ),
+                onPressed: controller.isAiAssistLoading
+                    ? null
+                    : () => controller.generateAiAssist(),
+                tooltip: 'AI Assist - Get booking-aware reply suggestion',
+              ),
+            ),
+            const SizedBox(width: 8),
             Expanded(
               child: Container(
                 decoration: BoxDecoration(
@@ -808,6 +857,330 @@ class _ConversationScreenState extends State<ConversationScreen> {
     return AVColors.forgeRed;
   }
 
+  // AI Assist panel - shows on-demand AI suggestions with booking context
+  Widget _buildAiAssistPanel(InboxController controller) {
+    final result = controller.aiAssistResult;
+    if (result == null) return const SizedBox.shrink();
+
+    final suggestedReply = result['suggestedReply']?.toString() ?? '';
+    // Safely cast the nested map
+    final rawAction = result['suggestedAction'];
+    final suggestedAction = rawAction is Map 
+        ? Map<String, dynamic>.from(rawAction) 
+        : null;
+    final confidence = (result['confidence'] as num?)?.toDouble() ?? 0.5;
+    final matchedBookings = result['matchedBookings'] as List<dynamic>? ?? [];
+    final reasoning = result['reasoning']?.toString() ?? '';
+    
+    final actionType = suggestedAction?['type']?.toString() ?? 'INFO_ONLY';
+    final actionDescription = suggestedAction?['humanReadableDescription']?.toString() ?? '';
+
+    return Container(
+      margin: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            AVColors.auroraGreen.withOpacity(0.15),
+            AVColors.primaryTeal.withOpacity(0.1),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AVColors.auroraGreen.withOpacity(0.4), width: 2),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AVColors.auroraGreen.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.auto_awesome, color: AVColors.auroraGreen, size: 20),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Text(
+                  'AI Booking Assistant',
+                  style: TextStyle(
+                    color: AVColors.textHigh,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: _getConfidenceColor(confidence),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  '${(confidence * 100).toInt()}%',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                icon: const Icon(Icons.close, size: 20),
+                color: AVColors.textLow,
+                onPressed: () => controller.clearAiAssistResult(),
+                tooltip: 'Dismiss',
+              ),
+            ],
+          ),
+          
+          // Matched bookings (if any)
+          if (matchedBookings.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: AVColors.primaryTeal.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AVColors.primaryTeal.withOpacity(0.3)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.confirmation_number, color: AVColors.primaryTeal, size: 16),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Found ${matchedBookings.length} booking${matchedBookings.length > 1 ? 's' : ''}:',
+                        style: const TextStyle(
+                          color: AVColors.primaryTeal,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  ...matchedBookings.map((b) => Padding(
+                    padding: const EdgeInsets.only(left: 24, bottom: 4),
+                    child: Text(
+                      '• ${b['confirmationCode'] ?? b['id']} - ${b['customerName'] ?? 'Unknown'} (${b['productTitle'] ?? 'Tour'})',
+                      style: const TextStyle(
+                        color: AVColors.textHigh,
+                        fontSize: 12,
+                      ),
+                    ),
+                  )),
+                ],
+              ),
+            ),
+          ],
+          
+          // Suggested action (if not just INFO_ONLY)
+          if (actionType != 'INFO_ONLY' && actionDescription.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: _getActionColor(actionType).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: _getActionColor(actionType).withOpacity(0.4)),
+              ),
+              child: Row(
+                children: [
+                  Icon(_getActionIcon(actionType), color: _getActionColor(actionType), size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Suggested Action: $actionType',
+                          style: TextStyle(
+                            color: _getActionColor(actionType),
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          actionDescription,
+                          style: const TextStyle(
+                            color: AVColors.textHigh,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          
+          // Suggested reply
+          const SizedBox(height: 12),
+          const Text(
+            'Suggested Reply:',
+            style: TextStyle(
+              color: AVColors.textLow,
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Container(
+            constraints: const BoxConstraints(maxHeight: 150),
+            child: SingleChildScrollView(
+              child: Text(
+                suggestedReply,
+                style: const TextStyle(
+                  color: AVColors.textHigh,
+                  fontSize: 14,
+                  height: 1.5,
+                ),
+              ),
+            ),
+          ),
+          
+          // Reasoning (collapsed by default)
+          if (reasoning.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              '💡 $reasoning',
+              style: TextStyle(
+                color: AVColors.textLow.withOpacity(0.8),
+                fontSize: 11,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          ],
+          
+          // Action buttons
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    setState(() {
+                      _messageController.text = suggestedReply;
+                    });
+                    controller.clearAiAssistResult();
+                  },
+                  icon: const Icon(Icons.edit, size: 16),
+                  label: const Text('Use Reply'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AVColors.auroraGreen,
+                    foregroundColor: AVColors.obsidian,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: actionType == 'INFO_ONLY'
+                    ? OutlinedButton.icon(
+                        onPressed: null, // Disabled - no action needed
+                        icon: const Icon(Icons.info_outline, size: 16),
+                        label: const Text('No Action Needed'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AVColors.textLow,
+                          side: BorderSide(color: AVColors.textLow.withOpacity(0.3)),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                      )
+                    : controller.isExecutingAction
+                        ? const Center(
+                            child: SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: AVColors.primaryTeal,
+                              ),
+                            ),
+                          )
+                        : ElevatedButton.icon(
+                            onPressed: () async {
+                              final success = await controller.executeAiAction();
+                              if (!mounted) return;
+                              
+                              if (success) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(controller.actionExecutionSuccess ?? 'Action completed!'),
+                                    backgroundColor: AVColors.auroraGreen,
+                                  ),
+                                );
+                                // Auto-fill suggested reply into input and keep panel visible
+                                if (suggestedReply.isNotEmpty) {
+                                  setState(() {
+                                    _messageController.text = suggestedReply;
+                                  });
+                                }
+                                controller.clearAiAssistResult();
+                              } else {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(controller.actionExecutionError ?? 'Action failed'),
+                                    backgroundColor: AVColors.forgeRed,
+                                  ),
+                                );
+                              }
+                              controller.clearActionExecutionState();
+                            },
+                            icon: Icon(_getActionIcon(actionType), size: 16),
+                            label: Text('Execute ${actionType == 'RESCHEDULE' ? 'Reschedule' 
+                                : actionType == 'CANCEL' ? 'Cancel' 
+                                : actionType == 'CHANGE_PICKUP' ? 'Pickup Change' 
+                                : 'Action'}'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: _getActionColor(actionType),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                            ),
+                          ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Color _getActionColor(String actionType) {
+    switch (actionType) {
+      case 'RESCHEDULE':
+        return AVColors.primaryTeal;
+      case 'CANCEL':
+        return AVColors.forgeRed;
+      case 'CHANGE_PICKUP':
+        return Colors.orange;
+      default:
+        return AVColors.textLow;
+    }
+  }
+
+  IconData _getActionIcon(String actionType) {
+    switch (actionType) {
+      case 'RESCHEDULE':
+        return Icons.calendar_today;
+      case 'CANCEL':
+        return Icons.cancel_outlined;
+      case 'CHANGE_PICKUP':
+        return Icons.location_on;
+      default:
+        return Icons.info_outline;
+    }
+  }
+
   // Log AI draft actions for learning
   Future<void> _logDraftAction(
     InboxController controller,
@@ -945,6 +1318,51 @@ class _ConversationScreenState extends State<ConversationScreen> {
           await controller.archiveConversation(conversationId);
           if (mounted) {
             Navigator.pop(context);
+          }
+        }
+        break;
+      case 'delete':
+        final confirmDelete = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            backgroundColor: AVColors.slate,
+            title: const Row(
+              children: [
+                Icon(Icons.warning, color: Colors.red),
+                SizedBox(width: 8),
+                Text('Delete Conversation?'),
+              ],
+            ),
+            content: const Text(
+              'This will permanently delete the conversation and all messages. This cannot be undone.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context, true),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red,
+                  foregroundColor: Colors.white,
+                ),
+                child: const Text('Delete'),
+              ),
+            ],
+          ),
+        );
+
+        if (confirmDelete == true && mounted) {
+          await controller.deleteConversation(conversationId);
+          if (mounted) {
+            Navigator.pop(context);
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Conversation deleted'),
+                backgroundColor: AVColors.forgeRed,
+              ),
+            );
           }
         }
         break;
