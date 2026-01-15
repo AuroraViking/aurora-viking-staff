@@ -1,9 +1,41 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'dart:math';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
+import 'package:flutter/rendering.dart';
 import 'pulsing_aurora_icon.dart';
 
 class ForecastChartWidget extends StatefulWidget {
+  // Static key for AI capture
+  static final GlobalKey chartKey = GlobalKey();
+
+  /// Capture the Bz chart as an image for AI analysis
+  static Future<Uint8List?> captureChartImage() async {
+    try {
+      final RenderRepaintBoundary? boundary = chartKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+      if (boundary == null) {
+        debugPrint('⚠️ Could not find chart boundary for capture');
+        return null;
+      }
+
+      await Future.delayed(const Duration(milliseconds: 300));
+
+      final ui.Image image = await boundary.toImage(pixelRatio: 2.0);
+      debugPrint('📐 Captured Bz chart: ${image.width}x${image.height}');
+      
+      final ByteData? byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+      if (byteData == null) return null;
+
+      final bytes = byteData.buffer.asUint8List();
+      debugPrint('✅ Captured Bz chart: ${(bytes.length / 1024).toStringAsFixed(1)} KB');
+      return bytes;
+    } catch (e) {
+      debugPrint('❌ Failed to capture Bz chart: $e');
+      return null;
+    }
+  }
+
   final List<double> bzValues;
   final List<String> times;
   final double kp;
@@ -11,6 +43,9 @@ class ForecastChartWidget extends StatefulWidget {
   final double density;
   final double bt;
   final List<double> btValues;
+  final List<double> speedValues;
+  final List<double> densityValues;
+  final GlobalKey? captureKey;
 
   const ForecastChartWidget({
     super.key,
@@ -21,6 +56,9 @@ class ForecastChartWidget extends StatefulWidget {
     required this.density,
     required this.bt,
     required this.btValues,
+    this.speedValues = const [],
+    this.densityValues = const [],
+    this.captureKey,
   });
 
   @override
@@ -36,6 +74,8 @@ class _ForecastChartWidgetState extends State<ForecastChartWidget> with SingleTi
   static const Color _positiveColor = Color(0xFF00FF88); // Green for positive
   static const Color _neutralColor = Color(0xFFFFAA00);  // Amber/yellow for near zero
   static const Color _btColor = Color(0xFFFFAA00);       // Amber for Bt envelope
+  static const Color _speedColor = Color(0xFF00BFFF);    // Deep sky blue for speed
+  static const Color _densityColor = Color(0xFF9370DB);  // Medium purple for density
 
   @override
   void initState() {
@@ -86,6 +126,19 @@ class _ForecastChartWidgetState extends State<ForecastChartWidget> with SingleTi
         : widget.times.length > twoHoursOfData
         ? widget.times.sublist(widget.times.length - twoHoursOfData)
         : widget.times;
+
+    // Speed and density data for mini-charts
+    final speedValues = widget.speedValues.isEmpty
+        ? List.generate(twoHoursOfData, (i) => 400 + 50 * sin(i * 0.05))
+        : widget.speedValues.length > twoHoursOfData
+        ? widget.speedValues.sublist(widget.speedValues.length - twoHoursOfData)
+        : widget.speedValues;
+
+    final densityValues = widget.densityValues.isEmpty
+        ? List.generate(twoHoursOfData, (i) => 5 + 3 * sin(i * 0.08))
+        : widget.densityValues.length > twoHoursOfData
+        ? widget.densityValues.sublist(widget.densityValues.length - twoHoursOfData)
+        : widget.densityValues;
 
     // Calculate Earth impact index relative to the DISPLAYED data
     // The most recent data point is at the END of the array (index = length - 1)
@@ -348,6 +401,34 @@ class _ForecastChartWidgetState extends State<ForecastChartWidget> with SingleTi
                   right: 16,
                   child: _buildChartInfo(earthImpactIndex),
                 ),
+
+                // Speed mini-chart (top left)
+                if (speedValues.isNotEmpty)
+                  Positioned(
+                    top: 60,
+                    left: 16,
+                    child: _buildMiniChart(
+                      values: speedValues,
+                      label: 'Speed',
+                      value: '${widget.speed.toStringAsFixed(0)} km/s',
+                      color: _speedColor,
+                      trend: _getTrendIndicator(speedValues),
+                    ),
+                  ),
+
+                // Density mini-chart (top right)
+                if (densityValues.isNotEmpty)
+                  Positioned(
+                    top: 60,
+                    right: 16,
+                    child: _buildMiniChart(
+                      values: densityValues,
+                      label: 'Density',
+                      value: '${widget.density.toStringAsFixed(1)} cm⁻³',
+                      color: _densityColor,
+                      trend: _getTrendIndicator(densityValues),
+                    ),
+                  ),
               ],
             ),
           ),
@@ -757,6 +838,123 @@ class _ForecastChartWidgetState extends State<ForecastChartWidget> with SingleTi
     }
 
     return [null];
+  }
+
+  /// Get trend indicator arrow based on recent values
+  String _getTrendIndicator(List<double> values) {
+    if (values.length < 20) return '→';
+    final recent = values.sublist(values.length - 10);
+    final older = values.sublist(values.length - 20, values.length - 10);
+    final recentAvg = recent.reduce((a, b) => a + b) / recent.length;
+    final olderAvg = older.reduce((a, b) => a + b) / older.length;
+    final diff = recentAvg - olderAvg;
+    // Use percentage change for better sensitivity
+    final percentChange = (diff / olderAvg) * 100;
+    if (percentChange > 5) return '↑';
+    if (percentChange < -5) return '↓';
+    return '→';
+  }
+
+  /// Build a mini-chart for speed or density trends
+  Widget _buildMiniChart({
+    required List<double> values,
+    required String label,
+    required String value,
+    required Color color,
+    required String trend,
+  }) {
+    const double width = 100;
+    const double height = 60;
+
+    if (values.isEmpty) return const SizedBox.shrink();
+
+    final displayValues = values.length > 30 ? values.sublist(values.length - 30) : values;
+    final spots = <FlSpot>[];
+    for (int i = 0; i < displayValues.length; i++) {
+      spots.add(FlSpot(i.toDouble(), displayValues[i]));
+    }
+
+    final minY = displayValues.reduce(min);
+    final maxY = displayValues.reduce(max);
+    final padding = (maxY - minY) * 0.1;
+
+    return Container(
+      width: width,
+      height: height,
+      padding: const EdgeInsets.all(6),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.7),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.5), width: 1),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  color: color,
+                  fontSize: 9,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              Text(
+                trend,
+                style: TextStyle(
+                  color: trend == '↑' ? Colors.greenAccent : 
+                         trend == '↓' ? Colors.redAccent : Colors.white54,
+                  fontSize: 10,
+                ),
+              ),
+            ],
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              color: color,
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Expanded(
+            child: LineChart(
+              LineChartData(
+                lineBarsData: [
+                  LineChartBarData(
+                    spots: spots,
+                    isCurved: true,
+                    color: color,
+                    barWidth: 1.5,
+                    dotData: const FlDotData(show: false),
+                    belowBarData: BarAreaData(
+                      show: true,
+                      gradient: LinearGradient(
+                        colors: [
+                          color.withOpacity(0.3),
+                          color.withOpacity(0.0),
+                        ],
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                      ),
+                    ),
+                  ),
+                ],
+                minY: minY - padding,
+                maxY: maxY + padding,
+                gridData: const FlGridData(show: false),
+                titlesData: const FlTitlesData(show: false),
+                borderData: FlBorderData(show: false),
+                lineTouchData: const LineTouchData(enabled: false),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   /// Calculate Earth impact index for the displayed data window

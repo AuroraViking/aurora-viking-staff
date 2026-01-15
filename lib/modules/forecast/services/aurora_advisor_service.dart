@@ -18,6 +18,7 @@ List<dynamic> _deepConvertList(List<dynamic> list) {
   return list.map((item) => item is Map ? _deepConvertMap(item) : item).toList();
 }
 
+
 class AuroraRecommendation {
   final String recommendation;
   final AuroraDestination? destination;
@@ -39,6 +40,13 @@ class AuroraRecommendation {
   final int learningsUsed;
   final bool hasError;
   final String? errorMessage;
+  
+  // New fields from two-phase AI
+  final String? description;
+  final String? navigationUrl;
+  final String? viewingTip;
+  final double? kpIndex;
+  final Map<String, dynamic>? analysis;
 
   AuroraRecommendation({
     required this.recommendation,
@@ -61,32 +69,63 @@ class AuroraRecommendation {
     this.learningsUsed = 0,
     this.hasError = false,
     this.errorMessage,
+    // New fields
+    this.description,
+    this.navigationUrl,
+    this.viewingTip,
+    this.kpIndex,
+    this.analysis,
   });
 
+
   factory AuroraRecommendation.fromJson(Map<String, dynamic> json) {
+    // Helper to safely parse a value that might be string or number
+    double parseDouble(dynamic value, [double defaultValue = 0]) {
+      if (value == null) return defaultValue;
+      if (value is num) return value.toDouble();
+      if (value is String) {
+        // Handle text values like "high", "medium", "low"
+        final lower = value.toLowerCase();
+        if (lower == 'high' || lower == 'excellent') return 0.8;
+        if (lower == 'medium' || lower == 'moderate') return 0.5;
+        if (lower == 'low' || lower == 'poor') return 0.3;
+        // Try parsing as number
+        return double.tryParse(value) ?? defaultValue;
+      }
+      return defaultValue;
+    }
+
     return AuroraRecommendation(
       recommendation: json['recommendation'] ?? 'No recommendation available',
       destination: json['destination'] != null ? AuroraDestination.fromJson(json['destination']) : null,
-      distanceKm: (json['distance_km'] ?? 0).toDouble(),
+      distanceKm: parseDouble(json['distance_km']),
       direction: json['direction'] ?? 'STAY',
-      travelTimeMinutes: json['travel_time_minutes'] ?? 0,
-      auroraProbability: (json['aurora_probability'] ?? 0).toDouble(),
-      clearSkyProbability: (json['clear_sky_probability'] ?? 0).toDouble(),
-      combinedProbability: (json['combined_viewing_probability'] ?? 0).toDouble(),
+      travelTimeMinutes: (json['travel_time_minutes'] as num?)?.toInt() ?? 0,
+      auroraProbability: parseDouble(json['aurora_probability']),
+      clearSkyProbability: parseDouble(json['clear_sky_probability']),
+      combinedProbability: parseDouble(json['combined_viewing_probability']),
       cloudMovement: json['cloud_movement'] != null ? CloudMovement.fromJson(json['cloud_movement']) : null,
-      spaceWeatherAnalysis: json['space_weather_analysis'] ?? '',
-      confidence: (json['confidence'] ?? 0).toDouble(),
-      reasoning: json['reasoning'] ?? '',
+      spaceWeatherAnalysis: json['space_weather_analysis']?.toString() ?? '',
+      confidence: parseDouble(json['confidence']),
+      // Use description if available, fall back to reasoning
+      reasoning: json['description']?.toString() ?? json['reasoning']?.toString() ?? '',
       alternatives: (json['alternative_options'] as List<dynamic>?)?.map((e) => AlternativeOption.fromJson(e)).toList() ?? [],
       appliedLearnings: (json['applied_learnings'] as List<dynamic>?)?.cast<String>() ?? [],
-      urgency: json['urgency'] ?? 'medium',
-      specialNotes: json['special_notes'],
-      generatedAt: json['generatedAt'] != null ? DateTime.parse(json['generatedAt']) : DateTime.now(),
-      learningsUsed: json['learningsUsed'] ?? 0,
+      urgency: json['urgency']?.toString() ?? 'medium',
+      specialNotes: json['special_notes']?.toString(),
+      generatedAt: json['generatedAt'] != null ? DateTime.tryParse(json['generatedAt'].toString()) ?? DateTime.now() : DateTime.now(),
+      learningsUsed: (json['learningsUsed'] as num?)?.toInt() ?? 0,
       hasError: json['error'] == true,
-      errorMessage: json['message'],
+      errorMessage: json['message']?.toString(),
+      // New fields
+      description: json['description']?.toString(),
+      navigationUrl: json['navigation_url']?.toString(),
+      viewingTip: json['viewing_tip']?.toString(),
+      kpIndex: parseDouble(json['kp_index']),
+      analysis: json['analysis'] is Map ? Map<String, dynamic>.from(json['analysis']) : null,
     );
   }
+
 
   factory AuroraRecommendation.error(String message) {
     return AuroraRecommendation(
@@ -219,24 +258,39 @@ class AuroraAdvisorService {
       List<String>? base64Images;
       if (satelliteImages != null && satelliteImages.isNotEmpty) {
         base64Images = satelliteImages.map((img) => base64Encode(img)).toList();
+        debugPrint('   📷 Encoded ${base64Images.length} images');
+        debugPrint('   📏 First image size: ${base64Images[0].length} chars');
+      } else {
+        debugPrint('   ⚠️ No satellite images provided!');
       }
 
+      debugPrint('   🌐 Calling Cloud Function...');
       final callable = _functions.httpsCallable('getAuroraAdvisorRecommendation');
-      final result = await callable.call({
-        'location': {'lat': latitude, 'lng': longitude},
-        'spaceWeather': spaceWeather.toJson(),
-        'cloudCover': cloudCover,
-        'satelliteImages': base64Images,
-        'currentTime': DateTime.now().toIso8601String(),
-        'darknessWindow': {
-          'nauticalStart': nauticalDarknessStart,
-          'nauticalEnd': nauticalDarknessEnd,
-        },
-      });
+      
+      try {
+        final result = await callable.call({
+          'location': {'lat': latitude, 'lng': longitude},
+          'spaceWeather': spaceWeather.toJson(),
+          'cloudCover': cloudCover,
+          'satelliteImages': base64Images,
+          'currentTime': DateTime.now().toIso8601String(),
+          'darknessWindow': {
+            'nauticalStart': nauticalDarknessStart,
+            'nauticalEnd': nauticalDarknessEnd,
+          },
+        });
+        
+        debugPrint('   ✅ Cloud Function returned successfully');
 
-      // Recursively convert the response to Map<String, dynamic>
-      final Map<String, dynamic> data = _deepConvertMap(result.data);
-      return AuroraRecommendation.fromJson(data);
+        // Recursively convert the response to Map<String, dynamic>
+        final Map<String, dynamic> data = _deepConvertMap(result.data);
+        debugPrint('   📦 Response data: ${data.keys.toList()}');
+        return AuroraRecommendation.fromJson(data);
+      } catch (callError) {
+        debugPrint('   ❌ Cloud Function call error: $callError');
+        debugPrint('   ❌ Error type: ${callError.runtimeType}');
+        rethrow;
+      }
     } catch (e) {
       debugPrint('❌ Aurora Advisor error: $e');
       return AuroraRecommendation.error(e.toString());

@@ -18,11 +18,15 @@ class BzHistory {
   final List<double> bzValues;
   final List<String> times;
   final List<double> btValues;
+  final List<double> speedValues;
+  final List<double> densityValues;
 
   BzHistory({
     required this.bzValues, 
     required this.times,
     required this.btValues,
+    required this.speedValues,
+    required this.densityValues,
   });
 }
 
@@ -54,48 +58,93 @@ class SolarWindService {
         final bt = sqrt(bx * bx + by * by + bz * bz);
 
         return SolarWindData(speed: speed, density: density, bt: bt);
-      } else {
-        throw Exception('Failed to load solar wind data');
       }
+      throw Exception('Failed to load solar wind data');
     } catch (e) {
       print('Error fetching solar wind data: $e');
       return SolarWindData(speed: 0, density: 0, bt: 0);
     }
   }
 
+  /// Fetch complete 2-hour history including speed and density trends
   static Future<BzHistory> fetchBzHistory() async {
     try {
-      final response = await http.get(Uri.parse(_magneticUrl));
+      final plasmaRes = await http.get(Uri.parse(_plasmaUrl));
+      final magneticRes = await http.get(Uri.parse(_magneticUrl));
 
-      if (response.statusCode == 200) {
-        final List<dynamic> data = jsonDecode(response.body);
-        final rows = data.skip(1).where((row) => 
-          double.tryParse(row[1].toString()) != null && 
-          double.tryParse(row[2].toString()) != null &&
-          double.tryParse(row[3].toString()) != null
-        );
-        
-        final times = rows.map((r) => r[0].toString().substring(11, 16)).toList();
-        final bzValues = rows.map((r) => double.parse(r[3].toString())).toList();
-        
-        // Calculate Bt values using vector magnitude
-        final btValues = rows.map((r) {
-          final bx = double.parse(r[1].toString());
-          final by = double.parse(r[2].toString());
-          final bz = double.parse(r[3].toString());
-          return sqrt(bx * bx + by * by + bz * bz);
-        }).toList();
-
-        return BzHistory(
-          bzValues: bzValues, 
-          times: times,
-          btValues: btValues,
-        );
+      if (plasmaRes.statusCode != 200 || magneticRes.statusCode != 200) {
+        throw Exception('Failed to load data');
       }
-      throw Exception('Failed to load Bz history');
+
+      final plasma = jsonDecode(plasmaRes.body) as List<dynamic>;
+      final magnetic = jsonDecode(magneticRes.body) as List<dynamic>;
+
+      // Skip header row
+      final plasmaData = plasma.skip(1).toList();
+      final magneticData = magnetic.skip(1).toList();
+
+      // Create maps keyed by timestamp for alignment
+      final plasmaMap = <String, Map<String, double>>{};
+      for (final row in plasmaData) {
+        final timestamp = row[0].toString();
+        final density = double.tryParse(row[1].toString());
+        final speed = double.tryParse(row[2].toString());
+        if (density != null && speed != null) {
+          plasmaMap[timestamp] = {
+            'density': density,
+            'speed': speed,
+          };
+        }
+      }
+
+      final List<double> bzValues = [];
+      final List<double> btValues = [];
+      final List<double> speedValues = [];
+      final List<double> densityValues = [];
+      final List<String> times = [];
+
+      for (final row in magneticData) {
+        final timestamp = row[0].toString();
+        final bx = double.tryParse(row[1].toString());
+        final by = double.tryParse(row[2].toString());
+        final bz = double.tryParse(row[3].toString());
+        
+        // Skip rows with invalid magnetic data
+        if (bx == null || by == null || bz == null) continue;
+        
+        final bt = sqrt(bx * bx + by * by + bz * bz);
+
+        bzValues.add(bz);
+        btValues.add(bt);
+        times.add(timestamp);
+
+        // Get matching plasma data or use last known value
+        if (plasmaMap.containsKey(timestamp)) {
+          speedValues.add(plasmaMap[timestamp]!['speed']!);
+          densityValues.add(plasmaMap[timestamp]!['density']!);
+        } else {
+          // Use last known value for interpolation
+          speedValues.add(speedValues.isNotEmpty ? speedValues.last : 400);
+          densityValues.add(densityValues.isNotEmpty ? densityValues.last : 5);
+        }
+      }
+
+      return BzHistory(
+        bzValues: bzValues,
+        times: times,
+        btValues: btValues,
+        speedValues: speedValues,
+        densityValues: densityValues,
+      );
     } catch (e) {
       print('Error fetching Bz history: $e');
-      return BzHistory(bzValues: [], times: [], btValues: []);
+      return BzHistory(
+        bzValues: [],
+        times: [],
+        btValues: [],
+        speedValues: [],
+        densityValues: [],
+      );
     }
   }
-} 
+}

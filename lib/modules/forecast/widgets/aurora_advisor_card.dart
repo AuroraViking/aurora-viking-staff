@@ -269,52 +269,297 @@ class _AuroraAdvisorCardState extends State<AuroraAdvisorCard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildSection('Space Weather', Icons.wb_sunny, rec.spaceWeatherAnalysis),
-          const SizedBox(height: 16),
-          if (rec.cloudMovement != null) ...[
-            _buildSection('Cloud Movement', Icons.cloud, rec.cloudMovement!.analysis),
-            const SizedBox(height: 16),
-          ],
-          _buildSection('AI Reasoning', Icons.psychology, rec.reasoning),
-          if (rec.appliedLearnings.isNotEmpty) ...[
-            const SizedBox(height: 16),
-            const Text('Applied Learnings:', style: TextStyle(color: Colors.tealAccent, fontSize: 14, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
-            ...rec.appliedLearnings.map((l) => Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('• ', style: TextStyle(color: Colors.tealAccent)),
-                  Expanded(child: Text(l, style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 12))),
-                ],
-              ),
-            )),
-          ],
-          if (rec.alternatives.isNotEmpty) ...[
-            const SizedBox(height: 16),
-            const Text('Alternatives:', style: TextStyle(color: Colors.tealAccent, fontSize: 14, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
-            ...rec.alternatives.map((alt) => Container(
-              margin: const EdgeInsets.only(bottom: 8),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(8)),
-              child: Row(
-                children: [
-                  const Icon(Icons.place, color: Colors.white54, size: 18),
-                  const SizedBox(width: 8),
-                  Expanded(child: Text(alt.destination, style: const TextStyle(color: Colors.white))),
-                  Text('${(alt.probability * 100).toInt()}%', style: const TextStyle(color: Colors.tealAccent, fontWeight: FontWeight.bold)),
-                  const SizedBox(width: 8),
-                  Text('${alt.distanceKm.toInt()} km', style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 12)),
-                ],
-              ),
-            )),
+          // Space Weather Analysis Section
+          _buildSpaceWeatherSection(rec),
+          const SizedBox(height: 20),
+          
+          // Cloud Cover Analysis Section
+          _buildCloudCoverSection(rec),
+          const SizedBox(height: 20),
+          
+          // Viewing Recommendation Section
+          _buildViewingSection(rec),
+          
+          // Navigation button if available
+          if (rec.navigationUrl != null && rec.navigationUrl!.isNotEmpty) ...[
+            const SizedBox(height: 20),
+            _buildNavigationButton(rec),
           ],
         ],
       ),
     );
   }
+
+  Widget _buildSpaceWeatherSection(AuroraRecommendation rec) {
+    final analysis = rec.analysis;
+    final bzPosition = analysis?['bz_position'] ?? 'unknown';
+    final bzTrend = analysis?['bz_trend'] ?? 'stable';
+    final favorable = analysis?['aurora_favorable'] == true;
+    
+    String statusText;
+    Color statusColor;
+    IconData statusIcon;
+    
+    if (bzPosition == 'below_zero' || bzPosition.contains('below')) {
+      statusText = 'FAVORABLE';
+      statusColor = Colors.greenAccent;
+      statusIcon = Icons.check_circle;
+    } else if (bzPosition == 'above_zero' || bzPosition.contains('above')) {
+      statusText = 'QUIET';
+      statusColor = Colors.orangeAccent;
+      statusIcon = Icons.remove_circle;
+    } else {
+      statusText = 'NEUTRAL';
+      statusColor = Colors.amber;
+      statusIcon = Icons.circle_outlined;
+    }
+    
+    String trendText = bzTrend == 'improving' 
+        ? 'Trend: Improving ↓' 
+        : bzTrend == 'worsening' 
+            ? 'Trend: Worsening ↑'
+            : 'Trend: Stable →';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: Colors.purpleAccent.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.wb_sunny, color: Colors.purpleAccent, size: 18),
+            ),
+            const SizedBox(width: 10),
+            const Text('SPACE WEATHER', style: TextStyle(color: Colors.purpleAccent, fontSize: 13, fontWeight: FontWeight.bold, letterSpacing: 1)),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: statusColor.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: statusColor.withOpacity(0.3)),
+          ),
+          child: Row(
+            children: [
+              Icon(statusIcon, color: statusColor, size: 24),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Bz Status: $statusText', style: TextStyle(color: statusColor, fontSize: 14, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 4),
+                    Text(trendText, style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 12)),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  'Kp ${rec.kpIndex?.toStringAsFixed(1) ?? "N/A"}',
+                  style: const TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w500),
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (rec.viewingTip != null && rec.viewingTip!.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Icon(Icons.tips_and_updates, size: 14, color: Colors.amber.withOpacity(0.8)),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  rec.viewingTip!,
+                  style: TextStyle(color: Colors.amber.withOpacity(0.9), fontSize: 12, fontStyle: FontStyle.italic),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildCloudCoverSection(AuroraRecommendation rec) {
+    final analysis = rec.analysis;
+    final clearDirs = (analysis?['clear_directions'] as List?)?.cast<String>() ?? [];
+    final cloudyDirs = (analysis?['cloudy_directions'] as List?)?.cast<String>() ?? [];
+    
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: Colors.lightBlue.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.cloud, color: Colors.lightBlue, size: 18),
+            ),
+            const SizedBox(width: 10),
+            const Text('CLOUD COVER', style: TextStyle(color: Colors.lightBlue, fontSize: 13, fontWeight: FontWeight.bold, letterSpacing: 1)),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            // Clear skies
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.green.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.green.withOpacity(0.3)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.cloud_off, color: Colors.greenAccent, size: 16),
+                        const SizedBox(width: 6),
+                        const Text('Clear', style: TextStyle(color: Colors.greenAccent, fontSize: 12, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      clearDirs.isNotEmpty ? clearDirs.join(', ') : 'Limited visibility',
+                      style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: 13),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            // Cloudy
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.grey.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.grey.withOpacity(0.3)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.cloud, color: Colors.grey, size: 16),
+                        const SizedBox(width: 6),
+                        const Text('Overcast', style: TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      cloudyDirs.isNotEmpty ? cloudyDirs.join(', ') : 'None detected',
+                      style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 13),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildViewingSection(AuroraRecommendation rec) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: Colors.tealAccent.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.psychology, color: Colors.tealAccent, size: 18),
+            ),
+            const SizedBox(width: 10),
+            const Text('RECOMMENDATION', style: TextStyle(color: Colors.tealAccent, fontSize: 13, fontWeight: FontWeight.bold, letterSpacing: 1)),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.05),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: Colors.tealAccent.withOpacity(0.2)),
+          ),
+          child: Text(
+            rec.description ?? rec.reasoning,
+            style: TextStyle(color: Colors.white.withOpacity(0.95), fontSize: 14, height: 1.6),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildNavigationButton(AuroraRecommendation rec) {
+    return InkWell(
+      onTap: () async {
+        final url = rec.navigationUrl;
+        if (url != null) {
+          // Launch URL - requires url_launcher package
+          // For now, just show a snackbar with the coordinates
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Navigate to: ${rec.destination?.name ?? rec.direction}'),
+                action: SnackBarAction(
+                  label: 'OPEN MAP',
+                  onPressed: () {
+                    // Could use url_launcher here
+                  },
+                ),
+              ),
+            );
+          }
+        }
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Colors.blue.shade700, Colors.blue.shade900],
+          ),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.navigation, color: Colors.white, size: 20),
+            const SizedBox(width: 10),
+            Text(
+              'Navigate to ${rec.destination?.name ?? rec.direction}',
+              style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
 
   Widget _buildSection(String title, IconData icon, String content) {
     return Column(

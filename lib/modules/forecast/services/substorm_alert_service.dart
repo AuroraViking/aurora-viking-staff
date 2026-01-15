@@ -2,14 +2,17 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 class SubstormAlertService {
-  // Base URLs for aurora forecast APIs
-  static const String _noaaApiUrl = 'https://services.swpc.noaa.gov/json/';
-  static const String _spaceWeatherUrl = 'https://api.spaceweather.com/';
+  // NOAA Ovation Aurora API URL
+  static const String _noaaOvationUrl = 'https://services.swpc.noaa.gov/json/ovation_aurora_latest.json';
   
   // Cache for substorm data
   Map<String, dynamic>? _cachedSubstormStatus;
   DateTime? _lastUpdate;
   static const Duration _cacheTimeout = Duration(minutes: 5);
+  
+  // Iceland's approximate latitude range for aurora viewing
+  static const int _icelandLatMin = 60;
+  static const int _icelandLatMax = 70;
 
   /// Get current substorm status and aurora activity
   Future<Map<String, dynamic>> getSubstormStatus() async {
@@ -22,60 +25,116 @@ class SubstormAlertService {
     }
 
     try {
-      // Try to get real-time data from NOAA
-      final status = await _fetchNOAAData();
+      // Try to get real-time data from NOAA Ovation API
+      final status = await _fetchNOAAOvationData();
       _cachedSubstormStatus = status;
       _lastUpdate = DateTime.now();
       return status;
     } catch (e) {
-      print('Error fetching NOAA data: $e');
+      print('Error fetching NOAA Ovation data: $e');
       
       // Fallback to mock data for development
       return _getMockSubstormData();
     }
   }
 
-  /// Fetch real-time data from NOAA Space Weather Prediction Center
-  Future<Map<String, dynamic>> _fetchNOAAData() async {
+  /// Fetch real-time data from NOAA Ovation Aurora API
+  Future<Map<String, dynamic>> _fetchNOAAOvationData() async {
     try {
-      // Get AE Index (Auroral Electrojet Index)
-      final aeResponse = await http.get(
-        Uri.parse('${_noaaApiUrl}ae_pro_1h.json'),
+      final response = await http.get(
+        Uri.parse(_noaaOvationUrl),
         headers: {'Accept': 'application/json'},
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(const Duration(seconds: 15));
 
-      if (aeResponse.statusCode == 200) {
-        final aeData = json.decode(aeResponse.body) as List;
-        if (aeData.isNotEmpty) {
-          final latestAE = aeData.last['ae_index'] as int? ?? 0;
-          final timestamp = DateTime.parse(aeData.last['time_tag'] as String);
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body) as Map<String, dynamic>;
+        
+        // Parse timestamps
+        final observationTimeStr = data['Observation Time'] as String?;
+        final forecastTimeStr = data['Forecast Time'] as String?;
+        final coordinates = data['coordinates'] as List?;
+        
+        if (coordinates != null && coordinates.isNotEmpty) {
+          // Calculate max aurora intensity for Iceland's latitude range
+          int maxIntensity = 0;
+          int avgIntensity = 0;
+          int count = 0;
+          
+          for (final coord in coordinates) {
+            final lat = coord[1] as int;
+            final intensity = coord[2] as int;
+            
+            // Check if this coordinate is in Iceland's latitude range (Northern Hemisphere)
+            if (lat >= _icelandLatMin && lat <= _icelandLatMax) {
+              if (intensity > maxIntensity) {
+                maxIntensity = intensity;
+              }
+              avgIntensity += intensity;
+              count++;
+            }
+          }
+          
+          if (count > 0) {
+            avgIntensity = avgIntensity ~/ count;
+          }
+          
+          // Convert intensity (0-100) to AE-equivalent value for compatibility
+          // Ovation values: 0-5 low, 5-10 moderate, 10-20 active, 20+ storm
+          // Scale to AE-like values for existing UI compatibility
+          final aeEquivalent = _intensityToAeEquivalent(maxIntensity);
+          
+          DateTime? timestamp;
+          try {
+            if (observationTimeStr != null) {
+              timestamp = DateTime.parse(observationTimeStr);
+            }
+          } catch (_) {
+            timestamp = DateTime.now();
+          }
           
           return {
-            'aeValue': latestAE,
-            'isActive': _isSubstormActive(latestAE),
-            'timestamp': timestamp,
-            'source': 'NOAA SWPC',
+            'aeValue': aeEquivalent,
+            'maxIntensity': maxIntensity,
+            'avgIntensity': avgIntensity,
+            'isActive': _isSubstormActive(aeEquivalent),
+            'timestamp': timestamp ?? DateTime.now(),
+            'forecastTime': forecastTimeStr,
+            'source': 'NOAA SWPC Ovation',
           };
         }
       }
 
-      // If NOAA fails, try alternative sources
-      return await _fetchAlternativeData();
+      throw Exception('Failed to fetch NOAA Ovation data: ${response.statusCode}');
     } catch (e) {
-      print('NOAA API error: $e');
+      print('NOAA Ovation API error: $e');
       rethrow;
     }
   }
 
-  /// Fetch data from alternative sources
-  Future<Map<String, dynamic>> _fetchAlternativeData() async {
-    try {
-      // This could be expanded with other aurora forecast APIs
-      // For now, return mock data
-      return _getMockSubstormData();
-    } catch (e) {
-      print('Alternative API error: $e');
-      return _getMockSubstormData();
+  /// Convert Ovation intensity (0-100) to AE-equivalent value for UI compatibility
+  int _intensityToAeEquivalent(int intensity) {
+    // Ovation intensity scale:
+    // 0-2: Very low aurora activity
+    // 3-5: Low aurora activity  
+    // 6-10: Moderate aurora activity
+    // 11-20: Active aurora conditions
+    // 21-50: Minor storm conditions
+    // 50+: Major storm conditions
+    
+    // Map to AE-like values for existing description thresholds:
+    // < 100: Quiet, 100-200: Unsettled, 200-300: Active, 300-500: Minor storm, 500+: Major
+    if (intensity <= 2) {
+      return 50 + (intensity * 15); // 50-80
+    } else if (intensity <= 5) {
+      return 80 + ((intensity - 2) * 20); // 80-140
+    } else if (intensity <= 10) {
+      return 140 + ((intensity - 5) * 20); // 140-240
+    } else if (intensity <= 20) {
+      return 240 + ((intensity - 10) * 15); // 240-390
+    } else if (intensity <= 50) {
+      return 390 + ((intensity - 20) * 5); // 390-540
+    } else {
+      return 540 + ((intensity - 50) * 3); // 540+
     }
   }
 
@@ -107,7 +166,7 @@ class SubstormAlertService {
     };
   }
 
-  /// Determine if substorm is active based on AE Index
+  /// Determine if substorm is active based on AE-equivalent value
   bool _isSubstormActive(int aeValue) {
     // AE Index thresholds:
     // < 100 nT: Quiet

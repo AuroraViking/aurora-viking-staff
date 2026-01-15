@@ -16,6 +16,7 @@ import 'widgets/forecast_chart_widget.dart';
 import 'widgets/cloud_cover_map.dart';
 import 'widgets/aurora_sighting_widget.dart';
 import 'widgets/aurora_advisor_card.dart';
+import 'widgets/hemispheric_power_widget.dart';
 
 class ForecastScreen extends StatefulWidget {
   const ForecastScreen({super.key});
@@ -45,6 +46,8 @@ class _ForecastScreenState extends State<ForecastScreen> {
   // Solar wind and Kp data
   List<double> _bzValues = [];
   List<double> _btValues = [];
+  List<double> _speedValues = [];
+  List<double> _densityValues = [];
   double _kp = 0.0;
   double _speed = 0.0;
   double _density = 0.0;
@@ -214,16 +217,18 @@ class _ForecastScreenState extends State<ForecastScreen> {
 
       setState(() {
         _bzValues = bzRes.bzValues;
-        _btValues = bzRes.btValues; // Add this line to populate btValues
+        _btValues = bzRes.btValues;
+        _speedValues = bzRes.speedValues;
+        _densityValues = bzRes.densityValues;
         _kp = kpIndex;
         _speed = swData.speed;
         _density = swData.density;
         _bt = swData.bt;
         
         // Debug: Print data for chart
-        print('Chart Data - Bz: ${_bzValues.length} values, Bt: ${_btValues.length} values');
+        print('Chart Data - Bz: ${_bzValues.length}, Bt: ${_btValues.length}, Speed: ${_speedValues.length}, Density: ${_densityValues.length}');
         if (_bzValues.isNotEmpty) print('Bz range: ${_bzValues.first.toStringAsFixed(2)} to ${_bzValues.last.toStringAsFixed(2)}');
-        if (_btValues.isNotEmpty) print('Bt range: ${_btValues.first.toStringAsFixed(2)} to ${_btValues.last.toStringAsFixed(2)}');
+        if (_speedValues.isNotEmpty) print('Speed range: ${_speedValues.first.toStringAsFixed(0)} to ${_speedValues.last.toStringAsFixed(0)} km/s');
       });
     } catch (e) {
       // Handle error silently for now
@@ -311,13 +316,24 @@ class _ForecastScreenState extends State<ForecastScreen> {
         bzH = _calculateBzH(_bzValues);
       }
       
-      // Capture the cloud cover map for AI visual analysis
-      final cloudMapImage = await CloudCoverMap.captureMapImage();
-      List<Uint8List>? satelliteImages;
-      if (cloudMapImage != null) {
-        satelliteImages = [cloudMapImage];
-        debugPrint('📸 Sending satellite image to AI for analysis');
+      // Capture BOTH the Bz chart AND cloud cover map for AI visual analysis
+      List<Uint8List> satelliteImages = [];
+      
+      // Capture the Bz chart (spaceweather data)
+      final bzChartImage = await ForecastChartWidget.captureChartImage();
+      if (bzChartImage != null) {
+        satelliteImages.add(bzChartImage);
+        debugPrint('📈 Captured Bz chart for AI');
       }
+      
+      // Capture the cloud cover map
+      final cloudMapImage = await CloudCoverMap.captureMapImage();
+      if (cloudMapImage != null) {
+        satelliteImages.add(cloudMapImage);
+        debugPrint('🗺️ Captured cloud map for AI');
+      }
+      
+      debugPrint('📸 Sending ${satelliteImages.length} images to AI for analysis');
       
       final recommendation = await AuroraAdvisorService.instance.getRecommendation(
         latitude: _currentPosition!.latitude,
@@ -334,7 +350,7 @@ class _ForecastScreenState extends State<ForecastScreen> {
         cloudCover: (_weatherData?['cloudCover'] as num?)?.toDouble() ?? 0,
         nauticalDarknessStart: _sunData?['nauticalTwilightStart'] ?? _sunData?['astronomicalTwilightStart'],
         nauticalDarknessEnd: _sunData?['nauticalTwilightEnd'] ?? _sunData?['astronomicalTwilightEnd'],
-        satelliteImages: satelliteImages,
+        satelliteImages: satelliteImages.isNotEmpty ? satelliteImages : null,
       );
       
       setState(() {
@@ -426,7 +442,7 @@ class _ForecastScreenState extends State<ForecastScreen> {
                         const SizedBox(height: 16),
                         _buildCloudCoverMap(),
                         const SizedBox(height: 16),
-                        _buildSubstormTracker(),
+                        const HemisphericPowerWidget(),
                         const SizedBox(height: 16),
                         _buildSolarWindCard(),
                         const SizedBox(height: 16),
@@ -751,14 +767,19 @@ class _ForecastScreenState extends State<ForecastScreen> {
         ),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(16),
-          child: ForecastChartWidget(
-            bzValues: _bzValues,
-            times: _generateTimeLabels(_bzValues.length),
-            kp: _kp,
-            speed: _speed,
-            density: _density,
-            bt: _bt,
-            btValues: _btValues,
+          child: RepaintBoundary(
+            key: ForecastChartWidget.chartKey,
+            child: ForecastChartWidget(
+              bzValues: _bzValues,
+              times: _generateTimeLabels(_bzValues.length),
+              kp: _kp,
+              speed: _speed,
+              density: _density,
+              bt: _bt,
+              btValues: _btValues,
+              speedValues: _speedValues,
+              densityValues: _densityValues,
+            ),
           ),
         ),
       ),
