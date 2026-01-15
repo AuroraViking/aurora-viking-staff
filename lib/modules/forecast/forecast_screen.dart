@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:geolocator/geolocator.dart';
+import 'package:geocoding/geocoding.dart';
 import 'dart:async';
+import 'dart:typed_data';
 import 'services/substorm_alert_service.dart';
 import 'services/solar_wind_service.dart';
 import 'services/kp_service.dart';
@@ -9,9 +11,11 @@ import 'services/aurora_message_service.dart';
 import 'services/weather_service.dart';
 import 'services/sunrise_sunset_service.dart';
 import 'services/permission_util.dart';
+import 'services/aurora_advisor_service.dart';
 import 'widgets/forecast_chart_widget.dart';
 import 'widgets/cloud_cover_map.dart';
 import 'widgets/aurora_sighting_widget.dart';
+import 'widgets/aurora_advisor_card.dart';
 
 class ForecastScreen extends StatefulWidget {
   const ForecastScreen({super.key});
@@ -45,6 +49,11 @@ class _ForecastScreenState extends State<ForecastScreen> {
   double _speed = 0.0;
   double _density = 0.0;
   double _bt = 0.0;
+
+  // Aurora Advisor state
+  AuroraRecommendation? _aiRecommendation;
+  bool _isLoadingAI = false;
+  String _currentLocationName = 'Current Location';
 
   // Timer for auto-refreshing Bz data every minute
   Timer? _bzRefreshTimer;
@@ -154,6 +163,7 @@ class _ForecastScreenState extends State<ForecastScreen> {
         _loadSolarWindData(),
         _loadWeatherData(),
         _loadSunData(),
+        _loadLocationName(),
       ]);
 
       setState(() {
@@ -249,6 +259,96 @@ class _ForecastScreenState extends State<ForecastScreen> {
     }
   }
 
+  Future<void> _loadLocationName() async {
+    if (_currentPosition == null) return;
+    
+    try {
+      final placemarks = await placemarkFromCoordinates(
+        _currentPosition!.latitude,
+        _currentPosition!.longitude,
+      );
+      
+      if (placemarks.isNotEmpty) {
+        final place = placemarks.first;
+        String name = '';
+        
+        // Build a readable location name
+        if (place.locality?.isNotEmpty == true) {
+          name = place.locality!;
+        } else if (place.subLocality?.isNotEmpty == true) {
+          name = place.subLocality!;
+        } else if (place.administrativeArea?.isNotEmpty == true) {
+          name = place.administrativeArea!;
+        }
+        
+        // Add country if available and different from locality
+        if (place.country?.isNotEmpty == true && name.isNotEmpty && name != place.country) {
+          name += ', ${place.isoCountryCode ?? place.country}';
+        } else if (place.country?.isNotEmpty == true && name.isEmpty) {
+          name = place.country!;
+        }
+        
+        if (name.isNotEmpty && mounted) {
+          setState(() {
+            _currentLocationName = name;
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('⚠️ Reverse geocoding failed: $e');
+      // Keep default "Current Location"
+    }
+  }
+
+  Future<void> _loadAIRecommendation() async {
+    if (_currentPosition == null) return;
+    
+    setState(() => _isLoadingAI = true);
+    
+    try {
+      double? bzH;
+      if (_bzValues.isNotEmpty) {
+        bzH = _calculateBzH(_bzValues);
+      }
+      
+      // Capture the cloud cover map for AI visual analysis
+      final cloudMapImage = await CloudCoverMap.captureMapImage();
+      List<Uint8List>? satelliteImages;
+      if (cloudMapImage != null) {
+        satelliteImages = [cloudMapImage];
+        debugPrint('📸 Sending satellite image to AI for analysis');
+      }
+      
+      final recommendation = await AuroraAdvisorService.instance.getRecommendation(
+        latitude: _currentPosition!.latitude,
+        longitude: _currentPosition!.longitude,
+        spaceWeather: SpaceWeatherInput(
+          bz: _bzValues.isNotEmpty ? _bzValues.last : 0,
+          bt: _bt,
+          speed: _speed,
+          density: _density,
+          kp: _kp,
+          bzH: bzH,
+          aeIndex: _substormStatus?['aeValue'] as int?,
+        ),
+        cloudCover: (_weatherData?['cloudCover'] as num?)?.toDouble() ?? 0,
+        nauticalDarknessStart: _sunData?['nauticalTwilightStart'] ?? _sunData?['astronomicalTwilightStart'],
+        nauticalDarknessEnd: _sunData?['nauticalTwilightEnd'] ?? _sunData?['astronomicalTwilightEnd'],
+        satelliteImages: satelliteImages,
+      );
+      
+      setState(() {
+        _aiRecommendation = recommendation;
+        _isLoadingAI = false;
+      });
+    } catch (e) {
+      setState(() {
+        _aiRecommendation = AuroraRecommendation.error(e.toString());
+        _isLoadingAI = false;
+      });
+    }
+  }
+
   String _formatTimestamp(DateTime timestamp) {
     final now = DateTime.now();
     final difference = now.difference(timestamp);
@@ -309,6 +409,18 @@ class _ForecastScreenState extends State<ForecastScreen> {
                         const AuroraSightingWidget(),
                         const SizedBox(height: 8),
                         _buildAuroraStatusCard(),
+                        const SizedBox(height: 16),
+                        AuroraAdvisorCard(
+                          recommendation: _aiRecommendation,
+                          isLoading: _isLoadingAI,
+                          onRefresh: _loadAIRecommendation,
+                          currentLocationName: _currentLocationName,
+                          onNavigateToDestination: () {
+                            if (_aiRecommendation?.destination != null) {
+                              // Optional: launch maps navigation
+                            }
+                          },
+                        ),
                         const SizedBox(height: 16),
                         _buildBzChart(),
                         const SizedBox(height: 16),

@@ -75,6 +75,7 @@ dependencies:
   
   # Chart library for Bz chart
   fl_chart: ^0.66.2
+  geocoding: ^4.0.0
 
 dev_dependencies:
   flutter_test:

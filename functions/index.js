@@ -6044,3 +6044,19 @@ ${booking.matchReason ? `- Match Reason: ${booking.matchReason}` : ''}
   return context;
 }
 
+// ============================================
+// AURORA ADVISOR EXPORTS
+// ============================================
+const auroraAdvisor = require('./aurora_advisor');
+const auroraLearning = require('./aurora_learning_pipeline');
+
+// Aurora Advisor
+exports.getAuroraAdvisorRecommendation = auroraAdvisor.getAuroraAdvisorRecommendation;
+exports.getQuickAuroraAssessment = auroraAdvisor.getQuickAuroraAssessment;
+
+// Learning Pipeline
+exports.runLearningPipeline = auroraLearning.runLearningPipeline;
+exports.triggerLearningPipeline = auroraLearning.triggerLearningPipeline;
+exports.createSightingFromShiftReport = auroraLearning.createSightingFromShiftReport;
+exports.getLearningsContext = auroraLearning.getLearningsContext;
+

@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 import '../services/cloud_tile_provider.dart';
 import '../services/cloud_forecast_service.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/rendering.dart';
 import '../services/config_service.dart';
 
 class CloudCoverMap extends StatefulWidget {
@@ -23,6 +26,30 @@ class CloudCoverMap extends StatefulWidget {
     required this.weatherIcon,
     this.isNowcast = false,
   });
+
+  // Static key for capturing screenshot
+  static final GlobalKey mapKey = GlobalKey();
+
+  /// Capture the cloud cover map as an image for AI analysis
+  static Future<Uint8List?> captureMapImage() async {
+    try {
+      final RenderRepaintBoundary? boundary = mapKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+      if (boundary == null) {
+        debugPrint('⚠️ Could not find map boundary for capture');
+        return null;
+      }
+
+      final ui.Image image = await boundary.toImage(pixelRatio: 1.5);
+      final ByteData? byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+      if (byteData == null) return null;
+
+      debugPrint('✅ Captured cloud cover map image');
+      return byteData.buffer.asUint8List();
+    } catch (e) {
+      debugPrint('❌ Failed to capture map: $e');
+      return null;
+    }
+  }
 
   @override
   State<CloudCoverMap> createState() => _CloudCoverMapState();
@@ -154,12 +181,14 @@ class _CloudCoverMapState extends State<CloudCoverMap> {
           ),
           child: Stack(
             children: [
-              ClipRRect(
-                borderRadius: const BorderRadius.only(
-                  topLeft: Radius.circular(20),
-                  topRight: Radius.circular(20),
-                ),
-                child: GoogleMap(
+              RepaintBoundary(
+                key: CloudCoverMap.mapKey,
+                child: ClipRRect(
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(20),
+                    topRight: Radius.circular(20),
+                  ),
+                  child: GoogleMap(
                   initialCameraPosition: CameraPosition(
                     target: _currentCenter,
                     zoom: 8,
@@ -192,6 +221,7 @@ class _CloudCoverMapState extends State<CloudCoverMap> {
                   },
                 ),
               ),
+              ), // Close RepaintBoundary
               if (_isMapLoading || _isLoadingForecast)
                 Container(
                   color: Colors.black.withOpacity(0.5),
