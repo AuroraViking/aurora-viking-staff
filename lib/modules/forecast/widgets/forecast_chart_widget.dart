@@ -373,21 +373,6 @@ class _ForecastChartWidgetState extends State<ForecastChartWidget> with SingleTi
                   ),
                 ),
 
-                // Aurora icon when conditions are good
-                if (isAuroraLikely)
-                  const Positioned(
-                    top: 16,
-                    left: 16,
-                    child: PulsingAuroraIcon(),
-                  ),
-
-                // Legend
-                Positioned(
-                  top: 16,
-                  right: 16,
-                  child: _buildLegend(),
-                ),
-
                 // BzH Index display
                 Positioned(
                   bottom: 16,
@@ -405,7 +390,7 @@ class _ForecastChartWidgetState extends State<ForecastChartWidget> with SingleTi
                 // Speed mini-chart (top left)
                 if (speedValues.isNotEmpty)
                   Positioned(
-                    top: 60,
+                    top: 16,
                     left: 16,
                     child: _buildMiniChart(
                       values: speedValues,
@@ -419,7 +404,7 @@ class _ForecastChartWidgetState extends State<ForecastChartWidget> with SingleTi
                 // Density mini-chart (top right)
                 if (densityValues.isNotEmpty)
                   Positioned(
-                    top: 60,
+                    top: 16,
                     right: 16,
                     child: _buildMiniChart(
                       values: densityValues,

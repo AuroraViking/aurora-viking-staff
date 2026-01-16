@@ -224,6 +224,7 @@ class BookingService {
     required String bookingId,
     required int pickupPlaceId,
     required String pickupPlaceName,
+    String? productBookingId,  // Optional - if provided, skips booking search
   }) async {
     try {
       final user = _auth.currentUser;
@@ -231,17 +232,24 @@ class BookingService {
       
       final token = await user.getIdToken();
       
+      final bodyData = {
+        'bookingId': bookingId,
+        'pickupPlaceId': pickupPlaceId,
+        'pickupPlaceName': pickupPlaceName,
+      };
+      
+      // Include productBookingId if provided (saves an API call in the backend)
+      if (productBookingId != null) {
+        bodyData['productBookingId'] = productBookingId;
+      }
+      
       final response = await http.post(
         Uri.parse('$_functionsBaseUrl/updatePickupLocation'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
         },
-        body: jsonEncode({
-          'bookingId': bookingId,
-          'pickupPlaceId': pickupPlaceId,
-          'pickupPlaceName': pickupPlaceName,
-        }),
+        body: jsonEncode(bodyData),
       );
       
       if (response.statusCode != 200) {

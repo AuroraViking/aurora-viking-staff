@@ -431,6 +431,7 @@ class _ForecastScreenState extends State<ForecastScreen> {
                           isLoading: _isLoadingAI,
                           onRefresh: _loadAIRecommendation,
                           currentLocationName: _currentLocationName,
+                          weatherData: _weatherData,
                           onNavigateToDestination: () {
                             if (_aiRecommendation?.destination != null) {
                               // Optional: launch maps navigation

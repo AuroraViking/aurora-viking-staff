@@ -656,6 +656,8 @@ class InboxController extends ChangeNotifier {
         case 'CHANGE_PICKUP':
           final newPickupLocation = params?['newPickupLocation'] as String?;
           final pickupPlaceId = params?['pickupPlaceId'] as int?;
+          // productBookingId is now provided by the AI to avoid needing booking search
+          final productBookingId = params?['productBookingId']?.toString();
           
           if (pickupPlaceId == null) {
             throw Exception('Pickup place ID not found - cannot change pickup automatically. Please change manually in Booking Management.');
@@ -665,6 +667,7 @@ class InboxController extends ChangeNotifier {
             bookingId: numericBookingId,
             pickupPlaceId: pickupPlaceId,
             pickupPlaceName: newPickupLocation ?? 'Updated pickup',
+            productBookingId: productBookingId,
           );
           _actionExecutionSuccess = 'Pickup changed to $newPickupLocation';
           break;

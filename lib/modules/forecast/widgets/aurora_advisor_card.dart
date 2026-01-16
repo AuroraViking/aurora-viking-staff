@@ -8,6 +8,7 @@ class AuroraAdvisorCard extends StatefulWidget {
   final VoidCallback onRefresh;
   final VoidCallback? onNavigateToDestination;
   final String? currentLocationName;
+  final Map<String, dynamic>? weatherData;
 
   const AuroraAdvisorCard({
     super.key,
@@ -16,6 +17,7 @@ class AuroraAdvisorCard extends StatefulWidget {
     required this.onRefresh,
     this.onNavigateToDestination,
     this.currentLocationName,
+    this.weatherData,
   });
 
   @override
@@ -197,16 +199,31 @@ class _AuroraAdvisorCardState extends State<AuroraAdvisorCard> {
                 color: Colors.white.withOpacity(0.05),
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+              child: Column(
                 children: [
-                  const Icon(Icons.place, color: Colors.tealAccent, size: 18),
-                  const SizedBox(width: 8),
-                  Text(rec.destination!.name, style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w500)),
-                  const SizedBox(width: 16),
-                  _buildInfoChip(Icons.straighten, '${rec.distanceKm.toInt()} km'),
-                  const SizedBox(width: 8),
-                  _buildInfoChip(Icons.timer, '${rec.travelTimeMinutes} min'),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.place, color: Colors.tealAccent, size: 18),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          rec.destination!.name,
+                          style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w500),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      _buildInfoChip(Icons.straighten, '${rec.distanceKm.toInt()} km'),
+                      const SizedBox(width: 8),
+                      _buildInfoChip(Icons.timer, '${rec.travelTimeMinutes} min'),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -281,6 +298,9 @@ class _AuroraAdvisorCardState extends State<AuroraAdvisorCard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Safety Warnings Section (if any)
+          _buildSafetyWarningsSection(),
+          
           // Space Weather Section
           _buildSpaceWeatherSection(rec),
           const SizedBox(height: 16),
@@ -291,6 +311,14 @@ class _AuroraAdvisorCardState extends State<AuroraAdvisorCard> {
           
           // Cloud Cover Section
           _buildCloudCoverSection(rec),
+          const SizedBox(height: 16),
+          
+          // Photography Direction Section
+          _buildPhotographySection(rec),
+          const SizedBox(height: 16),
+          
+          // Hunting Tips Section
+          _buildHuntingTipsSection(rec),
           const SizedBox(height: 16),
           
           // Factors Summary
@@ -309,6 +337,89 @@ class _AuroraAdvisorCardState extends State<AuroraAdvisorCard> {
           ],
         ],
       ),
+    );
+  }
+
+  Widget _buildSafetyWarningsSection() {
+    // Get weather data from widget
+    final weather = widget.weatherData;
+    if (weather == null || weather.containsKey('error')) {
+      return const SizedBox.shrink();
+    }
+
+    final windSpeed = (weather['windSpeed'] as num?)?.toDouble() ?? 0;
+    final temperature = (weather['temperature'] as num?)?.toDouble() ?? 10;
+
+    final warnings = SafetyWarning.generateWarnings(
+      windSpeed: windSpeed,
+      temperature: temperature,
+    );
+
+    if (warnings.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    final hasDanger = warnings.any((w) => w.level == WarningLevel.danger);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: (hasDanger ? Colors.red : Colors.orange).withOpacity(0.1),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: (hasDanger ? Colors.red : Colors.orange).withOpacity(0.3),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    hasDanger ? Icons.warning_amber : Icons.info_outline,
+                    color: hasDanger ? Colors.red : Colors.orange,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    hasDanger ? 'Safety Alert' : 'Heads Up',
+                    style: TextStyle(
+                      color: hasDanger ? Colors.red : Colors.orange,
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              ...warnings.map((warning) => Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(warning.icon, style: const TextStyle(fontSize: 18)),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        warning.message,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                          height: 1.4,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              )),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+      ],
     );
   }
 
@@ -543,6 +654,134 @@ class _AuroraAdvisorCardState extends State<AuroraAdvisorCard> {
               ),
             ),
           ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPhotographySection(AuroraRecommendation rec) {
+    final tip = AuroraAdvisorService.getPhotographyDirection(rec.kpIndex, rec.bzHValue);
+    
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSectionHeader('WHERE TO LOOK', Icons.explore, Colors.tealAccent),
+        const SizedBox(height: 10),
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                Colors.tealAccent.withOpacity(0.15),
+                Colors.cyanAccent.withOpacity(0.1),
+              ],
+            ),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.tealAccent.withOpacity(0.3)),
+          ),
+          child: Column(
+            children: [
+              // Direction indicator
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.3),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  children: [
+                    const Icon(Icons.north, color: Colors.tealAccent, size: 32),
+                    const SizedBox(height: 8),
+                    Text(
+                      tip.direction,
+                      style: const TextStyle(
+                        color: Colors.tealAccent,
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 2,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: Colors.tealAccent.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        tip.intensity,
+                        style: const TextStyle(
+                          color: Colors.tealAccent,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                tip.message,
+                style: const TextStyle(color: Colors.white, fontSize: 13, height: 1.4),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 12),
+              // Camera settings
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.camera_alt, color: Colors.white54, size: 16),
+                    const SizedBox(width: 8),
+                    Text(
+                      tip.cameraSettings,
+                      style: const TextStyle(color: Colors.white70, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildHuntingTipsSection(AuroraRecommendation rec) {
+    final activity = AuroraAdvisorService.calculateAuroraActivity(rec.kpIndex, rec.bzHValue);
+    final tips = AuroraAdvisorService.getAuroraHuntingTips(
+      cloudCover: (1 - rec.clearSkyProbability) * 100,
+      auroraActivity: activity,
+    );
+    
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSectionHeader('TIPS FOR TONIGHT', Icons.lightbulb_outline, Colors.amber),
+        const SizedBox(height: 10),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.05),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: tips.take(4).map((tip) => Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(
+                tip,
+                style: const TextStyle(color: Colors.white70, fontSize: 12, height: 1.4),
+              ),
+            )).toList(),
+          ),
         ),
       ],
     );

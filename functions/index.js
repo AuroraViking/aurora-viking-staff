@@ -5300,10 +5300,9 @@ POLICIES (CRITICAL - FOLLOW EXACTLY):
 - Rescheduling within 24 hours of departure = treated as cancellation = NON-REFUNDABLE
 - If we allow a courtesy reschedule, it becomes FINAL (non-refundable, no further changes)
 - If AURORA VIKING cancels (weather, safety): guests choose free rebooking OR full refund
-- PAYMENT: We only accept CASH on departure (no card machines at pickup)
-- If customer wants to pay by card, they must make a NEW booking online, pay there, and we cancel the old booking
 
 NEVER SAY:
+- NEVER mention cash or payment unless customer specifically asks about payment
 - NEVER offer percentage refunds (we don't do 50% refunds, etc.)
 - NEVER promise refunds for no Northern Lights
 - NEVER guarantee seats for retry on specific nights
@@ -5443,40 +5442,58 @@ Please analyze this customer message and provide a suggested reply and action in
 
       // Step 3.5: Post-process CHANGE_PICKUP actions to include pickup place ID
       // The frontend needs the ID to call the Bokun API
-      if (aiResult.suggestedAction?.type === 'CHANGE_PICKUP') {
+      if (aiResult.suggestedAction?.type === 'CHANGE_PICKUP' && bookings.length > 0) {
         const pickupName = aiResult.suggestedAction?.params?.newPickupLocation;
         console.log(`📍 CHANGE_PICKUP action detected, pickup name: "${pickupName}"`);
 
-        if (pickupName && bookings.length > 0) {
-          // Get product ID from the booking - need this for pickup place lookup
-          const booking = bookings[0];
-          const productBooking = booking.productBookings?.[0];
-          const productId = productBooking?.product?.id ||
-            productBooking?.productId ||
-            booking.productId ||
-            null;
+        // Get the booking - use the first matched booking
+        const booking = bookings[0];
+        const productBooking = booking.productBookings?.[0];
 
+        // CRITICAL: Get IDs from flat fields (AI cache format) first, then nested format (raw Bokun)
+        // AI cache has productId, productBookingId as flat fields
+        const correctBookingId = String(booking.id);
+        const correctProductBookingId = booking.productBookingId || productBooking?.id || null;
+        const productId = booking.productId ||
+          productBooking?.product?.id ||
+          productBooking?.productId ||
+          null;
+
+        console.log(`📋 Booking IDs: bookingId=${correctBookingId}, productBookingId=${correctProductBookingId}, productId=${productId}`);
+
+        // Ensure params object exists
+        if (!aiResult.suggestedAction.params) {
+          aiResult.suggestedAction.params = {};
+        }
+
+        // Override booking ID with the correct one from our lookup
+        aiResult.suggestedAction.bookingId = correctBookingId;
+
+        // Add productBookingId to params (avoids needing search in updatePickupLocation)
+        if (correctProductBookingId) {
+          aiResult.suggestedAction.params.productBookingId = correctProductBookingId;
+          console.log(`✅ Added productBookingId ${correctProductBookingId} to action`);
+        }
+
+        // Lookup and add pickup place ID
+        if (pickupName && productId) {
           console.log(`📍 Looking up pickup place for product ${productId}`);
 
-          if (productId) {
-            const pickupPlace = await findPickupPlaceId(productId, pickupName);
-            if (pickupPlace) {
-              // Add the pickup place ID to the action params
-              if (!aiResult.suggestedAction.params) {
-                aiResult.suggestedAction.params = {};
-              }
-              aiResult.suggestedAction.params.pickupPlaceId = pickupPlace.id;
-              aiResult.suggestedAction.params.pickupPlaceTitle = pickupPlace.title;
-              console.log(`✅ Added pickup place ID ${pickupPlace.id} to action`);
-            } else {
-              console.log(`⚠️ Could not find pickup place ID for "${pickupName}"`);
-              // Update the description to indicate manual change needed
+          const pickupPlace = await findPickupPlaceId(productId, pickupName);
+          if (pickupPlace) {
+            aiResult.suggestedAction.params.pickupPlaceId = pickupPlace.id;
+            aiResult.suggestedAction.params.pickupPlaceTitle = pickupPlace.title;
+            console.log(`✅ Added pickup place ID ${pickupPlace.id} to action`);
+          } else {
+            console.log(`⚠️ Could not find pickup place ID for "${pickupName}"`);
+            // Update the description to indicate manual change needed
+            if (aiResult.suggestedAction.humanReadableDescription) {
               aiResult.suggestedAction.humanReadableDescription +=
                 ' (Note: Pickup place ID not found - may need manual update)';
             }
-          } else {
-            console.log(`⚠️ No product ID found in booking - cannot lookup pickup place`);
           }
+        } else if (!productId) {
+          console.log(`⚠️ No product ID found in booking - cannot lookup pickup place`);
         }
       }
 
@@ -5768,7 +5785,10 @@ async function refreshAIBookingCache(accessKey, secretKey) {
       status: b.productBookings?.[0]?.status || b.status || 'CONFIRMED',
       pickupPlace: b.productBookings?.[0]?.fields?.pickupPlace?.title || '',
       pickupPlaceId: b.productBookings?.[0]?.fields?.pickupPlace?.id || null,
+      // Payment: check multiple fields because Bokun is inconsistent
       fullyPaid: b.fullyPaid || false,
+      totalPaid: b.totalPaid || 0,
+      totalPrice: b.totalPrice || 0,
     }));
 
     // Save to Firestore
@@ -6164,27 +6184,21 @@ function buildBookingContext(bookings) {
   let context = 'BOOKING CONTEXT:\n';
   bookings.forEach((booking, index) => {
     // Extract product booking details if available
+    // Note: AI cache has flat fields (pickupPlace, productId), raw Bokun has nested productBookings
     const productBooking = booking.productBookings?.[0];
-    const startDate = productBooking?.startDate || booking.startDate || 'Unknown';
-    const startTime = productBooking?.startTime || booking.startTime || booking.pickupTime || null;
-    const pickupPlace = productBooking?.fields?.pickupPlace?.title ||
+    const startDate = booking.startDate || productBooking?.startDate || 'Unknown';
+    const startTime = booking.startTime || productBooking?.startTime || booking.pickupTime || null;
+    // Check flat pickupPlace field first (AI cache), then nested
+    const pickupPlace = booking.pickupPlace ||
+      productBooking?.fields?.pickupPlace?.title ||
       booking.pickupPlaceName ||
       'Not assigned yet';
-    const pickupPlaceId = productBooking?.fields?.pickupPlace?.id || null;
-    const customerEmail = booking.customer?.email || booking.customerEmail || 'Unknown';
+    const pickupPlaceId = booking.pickupPlaceId || productBooking?.fields?.pickupPlace?.id || null;
+    const customerEmail = booking.customerEmail || booking.customer?.email || 'Unknown';
 
-    // Extract product ID for pickup place lookups
-    const productId = productBooking?.product?.id || productBooking?.productId || booking.productId || null;
-    const productBookingId = productBooking?.id || null;
-
-    // Payment status - CRITICAL: Don't hallucinate cash for paid bookings
-    const isPaid = booking.fullyPaid === true;
-    let paymentStatus;
-    if (isPaid) {
-      paymentStatus = 'PAID IN FULL (do NOT mention cash or payment to customer)';
-    } else {
-      paymentStatus = 'NOT PAID - Customer should bring CASH for payment on arrival';
-    }
+    // Extract product ID for pickup place lookups - check flat fields first
+    const productId = booking.productId || productBooking?.product?.id || productBooking?.productId || null;
+    const productBookingId = booking.productBookingId || productBooking?.id || null;
 
     context += `
 Booking ${index + 1}${booking.matchConfidence ? ` [${booking.matchConfidence} CONFIDENCE MATCH]` : ''}:
@@ -6193,7 +6207,7 @@ Booking ${index + 1}${booking.matchConfidence ? ` [${booking.matchConfidence} CO
 - Product Booking ID: ${productBookingId || 'N/A'}
 - Product ID: ${productId || 'N/A'}
 - External Ref: ${booking.externalBookingReference || 'N/A'}
-- Customer: ${booking.customer?.fullName || booking.customerFullName || 'Unknown'}
+- Customer: ${booking.customer?.fullName || booking.customerFullName || booking.customerName || 'Unknown'}
 - Email: ${customerEmail}
 - Product: ${productBooking?.product?.title || booking.productTitle || 'Northern Lights Tour'}
 - Tour Date: ${startDate}
@@ -6201,7 +6215,6 @@ Booking ${index + 1}${booking.matchConfidence ? ` [${booking.matchConfidence} CO
 - Pickup Location: ${pickupPlace}${pickupPlaceId ? ` (ID: ${pickupPlaceId})` : ''}
 - Guests: ${booking.totalParticipants || booking.numberOfGuests || 1}
 - Status: ${booking.status || 'CONFIRMED'}
-- Payment: ${paymentStatus}
 ${booking.matchReason ? `- Match Reason: ${booking.matchReason}` : ''}
 `;
   });
