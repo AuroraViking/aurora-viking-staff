@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../services/aurora_advisor_service.dart';
 
 class AuroraAdvisorCard extends StatefulWidget {
@@ -49,7 +50,7 @@ class _AuroraAdvisorCardState extends State<AuroraAdvisorCard> {
 
   Color _getGradientColor() {
     if (widget.recommendation == null || widget.recommendation!.hasError) return Colors.grey;
-    final prob = widget.recommendation!.combinedProbability;
+    final prob = widget.recommendation!.viewingProbability;
     if (prob >= 0.7) return Colors.green;
     if (prob >= 0.5) return Colors.tealAccent;
     if (prob >= 0.3) return Colors.amber;
@@ -63,15 +64,15 @@ class _AuroraAdvisorCardState extends State<AuroraAdvisorCard> {
         children: [
           const Row(
             children: [
-              Icon(Icons.auto_awesome, color: Colors.tealAccent, size: 24),
+              Icon(Icons.psychology, color: Colors.tealAccent, size: 24),
               SizedBox(width: 12),
-              Text('HEIMDALLR ANALYZING...', style: TextStyle(color: Colors.tealAccent, fontSize: 14, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
+              Text('ANALYZING CONDITIONS...', style: TextStyle(color: Colors.tealAccent, fontSize: 14, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
             ],
           ),
           const SizedBox(height: 20),
           const LinearProgressIndicator(backgroundColor: Colors.white10, valueColor: AlwaysStoppedAnimation<Color>(Colors.tealAccent)),
           const SizedBox(height: 16),
-          Text('Analyzing space weather and cloud patterns...', style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 14)),
+          Text('Checking satellite images and space weather...', style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 14)),
         ],
       ),
     );
@@ -102,11 +103,11 @@ class _AuroraAdvisorCardState extends State<AuroraAdvisorCard> {
           const SizedBox(height: 16),
           const Text('Aurora Advisor', style: TextStyle(color: Colors.white70, fontSize: 18, fontWeight: FontWeight.w500)),
           const SizedBox(height: 8),
-          Text('Get AI-powered recommendation for optimal aurora viewing', style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 13), textAlign: TextAlign.center),
+          Text('Get a recommendation for optimal aurora viewing', style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 13), textAlign: TextAlign.center),
           const SizedBox(height: 16),
           ElevatedButton.icon(
             onPressed: widget.onRefresh,
-            icon: const Icon(Icons.auto_awesome),
+            icon: const Icon(Icons.refresh),
             label: const Text('Get Recommendation'),
             style: ElevatedButton.styleFrom(backgroundColor: Colors.tealAccent, foregroundColor: Colors.black),
           ),
@@ -136,34 +137,39 @@ class _AuroraAdvisorCardState extends State<AuroraAdvisorCard> {
   }
 
   Widget _buildHeader(AuroraRecommendation rec) {
+    final isStay = rec.action == 'STAY';
+    final headerColor = isStay ? Colors.greenAccent : Colors.tealAccent;
+    
     return Container(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: Colors.black.withOpacity(0.3), border: Border(bottom: BorderSide(color: Colors.white.withOpacity(0.1)))),
+      decoration: BoxDecoration(
+        color: headerColor.withOpacity(0.1),
+        border: Border(bottom: BorderSide(color: Colors.white.withOpacity(0.1))),
+      ),
       child: Row(
         children: [
           Container(
             padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(color: _getGradientColor().withOpacity(0.2), borderRadius: BorderRadius.circular(12)),
-            child: Icon(Icons.auto_awesome, color: _getGradientColor(), size: 24),
+            decoration: BoxDecoration(color: headerColor.withOpacity(0.2), borderRadius: BorderRadius.circular(12)),
+            child: Icon(isStay ? Icons.location_on : Icons.navigation, color: headerColor, size: 24),
           ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('HEIMDALLR RECOMMENDS', style: TextStyle(color: Colors.tealAccent, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
-                const SizedBox(height: 2),
-                if (rec.learningsUsed > 0)
-                  Text('Using ${rec.learningsUsed} learned patterns', style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 10)),
+                Text(
+                  isStay ? 'STAY HERE' : 'DRIVE',
+                  style: TextStyle(color: headerColor, fontSize: 14, fontWeight: FontWeight.bold, letterSpacing: 1.5),
+                ),
+                if (widget.currentLocationName != null)
+                  Text(
+                    'From: ${widget.currentLocationName}',
+                    style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 11),
+                  ),
               ],
             ),
           ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(color: Colors.white.withOpacity(0.1), borderRadius: BorderRadius.circular(20)),
-            child: Text('${(rec.confidence * 100).toInt()}%', style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w500)),
-          ),
-          const SizedBox(width: 8),
           IconButton(onPressed: widget.onRefresh, icon: const Icon(Icons.refresh, color: Colors.white70), tooltip: 'Refresh'),
         ],
       ),
@@ -171,56 +177,55 @@ class _AuroraAdvisorCardState extends State<AuroraAdvisorCard> {
   }
 
   Widget _buildMainRecommendation(AuroraRecommendation rec) {
-    return InkWell(
-      onTap: widget.onNavigateToDestination,
-      child: Container(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          children: [
-            // Current location
-            if (widget.currentLocationName != null && widget.currentLocationName!.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.my_location, size: 14, color: Colors.white.withOpacity(0.6)),
-                    const SizedBox(width: 6),
-                    Text(
-                      'From: ${widget.currentLocationName}',
-                      style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 12),
-                    ),
-                  ],
-                ),
+    return Container(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        children: [
+          // Summary text (normal guide language)
+          Text(
+            rec.summary,
+            style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w500, height: 1.4),
+            textAlign: TextAlign.center,
+          ),
+          
+          // Destination info if driving
+          if (rec.action == 'DRIVE' && rec.destination != null) ...[
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.05),
+                borderRadius: BorderRadius.circular(12),
               ),
-            Text(rec.recommendation, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold, height: 1.3), textAlign: TextAlign.center),
-            if (rec.destination != null) ...[
-              const SizedBox(height: 12),
-              Row(
+              child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  _buildInfoChip(Icons.navigation, '${rec.distanceKm.toInt()} km ${rec.direction}'),
-                  const SizedBox(width: 12),
+                  const Icon(Icons.place, color: Colors.tealAccent, size: 18),
+                  const SizedBox(width: 8),
+                  Text(rec.destination!.name, style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w500)),
+                  const SizedBox(width: 16),
+                  _buildInfoChip(Icons.straighten, '${rec.distanceKm.toInt()} km'),
+                  const SizedBox(width: 8),
                   _buildInfoChip(Icons.timer, '${rec.travelTimeMinutes} min'),
                 ],
               ),
-            ],
+            ),
           ],
-        ),
+        ],
       ),
     );
   }
 
   Widget _buildInfoChip(IconData icon, String text) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(color: Colors.white.withOpacity(0.1), borderRadius: BorderRadius.circular(20)),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(color: Colors.white.withOpacity(0.1), borderRadius: BorderRadius.circular(16)),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 16, color: Colors.tealAccent),
-          const SizedBox(width: 6),
-          Text(text, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500)),
+          Icon(icon, size: 14, color: Colors.white70),
+          const SizedBox(width: 4),
+          Text(text, style: const TextStyle(color: Colors.white70, fontSize: 12)),
         ],
       ),
     );
@@ -231,11 +236,11 @@ class _AuroraAdvisorCardState extends State<AuroraAdvisorCard> {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Row(
         children: [
-          Expanded(child: _buildMeter('Aurora', rec.auroraProbability, Icons.auto_awesome, Colors.purpleAccent)),
-          const SizedBox(width: 12),
-          Expanded(child: _buildMeter('Clear Sky', rec.clearSkyProbability, Icons.cloud_off, Colors.lightBlue)),
-          const SizedBox(width: 12),
-          Expanded(child: _buildMeter('Viewing', rec.combinedProbability, Icons.visibility, _getGradientColor())),
+          Expanded(child: _buildMeter('Aurora', rec.auroraProbability, Icons.auto_awesome, Colors.pinkAccent)),
+          const SizedBox(width: 10),
+          Expanded(child: _buildMeter('Clear Sky', rec.clearSkyProbability, Icons.cloud_off, Colors.cyanAccent)),
+          const SizedBox(width: 10),
+          Expanded(child: _buildMeter('Viewing', rec.viewingProbability, Icons.visibility, _getGradientColor())),
         ],
       ),
     );
@@ -243,19 +248,23 @@ class _AuroraAdvisorCardState extends State<AuroraAdvisorCard> {
 
   Widget _buildMeter(String label, double value, IconData icon, Color color) {
     return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(12), border: Border.all(color: color.withOpacity(0.3))),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
       child: Column(
         children: [
-          Icon(icon, color: color, size: 20),
-          const SizedBox(height: 8),
-          Text('${(value * 100).toInt()}%', style: TextStyle(color: color, fontSize: 22, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 4),
-          Text(label, style: TextStyle(color: color.withOpacity(0.8), fontSize: 11, fontWeight: FontWeight.w500)),
-          const SizedBox(height: 8),
+          Icon(icon, color: color, size: 18),
+          const SizedBox(height: 6),
+          Text('${(value * 100).toInt()}%', style: TextStyle(color: color, fontSize: 20, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 2),
+          Text(label, style: TextStyle(color: color.withOpacity(0.8), fontSize: 10)),
+          const SizedBox(height: 6),
           ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: LinearProgressIndicator(value: value, backgroundColor: Colors.white.withOpacity(0.1), valueColor: AlwaysStoppedAnimation<Color>(color), minHeight: 6),
+            borderRadius: BorderRadius.circular(3),
+            child: LinearProgressIndicator(value: value, backgroundColor: Colors.white.withOpacity(0.1), valueColor: AlwaysStoppedAnimation<Color>(color), minHeight: 4),
           ),
         ],
       ),
@@ -265,24 +274,37 @@ class _AuroraAdvisorCardState extends State<AuroraAdvisorCard> {
   Widget _buildExpandedContent(AuroraRecommendation rec) {
     return Container(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: Colors.black.withOpacity(0.2), border: Border(top: BorderSide(color: Colors.white.withOpacity(0.1)))),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.2),
+        border: Border(top: BorderSide(color: Colors.white.withOpacity(0.1))),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Space Weather Analysis Section
+          // Space Weather Section
           _buildSpaceWeatherSection(rec),
-          const SizedBox(height: 20),
+          const SizedBox(height: 16),
           
-          // Cloud Cover Analysis Section
+          // Darkness & Moon Section
+          _buildDarknessAndMoonSection(rec),
+          const SizedBox(height: 16),
+          
+          // Cloud Cover Section
           _buildCloudCoverSection(rec),
-          const SizedBox(height: 20),
+          const SizedBox(height: 16),
           
-          // Viewing Recommendation Section
-          _buildViewingSection(rec),
+          // Factors Summary
+          if (rec.factors != null && rec.factors!.isNotEmpty) ...[
+            _buildFactorsSummary(rec),
+            const SizedBox(height: 16),
+          ],
           
-          // Navigation button if available
-          if (rec.navigationUrl != null && rec.navigationUrl!.isNotEmpty) ...[
-            const SizedBox(height: 20),
+          // Disclaimer
+          _buildDisclaimer(rec.disclaimer),
+          
+          // Navigation button
+          if (rec.action == 'DRIVE' && rec.navigationUrl != null) ...[
+            const SizedBox(height: 16),
             _buildNavigationButton(rec),
           ],
         ],
@@ -291,133 +313,186 @@ class _AuroraAdvisorCardState extends State<AuroraAdvisorCard> {
   }
 
   Widget _buildSpaceWeatherSection(AuroraRecommendation rec) {
-    final analysis = rec.analysis;
-    final bzPosition = analysis?['bz_position'] ?? 'unknown';
-    final bzTrend = analysis?['bz_trend'] ?? 'stable';
-    final favorable = analysis?['aurora_favorable'] == true;
+    final statusColor = {
+      'STRONG': Colors.greenAccent,
+      'MODERATE': Colors.amber,
+      'WEAK': Colors.orangeAccent,
+      'QUIET': Colors.grey,
+    }[rec.bzStatus] ?? Colors.grey;
     
-    String statusText;
-    Color statusColor;
-    IconData statusIcon;
+    final trendIcon = rec.bzTrend == 'IMPROVING' ? Icons.trending_up : 
+                      rec.bzTrend == 'DECLINING' ? Icons.trending_down : 
+                      Icons.trending_flat;
+    final trendColor = rec.bzTrend == 'IMPROVING' ? Colors.greenAccent : 
+                       rec.bzTrend == 'DECLINING' ? Colors.orangeAccent : 
+                       Colors.white54;
     
-    if (bzPosition == 'below_zero' || bzPosition.contains('below')) {
-      statusText = 'FAVORABLE';
-      statusColor = Colors.greenAccent;
-      statusIcon = Icons.check_circle;
-    } else if (bzPosition == 'above_zero' || bzPosition.contains('above')) {
-      statusText = 'QUIET';
-      statusColor = Colors.orangeAccent;
-      statusIcon = Icons.remove_circle;
-    } else {
-      statusText = 'NEUTRAL';
-      statusColor = Colors.amber;
-      statusIcon = Icons.circle_outlined;
-    }
-    
-    String trendText = bzTrend == 'improving' 
-        ? 'Trend: Improving ↓' 
-        : bzTrend == 'worsening' 
-            ? 'Trend: Worsening ↑'
-            : 'Trend: Stable →';
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        _buildSectionHeader('SPACE WEATHER', Icons.wb_sunny, Colors.purpleAccent),
+        const SizedBox(height: 10),
         Row(
           children: [
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                color: Colors.purpleAccent.withOpacity(0.2),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Icon(Icons.wb_sunny, color: Colors.purpleAccent, size: 18),
-            ),
-            const SizedBox(width: 10),
-            const Text('SPACE WEATHER', style: TextStyle(color: Colors.purpleAccent, fontSize: 13, fontWeight: FontWeight.bold, letterSpacing: 1)),
-          ],
-        ),
-        const SizedBox(height: 12),
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: statusColor.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: statusColor.withOpacity(0.3)),
-          ),
-          child: Row(
-            children: [
-              Icon(statusIcon, color: statusColor, size: 24),
-              const SizedBox(width: 12),
-              Expanded(
+            // Bz Status
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: statusColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: statusColor.withOpacity(0.3)),
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Bz Status: $statusText', style: TextStyle(color: statusColor, fontSize: 14, fontWeight: FontWeight.bold)),
+                    Text('Bz Status', style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 10)),
                     const SizedBox(height: 4),
-                    Text(trendText, style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 12)),
+                    Text(rec.bzStatus, style: TextStyle(color: statusColor, fontSize: 16, fontWeight: FontWeight.bold)),
+                    Row(
+                      children: [
+                        Icon(trendIcon, size: 14, color: trendColor),
+                        const SizedBox(width: 4),
+                        Text(rec.bzTrend.toLowerCase(), style: TextStyle(color: trendColor, fontSize: 11)),
+                      ],
+                    ),
                   ],
                 ),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  'Kp ${rec.kpIndex?.toStringAsFixed(1) ?? "N/A"}',
-                  style: const TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w500),
-                ),
+            ),
+            const SizedBox(width: 10),
+            // BzH Value
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.05),
+                borderRadius: BorderRadius.circular(10),
               ),
-            ],
+              child: Column(
+                children: [
+                  Text('BzH Index', style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 10)),
+                  const SizedBox(height: 4),
+                  Text(
+                    rec.bzHValue.toStringAsFixed(2),
+                    style: TextStyle(
+                      color: rec.bzHValue > 3 ? Colors.greenAccent : rec.bzHValue > 1 ? Colors.amber : Colors.white70,
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            // Kp
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.05),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Column(
+                children: [
+                  Text('Kp', style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 10)),
+                  const SizedBox(height: 4),
+                  Text(rec.kpIndex.toStringAsFixed(0), style: const TextStyle(color: Colors.white70, fontSize: 22, fontWeight: FontWeight.bold)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDarknessAndMoonSection(AuroraRecommendation rec) {
+    final darkness = rec.darkness ?? {};
+    final moon = rec.moon ?? {};
+    final isDark = darkness['isDark'] == true;
+    final moonIllumination = (moon['illumination'] as num?)?.toInt() ?? 0;
+    final moonPhase = moon['phase']?.toString() ?? '';
+    final moonSignificant = moon['isSignificant'] == true;
+    
+    return Row(
+      children: [
+        // Darkness
+        Expanded(
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Row(
+              children: [
+                Icon(isDark ? Icons.nightlight : Icons.wb_sunny, color: isDark ? Colors.indigoAccent : Colors.orangeAccent, size: 24),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Darkness', style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 10)),
+                      Text(
+                        isDark ? 'Dark enough ✓' : 'Wait until ${darkness['startsAt'] ?? 'later'}',
+                        style: TextStyle(color: isDark ? Colors.greenAccent : Colors.orangeAccent, fontSize: 12, fontWeight: FontWeight.w500),
+                      ),
+                      if (darkness['startsAt'] != null && darkness['endsAt'] != null)
+                        Text('${darkness['startsAt']} - ${darkness['endsAt']}', style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 10)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
-        if (rec.viewingTip != null && rec.viewingTip!.isNotEmpty) ...[
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Icon(Icons.tips_and_updates, size: 14, color: Colors.amber.withOpacity(0.8)),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  rec.viewingTip!,
-                  style: TextStyle(color: Colors.amber.withOpacity(0.9), fontSize: 12, fontStyle: FontStyle.italic),
+        const SizedBox(width: 10),
+        // Moon
+        Expanded(
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: moonSignificant ? Colors.amber.withOpacity(0.1) : Colors.white.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(10),
+              border: moonSignificant ? Border.all(color: Colors.amber.withOpacity(0.3)) : null,
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.brightness_3, color: moonSignificant ? Colors.amber : Colors.white54, size: 24),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Moon', style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 10)),
+                      Text('$moonIllumination%', style: TextStyle(color: moonSignificant ? Colors.amber : Colors.white70, fontSize: 14, fontWeight: FontWeight.bold)),
+                      Text(moonPhase, style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 10)),
+                      if (moonSignificant)
+                        Text('May wash out faint aurora', style: TextStyle(color: Colors.amber.withOpacity(0.8), fontSize: 9)),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ],
+        ),
       ],
     );
   }
 
   Widget _buildCloudCoverSection(AuroraRecommendation rec) {
-    final analysis = rec.analysis;
-    final clearDirs = (analysis?['clear_directions'] as List?)?.cast<String>() ?? [];
-    final cloudyDirs = (analysis?['cloudy_directions'] as List?)?.cast<String>() ?? [];
+    final cloudTruth = rec.cloudTruth ?? {};
+    final observations = cloudTruth['observations'] as Map<String, dynamic>? ?? {};
+    final clearest = (cloudTruth['clearest_directions'] as List?)?.cast<String>() ?? [];
+    final cloudiest = (cloudTruth['cloudiest_directions'] as List?)?.cast<String>() ?? [];
     
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        _buildSectionHeader('CLOUD COVER', Icons.cloud, Colors.lightBlue),
+        const SizedBox(height: 10),
         Row(
           children: [
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                color: Colors.lightBlue.withOpacity(0.2),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Icon(Icons.cloud, color: Colors.lightBlue, size: 18),
-            ),
-            const SizedBox(width: 10),
-            const Text('CLOUD COVER', style: TextStyle(color: Colors.lightBlue, fontSize: 13, fontWeight: FontWeight.bold, letterSpacing: 1)),
-          ],
-        ),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            // Clear skies
+            // Clear directions
             Expanded(
               child: Container(
                 padding: const EdgeInsets.all(10),
@@ -431,45 +506,38 @@ class _AuroraAdvisorCardState extends State<AuroraAdvisorCard> {
                   children: [
                     Row(
                       children: [
-                        Icon(Icons.cloud_off, color: Colors.greenAccent, size: 16),
+                        Icon(Icons.cloud_off, color: Colors.greenAccent, size: 14),
                         const SizedBox(width: 6),
-                        const Text('Clear', style: TextStyle(color: Colors.greenAccent, fontSize: 12, fontWeight: FontWeight.bold)),
+                        Text('Clear', style: TextStyle(color: Colors.greenAccent, fontSize: 11, fontWeight: FontWeight.bold)),
                       ],
                     ),
                     const SizedBox(height: 6),
-                    Text(
-                      clearDirs.isNotEmpty ? clearDirs.join(', ') : 'Limited visibility',
-                      style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: 13),
-                    ),
+                    Text(clearest.isNotEmpty ? clearest.join(', ') : 'Limited', style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: 13)),
                   ],
                 ),
               ),
             ),
             const SizedBox(width: 10),
-            // Cloudy
+            // Cloudy directions
             Expanded(
               child: Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
                   color: Colors.grey.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: Colors.grey.withOpacity(0.3)),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
                       children: [
-                        Icon(Icons.cloud, color: Colors.grey, size: 16),
+                        Icon(Icons.cloud, color: Colors.grey, size: 14),
                         const SizedBox(width: 6),
-                        const Text('Overcast', style: TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.bold)),
+                        Text('Overcast', style: TextStyle(color: Colors.grey, fontSize: 11, fontWeight: FontWeight.bold)),
                       ],
                     ),
                     const SizedBox(height: 6),
-                    Text(
-                      cloudyDirs.isNotEmpty ? cloudyDirs.join(', ') : 'None detected',
-                      style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 13),
-                    ),
+                    Text(cloudiest.isNotEmpty ? cloudiest.join(', ') : 'None', style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 13)),
                   ],
                 ),
               ),
@@ -480,38 +548,61 @@ class _AuroraAdvisorCardState extends State<AuroraAdvisorCard> {
     );
   }
 
-  Widget _buildViewingSection(AuroraRecommendation rec) {
+  Widget _buildFactorsSummary(AuroraRecommendation rec) {
+    final factors = rec.factors!;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                color: Colors.tealAccent.withOpacity(0.2),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Icon(Icons.psychology, color: Colors.tealAccent, size: 18),
-            ),
-            const SizedBox(width: 10),
-            const Text('RECOMMENDATION', style: TextStyle(color: Colors.tealAccent, fontSize: 13, fontWeight: FontWeight.bold, letterSpacing: 1)),
-          ],
-        ),
-        const SizedBox(height: 12),
+        _buildSectionHeader('CONDITIONS', Icons.checklist, Colors.tealAccent),
+        const SizedBox(height: 10),
         Container(
-          padding: const EdgeInsets.all(14),
+          padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             color: Colors.white.withOpacity(0.05),
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: Colors.tealAccent.withOpacity(0.2)),
           ),
-          child: Text(
-            rec.description ?? rec.reasoning,
-            style: TextStyle(color: Colors.white.withOpacity(0.95), fontSize: 14, height: 1.6),
+          child: Column(
+            children: [
+              if (factors['clouds'] != null) _buildFactorRow('☁️', factors['clouds'].toString()),
+              if (factors['space_weather'] != null) _buildFactorRow('🌞', factors['space_weather'].toString()),
+              if (factors['darkness'] != null) _buildFactorRow('🌙', factors['darkness'].toString()),
+              if (factors['moon'] != null) _buildFactorRow('🌕', factors['moon'].toString()),
+            ],
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildFactorRow(String emoji, String text) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(emoji, style: const TextStyle(fontSize: 12)),
+          const SizedBox(width: 8),
+          Expanded(child: Text(text, style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 12))),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDisclaimer(String text) {
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: Colors.amber.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.amber.withOpacity(0.3)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.info_outline, color: Colors.amber, size: 16),
+          const SizedBox(width: 8),
+          Expanded(child: Text(text, style: const TextStyle(color: Colors.amber, fontSize: 11))),
+        ],
+      ),
     );
   }
 
@@ -520,29 +611,16 @@ class _AuroraAdvisorCardState extends State<AuroraAdvisorCard> {
       onTap: () async {
         final url = rec.navigationUrl;
         if (url != null) {
-          // Launch URL - requires url_launcher package
-          // For now, just show a snackbar with the coordinates
-          if (context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Navigate to: ${rec.destination?.name ?? rec.direction}'),
-                action: SnackBarAction(
-                  label: 'OPEN MAP',
-                  onPressed: () {
-                    // Could use url_launcher here
-                  },
-                ),
-              ),
-            );
+          final uri = Uri.parse(url);
+          if (await canLaunchUrl(uri)) {
+            await launchUrl(uri, mode: LaunchMode.externalApplication);
           }
         }
       },
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 14),
         decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Colors.blue.shade700, Colors.blue.shade900],
-          ),
+          gradient: LinearGradient(colors: [Colors.blue.shade600, Colors.blue.shade800]),
           borderRadius: BorderRadius.circular(12),
         ),
         child: Row(
@@ -550,30 +628,23 @@ class _AuroraAdvisorCardState extends State<AuroraAdvisorCard> {
           children: [
             const Icon(Icons.navigation, color: Colors.white, size: 20),
             const SizedBox(width: 10),
-            Text(
-              'Navigate to ${rec.destination?.name ?? rec.direction}',
-              style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
-            ),
+            Text('Navigate to ${rec.destination?.name ?? rec.direction}', style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
           ],
         ),
       ),
     );
   }
 
-
-  Widget _buildSection(String title, IconData icon, String content) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _buildSectionHeader(String title, IconData icon, Color color) {
+    return Row(
       children: [
-        Row(
-          children: [
-            Icon(icon, color: Colors.tealAccent, size: 16),
-            const SizedBox(width: 8),
-            Text(title, style: const TextStyle(color: Colors.tealAccent, fontSize: 14, fontWeight: FontWeight.bold)),
-          ],
+        Container(
+          padding: const EdgeInsets.all(5),
+          decoration: BoxDecoration(color: color.withOpacity(0.2), borderRadius: BorderRadius.circular(6)),
+          child: Icon(icon, color: color, size: 14),
         ),
-        const SizedBox(height: 8),
-        Text(content, style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: 13, height: 1.5)),
+        const SizedBox(width: 8),
+        Text(title, style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1)),
       ],
     );
   }
@@ -583,11 +654,14 @@ class _AuroraAdvisorCardState extends State<AuroraAdvisorCard> {
       onTap: () => setState(() => _isExpanded = !_isExpanded),
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 12),
-        decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20))),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.05),
+          borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20)),
+        ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text(_isExpanded ? 'Show Less' : 'Show Reasoning', style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 13, fontWeight: FontWeight.w500)),
+            Text(_isExpanded ? 'Show Less' : 'Show Details', style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 13, fontWeight: FontWeight.w500)),
             const SizedBox(width: 8),
             Icon(_isExpanded ? Icons.expand_less : Icons.expand_more, color: Colors.white.withOpacity(0.7), size: 20),
           ],

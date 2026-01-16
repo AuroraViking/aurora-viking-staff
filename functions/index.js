@@ -5441,6 +5441,45 @@ Please analyze this customer message and provide a suggested reply and action in
         };
       }
 
+      // Step 3.5: Post-process CHANGE_PICKUP actions to include pickup place ID
+      // The frontend needs the ID to call the Bokun API
+      if (aiResult.suggestedAction?.type === 'CHANGE_PICKUP') {
+        const pickupName = aiResult.suggestedAction?.params?.newPickupLocation;
+        console.log(`📍 CHANGE_PICKUP action detected, pickup name: "${pickupName}"`);
+
+        if (pickupName && bookings.length > 0) {
+          // Get product ID from the booking - need this for pickup place lookup
+          const booking = bookings[0];
+          const productBooking = booking.productBookings?.[0];
+          const productId = productBooking?.product?.id ||
+            productBooking?.productId ||
+            booking.productId ||
+            null;
+
+          console.log(`📍 Looking up pickup place for product ${productId}`);
+
+          if (productId) {
+            const pickupPlace = await findPickupPlaceId(productId, pickupName);
+            if (pickupPlace) {
+              // Add the pickup place ID to the action params
+              if (!aiResult.suggestedAction.params) {
+                aiResult.suggestedAction.params = {};
+              }
+              aiResult.suggestedAction.params.pickupPlaceId = pickupPlace.id;
+              aiResult.suggestedAction.params.pickupPlaceTitle = pickupPlace.title;
+              console.log(`✅ Added pickup place ID ${pickupPlace.id} to action`);
+            } else {
+              console.log(`⚠️ Could not find pickup place ID for "${pickupName}"`);
+              // Update the description to indicate manual change needed
+              aiResult.suggestedAction.humanReadableDescription +=
+                ' (Note: Pickup place ID not found - may need manual update)';
+            }
+          } else {
+            console.log(`⚠️ No product ID found in booking - cannot lookup pickup place`);
+          }
+        }
+      }
+
       // Step 4: Log the AI assist request for training
       await db.collection('ai_assist_logs').add({
         conversationId,
@@ -5721,11 +5760,14 @@ async function refreshAIBookingCache(accessKey, secretKey) {
       customerEmail: b.customer?.email || '',
       phone: b.customer?.phoneNumber || b.customer?.phone || '',
       productTitle: b.productBookings?.[0]?.product?.title || 'Northern Lights Tour',
+      productId: b.productBookings?.[0]?.product?.id || b.productBookings?.[0]?.productId || null,
+      productBookingId: b.productBookings?.[0]?.id || null,
       startDate: b.productBookings?.[0]?.startDate || b.startDate,
       startTime: b.productBookings?.[0]?.startTime || '',
       totalParticipants: b.productBookings?.[0]?.totalParticipants || b.totalParticipants || 1,
       status: b.productBookings?.[0]?.status || b.status || 'CONFIRMED',
       pickupPlace: b.productBookings?.[0]?.fields?.pickupPlace?.title || '',
+      pickupPlaceId: b.productBookings?.[0]?.fields?.pickupPlace?.id || null,
       fullyPaid: b.fullyPaid || false,
     }));
 
@@ -5797,6 +5839,112 @@ async function searchBokunBookingById(bookingId, accessKey, secretKey) {
     req.write(requestBody);
     req.end();
   });
+}
+
+// Helper: Find pickup place ID by name/title
+// Called when AI detects CHANGE_PICKUP intent to get the ID needed for API
+async function findPickupPlaceId(productId, pickupPlaceName) {
+  const accessKey = process.env.BOKUN_ACCESS_KEY;
+  const secretKey = process.env.BOKUN_SECRET_KEY;
+
+  if (!accessKey || !secretKey || !productId) {
+    console.log('⚠️ Cannot lookup pickup place - missing credentials or productId');
+    return null;
+  }
+
+  try {
+    console.log(`🔍 Looking up pickup place: "${pickupPlaceName}" for product ${productId}`);
+
+    const pickupPath = `/activity.json/${productId}/pickup-places`;
+    const pickupDate = new Date().toISOString().replace('T', ' ').substring(0, 19);
+    const pickupMessage = pickupDate + accessKey + 'GET' + pickupPath;
+    const pickupSignature = crypto
+      .createHmac('sha1', secretKey)
+      .update(pickupMessage)
+      .digest('base64');
+
+    const pickupPlaces = await new Promise((resolve) => {
+      const options = {
+        hostname: 'api.bokun.io',
+        path: pickupPath,
+        method: 'GET',
+        headers: {
+          'X-Bokun-AccessKey': accessKey,
+          'X-Bokun-Date': pickupDate,
+          'X-Bokun-Signature': pickupSignature,
+        },
+      };
+
+      const apiReq = https.request(options, (apiRes) => {
+        let data = '';
+        apiRes.on('data', (chunk) => { data += chunk; });
+        apiRes.on('end', () => {
+          if (apiRes.statusCode >= 200 && apiRes.statusCode < 300) {
+            try {
+              const parsed = JSON.parse(data);
+              resolve(Array.isArray(parsed) ? parsed : parsed.pickupPlaces || parsed.pickupDropoffPlaces || []);
+            } catch (e) {
+              console.log('⚠️ Failed to parse pickup places response');
+              resolve([]);
+            }
+          } else {
+            console.log(`⚠️ Pickup places API returned ${apiRes.statusCode}`);
+            resolve([]);
+          }
+        });
+      });
+
+      apiReq.on('error', (e) => {
+        console.log(`⚠️ Pickup places API error: ${e.message}`);
+        resolve([]);
+      });
+      apiReq.end();
+    });
+
+    console.log(`📍 Found ${pickupPlaces.length} pickup places for product`);
+
+    // Normalize search - case insensitive, partial match
+    const normalizedSearch = pickupPlaceName.toLowerCase().trim();
+
+    // Try exact match first
+    let match = pickupPlaces.find(place => {
+      const title = (place.title || place.name || '').toLowerCase();
+      return title === normalizedSearch;
+    });
+
+    // Then try partial match
+    if (!match) {
+      match = pickupPlaces.find(place => {
+        const title = (place.title || place.name || '').toLowerCase();
+        return title.includes(normalizedSearch) || normalizedSearch.includes(title);
+      });
+    }
+
+    // Try matching by address if still not found
+    if (!match) {
+      match = pickupPlaces.find(place => {
+        const address = (place.address?.streetAddress || place.address || '').toLowerCase();
+        return address.includes(normalizedSearch);
+      });
+    }
+
+    if (match) {
+      console.log(`✅ Found pickup place: ${match.title || match.name} (ID: ${match.id})`);
+      return {
+        id: match.id,
+        title: match.title || match.name,
+        address: match.address?.streetAddress || match.address || '',
+      };
+    }
+
+    console.log(`⚠️ No pickup place found matching: "${pickupPlaceName}"`);
+    console.log(`   Available places: ${pickupPlaces.slice(0, 10).map(p => p.title || p.name).join(', ')}...`);
+    return null;
+
+  } catch (error) {
+    console.error(`❌ Error finding pickup place: ${error.message}`);
+    return null;
+  }
 }
 
 // Helper: Search Bokun for booking by confirmation code text (for external refs like Viator)
@@ -6021,28 +6169,46 @@ function buildBookingContext(bookings) {
     const startTime = productBooking?.startTime || booking.startTime || booking.pickupTime || null;
     const pickupPlace = productBooking?.fields?.pickupPlace?.title ||
       booking.pickupPlaceName ||
-      'Unknown pickup';
+      'Not assigned yet';
+    const pickupPlaceId = productBooking?.fields?.pickupPlace?.id || null;
     const customerEmail = booking.customer?.email || booking.customerEmail || 'Unknown';
+
+    // Extract product ID for pickup place lookups
+    const productId = productBooking?.product?.id || productBooking?.productId || booking.productId || null;
+    const productBookingId = productBooking?.id || null;
+
+    // Payment status - CRITICAL: Don't hallucinate cash for paid bookings
+    const isPaid = booking.fullyPaid === true;
+    let paymentStatus;
+    if (isPaid) {
+      paymentStatus = 'PAID IN FULL (do NOT mention cash or payment to customer)';
+    } else {
+      paymentStatus = 'NOT PAID - Customer should bring CASH for payment on arrival';
+    }
 
     context += `
 Booking ${index + 1}${booking.matchConfidence ? ` [${booking.matchConfidence} CONFIDENCE MATCH]` : ''}:
 - Confirmation Code: ${booking.confirmationCode || booking.id}
+- Booking ID: ${booking.id}
+- Product Booking ID: ${productBookingId || 'N/A'}
+- Product ID: ${productId || 'N/A'}
 - External Ref: ${booking.externalBookingReference || 'N/A'}
 - Customer: ${booking.customer?.fullName || booking.customerFullName || 'Unknown'}
 - Email: ${customerEmail}
 - Product: ${productBooking?.product?.title || booking.productTitle || 'Northern Lights Tour'}
 - Tour Date: ${startDate}
 - Departure/Pickup Time: ${startTime || 'See pickup details'}
-- Pickup Location: ${pickupPlace}
+- Pickup Location: ${pickupPlace}${pickupPlaceId ? ` (ID: ${pickupPlaceId})` : ''}
 - Guests: ${booking.totalParticipants || booking.numberOfGuests || 1}
 - Status: ${booking.status || 'CONFIRMED'}
-- Paid: ${booking.fullyPaid ? 'Yes' : 'No - CASH payment on departure'}
+- Payment: ${paymentStatus}
 ${booking.matchReason ? `- Match Reason: ${booking.matchReason}` : ''}
 `;
   });
 
   return context;
 }
+
 
 // ============================================
 // AURORA ADVISOR EXPORTS

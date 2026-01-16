@@ -19,62 +19,82 @@ List<dynamic> _deepConvertList(List<dynamic> list) {
 }
 
 
+
 class AuroraRecommendation {
-  final String recommendation;
+  // V2 Core fields
+  final String action; // STAY or DRIVE
+  final String summary; // Normal guide language recommendation
+  final String? direction;
   final AuroraDestination? destination;
+  final String? navigationUrl;
   final double distanceKm;
-  final String direction;
   final int travelTimeMinutes;
+  
+  // Probabilities
   final double auroraProbability;
   final double clearSkyProbability;
-  final double combinedProbability;
-  final CloudMovement? cloudMovement;
-  final String spaceWeatherAnalysis;
-  final double confidence;
-  final String reasoning;
-  final List<AlternativeOption> alternatives;
-  final List<String> appliedLearnings;
-  final String urgency;
-  final String? specialNotes;
-  final DateTime generatedAt;
-  final int learningsUsed;
+  final double viewingProbability;
+  
+  // Space weather
+  final String bzStatus; // STRONG, MODERATE, WEAK, QUIET
+  final String bzTrend; // IMPROVING, STABLE, DECLINING
+  final double bzHValue;
+  final double kpIndex;
+  
+  // Darkness & Moon
+  final Map<String, dynamic>? darkness;
+  final Map<String, dynamic>? moon;
+  
+  // Factors summary
+  final Map<String, dynamic>? factors;
+  
+  // Cloud truth from Stage 1
+  final Map<String, dynamic>? cloudTruth;
+  
+  // Disclaimer
+  final String disclaimer;
+  
+  // Error handling
   final bool hasError;
   final String? errorMessage;
   
-  // New fields from two-phase AI
-  final String? description;
-  final String? navigationUrl;
-  final String? viewingTip;
-  final double? kpIndex;
-  final Map<String, dynamic>? analysis;
+  // Metadata
+  final DateTime generatedAt;
+  
+  // Legacy fields (for compatibility)
+  final String recommendation;
+  final String reasoning;
+  final double confidence;
+  final String urgency;
 
   AuroraRecommendation({
-    required this.recommendation,
+    required this.action,
+    required this.summary,
+    this.direction,
     this.destination,
+    this.navigationUrl,
     required this.distanceKm,
-    required this.direction,
     required this.travelTimeMinutes,
     required this.auroraProbability,
     required this.clearSkyProbability,
-    required this.combinedProbability,
-    this.cloudMovement,
-    required this.spaceWeatherAnalysis,
-    required this.confidence,
-    required this.reasoning,
-    required this.alternatives,
-    this.appliedLearnings = const [],
-    required this.urgency,
-    this.specialNotes,
-    required this.generatedAt,
-    this.learningsUsed = 0,
+    required this.viewingProbability,
+    required this.bzStatus,
+    required this.bzTrend,
+    required this.bzHValue,
+    required this.kpIndex,
+    this.darkness,
+    this.moon,
+    this.factors,
+    this.cloudTruth,
+    required this.disclaimer,
     this.hasError = false,
     this.errorMessage,
-    // New fields
-    this.description,
-    this.navigationUrl,
-    this.viewingTip,
-    this.kpIndex,
-    this.analysis,
+    required this.generatedAt,
+    // Legacy
+    required this.recommendation,
+    required this.reasoning,
+    required this.confidence,
+    required this.urgency,
   });
 
 
@@ -84,73 +104,98 @@ class AuroraRecommendation {
       if (value == null) return defaultValue;
       if (value is num) return value.toDouble();
       if (value is String) {
-        // Handle text values like "high", "medium", "low"
         final lower = value.toLowerCase();
-        if (lower == 'high' || lower == 'excellent') return 0.8;
+        if (lower == 'high' || lower == 'excellent' || lower == 'strong') return 0.8;
         if (lower == 'medium' || lower == 'moderate') return 0.5;
-        if (lower == 'low' || lower == 'poor') return 0.3;
-        // Try parsing as number
+        if (lower == 'low' || lower == 'poor' || lower == 'weak' || lower == 'quiet') return 0.3;
         return double.tryParse(value) ?? defaultValue;
       }
       return defaultValue;
     }
 
+    final action = json['action']?.toString() ?? 'STAY';
+    final summary = json['summary']?.toString() ?? json['recommendation']?.toString() ?? 'Check conditions';
+    
     return AuroraRecommendation(
-      recommendation: json['recommendation'] ?? 'No recommendation available',
+      // V2 fields
+      action: action,
+      summary: summary,
+      direction: json['direction']?.toString(),
       destination: json['destination'] != null ? AuroraDestination.fromJson(json['destination']) : null,
-      distanceKm: parseDouble(json['distance_km']),
-      direction: json['direction'] ?? 'STAY',
-      travelTimeMinutes: (json['travel_time_minutes'] as num?)?.toInt() ?? 0,
+      navigationUrl: json['navigation_url']?.toString(),
+      distanceKm: parseDouble(json['distance_km'], 35),
+      travelTimeMinutes: (json['travel_time_min'] as num?)?.toInt() ?? (json['travel_time_minutes'] as num?)?.toInt() ?? 30,
+      
+      // Probabilities
       auroraProbability: parseDouble(json['aurora_probability']),
       clearSkyProbability: parseDouble(json['clear_sky_probability']),
-      combinedProbability: parseDouble(json['combined_viewing_probability']),
-      cloudMovement: json['cloud_movement'] != null ? CloudMovement.fromJson(json['cloud_movement']) : null,
-      spaceWeatherAnalysis: json['space_weather_analysis']?.toString() ?? '',
-      confidence: parseDouble(json['confidence']),
-      // Use description if available, fall back to reasoning
-      reasoning: json['description']?.toString() ?? json['reasoning']?.toString() ?? '',
-      alternatives: (json['alternative_options'] as List<dynamic>?)?.map((e) => AlternativeOption.fromJson(e)).toList() ?? [],
-      appliedLearnings: (json['applied_learnings'] as List<dynamic>?)?.cast<String>() ?? [],
-      urgency: json['urgency']?.toString() ?? 'medium',
-      specialNotes: json['special_notes']?.toString(),
-      generatedAt: json['generatedAt'] != null ? DateTime.tryParse(json['generatedAt'].toString()) ?? DateTime.now() : DateTime.now(),
-      learningsUsed: (json['learningsUsed'] as num?)?.toInt() ?? 0,
+      viewingProbability: parseDouble(json['viewing_probability'], parseDouble(json['combined_viewing_probability'])),
+      
+      // Space weather
+      bzStatus: json['bz_status']?.toString() ?? 'MODERATE',
+      bzTrend: json['bz_trend']?.toString() ?? 'STABLE',
+      bzHValue: parseDouble(json['bzH_value']),
+      kpIndex: parseDouble(json['kp_index'], 2),
+      
+      // Darkness & Moon
+      darkness: json['darkness'] is Map ? Map<String, dynamic>.from(json['darkness']) : null,
+      moon: json['moon'] is Map ? Map<String, dynamic>.from(json['moon']) : null,
+      
+      // Factors
+      factors: json['factors'] is Map ? Map<String, dynamic>.from(json['factors']) : null,
+      
+      // Cloud truth
+      cloudTruth: json['cloud_truth'] is Map ? Map<String, dynamic>.from(json['cloud_truth']) : null,
+      
+      // Disclaimer
+      disclaimer: json['disclaimer']?.toString() ?? 'Satellite images can lag. Trust your eyes if conditions look different.',
+      
+      // Error
       hasError: json['error'] == true,
       errorMessage: json['message']?.toString(),
-      // New fields
-      description: json['description']?.toString(),
-      navigationUrl: json['navigation_url']?.toString(),
-      viewingTip: json['viewing_tip']?.toString(),
-      kpIndex: parseDouble(json['kp_index']),
-      analysis: json['analysis'] is Map ? Map<String, dynamic>.from(json['analysis']) : null,
+      
+      // Meta
+      generatedAt: json['generatedAt'] != null ? DateTime.tryParse(json['generatedAt'].toString()) ?? DateTime.now() : DateTime.now(),
+      
+      // Legacy compatibility
+      recommendation: action == 'STAY' ? summary : 'Drive ${json['direction']} toward ${json['destination']?['name'] ?? 'destination'}',
+      reasoning: summary,
+      confidence: parseDouble(json['confidence'], 0.7),
+      urgency: action == 'DRIVE' ? 'high' : 'medium',
     );
   }
+
 
 
   factory AuroraRecommendation.error(String message) {
     return AuroraRecommendation(
-      recommendation: 'Unable to generate recommendation',
+      action: 'STAY',
+      summary: message,
       distanceKm: 0,
-      direction: 'STAY',
       travelTimeMinutes: 0,
       auroraProbability: 0,
       clearSkyProbability: 0,
-      combinedProbability: 0,
-      spaceWeatherAnalysis: '',
-      confidence: 0,
-      reasoning: message,
-      alternatives: [],
-      urgency: 'low',
+      viewingProbability: 0,
+      bzStatus: 'QUIET',
+      bzTrend: 'STABLE',
+      bzHValue: 0,
+      kpIndex: 0,
+      disclaimer: 'Unable to analyze conditions.',
       generatedAt: DateTime.now(),
       hasError: true,
       errorMessage: message,
+      // Legacy
+      recommendation: 'Unable to generate recommendation',
+      reasoning: message,
+      confidence: 0,
+      urgency: 'low',
     );
   }
 
   String get probabilityLevel {
-    if (combinedProbability >= 0.7) return 'excellent';
-    if (combinedProbability >= 0.5) return 'good';
-    if (combinedProbability >= 0.3) return 'moderate';
+    if (viewingProbability >= 0.7) return 'excellent';
+    if (viewingProbability >= 0.5) return 'good';
+    if (viewingProbability >= 0.3) return 'moderate';
     return 'low';
   }
 }
