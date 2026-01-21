@@ -310,11 +310,23 @@ async function refreshAIBookingCache(accessKey, secretKey) {
             startTime: b.productBookings?.[0]?.startTime || '',
             totalParticipants: b.productBookings?.[0]?.totalParticipants || b.totalParticipants || 1,
             status: b.productBookings?.[0]?.status || b.status || 'CONFIRMED',
-            pickupPlace: b.productBookings?.[0]?.fields?.pickupPlace?.title || '',
-            pickupPlaceId: b.productBookings?.[0]?.fields?.pickupPlace?.id || null,
+            // Check multiple locations for pickup place - Bokun stores it in different places
+            pickupPlace: b.productBookings?.[0]?.pickupPlace?.title ||
+                b.productBookings?.[0]?.pickupPlace?.name ||
+                b.productBookings?.[0]?.fields?.pickupPlace?.title ||
+                b.productBookings?.[0]?.fields?.pickupPlaceDescription ||
+                b.productBookings?.[0]?.pickup?.title ||
+                b.productBookings?.[0]?.pickup?.name ||
+                '',
+            pickupPlaceId: b.productBookings?.[0]?.pickupPlace?.id ||
+                b.productBookings?.[0]?.fields?.pickupPlace?.id ||
+                b.productBookings?.[0]?.pickup?.id ||
+                null,
             fullyPaid: b.fullyPaid || false,
             totalPaid: b.totalPaid || 0,
             totalPrice: b.totalPrice || 0,
+            // Store raw fields for debugging
+            rawPickupFields: JSON.stringify(b.productBookings?.[0]?.fields || {}),
         }));
 
         // Save to Firestore
@@ -560,14 +572,30 @@ function buildBookingContext(bookings) {
         const productBooking = booking.productBookings?.[0];
         const startDate = booking.startDate || productBooking?.startDate || 'Unknown';
         const startTime = booking.startTime || productBooking?.startTime || booking.pickupTime || null;
+
+        // Check multiple locations for pickup - Bokun stores it differently depending on source
         const pickupPlace = booking.pickupPlace ||
+            productBooking?.pickupPlace?.title ||
+            productBooking?.pickupPlace?.name ||
             productBooking?.fields?.pickupPlace?.title ||
+            productBooking?.fields?.pickupPlaceDescription ||
+            productBooking?.pickup?.title ||
+            productBooking?.pickup?.name ||
             booking.pickupPlaceName ||
             'Not assigned yet';
-        const pickupPlaceId = booking.pickupPlaceId || productBooking?.fields?.pickupPlace?.id || null;
+
+        const pickupPlaceId = booking.pickupPlaceId ||
+            productBooking?.pickupPlace?.id ||
+            productBooking?.fields?.pickupPlace?.id ||
+            productBooking?.pickup?.id ||
+            null;
+
         const customerEmail = booking.customerEmail || booking.customer?.email || 'Unknown';
         const productId = booking.productId || productBooking?.product?.id || productBooking?.productId || null;
         const productBookingId = booking.productBookingId || productBooking?.id || null;
+
+        // Log pickup info for debugging
+        console.log(`📍 Booking ${booking.confirmationCode || booking.id} pickup: "${pickupPlace}" (ID: ${pickupPlaceId})`);
 
         context += `
 Booking ${index + 1}${booking.matchConfidence ? ` [${booking.matchConfidence} CONFIDENCE MATCH]` : ''}:
