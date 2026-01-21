@@ -771,6 +771,7 @@ const generateAiDraft = onDocumentCreated(
 const generateBookingAiAssist = onCall(
     {
         region: 'us-central1',
+        timeoutSeconds: 300, // 5 minute timeout for cache refresh + API calls
         secrets: ['ANTHROPIC_API_KEY', 'BOKUN_ACCESS_KEY', 'BOKUN_SECRET_KEY'],
     },
     async (request) => {

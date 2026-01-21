@@ -269,7 +269,7 @@ const onRescheduleRequest = onDocumentCreated(
 
             console.log(`✅ Found booking ${bookingId} (${foundBooking.confirmationCode})`);
 
-            // Log if this is a reseller booking (for debugging, but we'll still try to reschedule)
+            // Check if this is a reseller booking (Viator, GYG, etc.)
             const externalRef = foundBooking.externalBookingReference || '';
             const confirmCode = foundBooking.confirmationCode || '';
             const isResellerBooking =
@@ -280,7 +280,18 @@ const onRescheduleRequest = onDocumentCreated(
                 confirmCode.toUpperCase().startsWith('TDI-');
 
             if (isResellerBooking) {
-                console.log(`📌 Note: This is a reseller booking (${confirmCode}), attempting reschedule anyway...`);
+                console.log(`⚠️ Reseller booking detected: ${confirmCode} - cannot reschedule via API`);
+                const portalLink = `https://extranet.bokun.io/booking/${bookingId}`;
+
+                await snapshot.ref.update({
+                    status: 'failed',
+                    error: `OTA booking (${confirmCode}) cannot be rescheduled via API. Please use Bokun portal to reschedule manually.`,
+                    isResellerBooking: true,
+                    bokunPortalLink: portalLink,
+                    failedAt: admin.firestore.FieldValue.serverTimestamp(),
+                    message: 'OTA bookings (Viator, GYG) must be rescheduled manually in Bokun portal.',
+                });
+                return;
             }
 
             const productBooking = foundBooking.productBookings?.[0];
