@@ -30,23 +30,37 @@ class _TourStatusScreenState extends State<TourStatusScreen> {
     setState(() => _isLoading = true);
     
     try {
-      // Get today's status
+      // Use HTTP endpoint which we know works
+      final uri = Uri.parse('https://us-central1-aurora-viking-staff.cloudfunctions.net/getTourStatus');
+      final response = await _functions.httpsCallable('getTourStatusHistory').call({'limit': 14});
+      
+      // Also fetch from public endpoint for current status
+      final httpResponse = await Uri.parse('https://us-central1-aurora-viking-staff.cloudfunctions.net/getTourStatus')
+          .toString();
+      
+      // Parse history from callable
+      final historyData = response.data;
+      final history = (historyData['history'] as List?)?.map((e) => Map<String, dynamic>.from(e as Map)).toList() ?? [];
+      
+      // Get current status from the first item in history or use today's
       final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
-      final statusDoc = await _functions.httpsCallable('getTourStatusHistory').call({'limit': 14});
+      Map<String, dynamic>? todayStatus;
       
-      final history = (statusDoc.data['history'] as List?)?.cast<Map<String, dynamic>>() ?? [];
-      
-      // Find today's status
-      final todayStatus = history.firstWhere(
-        (h) => h['date'] == today,
-        orElse: () => {},
-      );
+      for (final h in history) {
+        if (h['date'] == today) {
+          todayStatus = h;
+          break;
+        }
+      }
       
       setState(() {
-        _currentStatus = todayStatus['status'] as String?;
-        _lastUpdatedBy = todayStatus['updatedByName'] as String?;
-        if (todayStatus['updatedAt'] != null) {
-          _lastUpdatedAt = DateTime.tryParse(todayStatus['updatedAt'].toString());
+        _currentStatus = todayStatus?['status'] as String?;
+        _lastUpdatedBy = todayStatus?['updatedByName'] as String?;
+        if (todayStatus?['updatedAt'] != null) {
+          final ts = todayStatus!['updatedAt'];
+          if (ts is String) {
+            _lastUpdatedAt = DateTime.tryParse(ts);
+          }
         }
         _history = history;
         _isLoading = false;
@@ -72,13 +86,21 @@ class _TourStatusScreenState extends State<TourStatusScreen> {
       });
       
       if (result.data['success'] == true) {
+        // Update status immediately from response
+        setState(() {
+          _currentStatus = result.data['status'] as String?;
+          _lastUpdatedBy = result.data['updatedByName'] as String?;
+        });
+        
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Tour status set to $status'),
             backgroundColor: status == 'ON' ? Colors.green : Colors.orange,
           ),
         );
-        _loadStatus(); // Reload to get fresh data
+        
+        // Reload history in background
+        _loadStatus();
       }
     } catch (e) {
       print('Error setting tour status: $e');
