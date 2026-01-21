@@ -215,15 +215,45 @@ async function findCustomerBookings({ email, name, bookingRefs }) {
                 const bookingDate = booking.startDate || '';
                 // Check if booking is for today or tomorrow
                 if (bookingDate === todayStr || bookingDate === tomorrowStr) {
-                    const customerName = (booking.customerName || '').toLowerCase();
+                    const customerName = (booking.customerName || booking.customerFullName || '').toLowerCase();
 
-                    // Check if name matches (partial match for flexibility)
-                    if (customerName && (customerName.includes(searchName) || searchName.includes(customerName.split(' ')[0]))) {
+                    if (!customerName) continue;
+
+                    // Split names into parts for flexible matching
+                    const searchParts = searchName.split(/\s+/).filter(p => p.length > 2);
+                    const bookingParts = customerName.split(/\s+/).filter(p => p.length > 2);
+
+                    // Check if any part of the search name matches any part of the booking name
+                    let nameMatch = false;
+
+                    // Direct contains check (either direction)
+                    if (customerName.includes(searchName) || searchName.includes(customerName)) {
+                        nameMatch = true;
+                    }
+
+                    // First name match (most common case)
+                    if (!nameMatch && searchParts.length > 0 && bookingParts.length > 0) {
+                        if (searchParts[0] === bookingParts[0]) {
+                            nameMatch = true;
+                        }
+                    }
+
+                    // Any part match (for cases like "Stacey" matching "Stacey Smith")
+                    if (!nameMatch) {
+                        for (const searchPart of searchParts) {
+                            if (bookingParts.some(bp => bp === searchPart || bp.startsWith(searchPart) || searchPart.startsWith(bp))) {
+                                nameMatch = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (nameMatch) {
                         booking.matchConfidence = 'MEDIUM';
-                        booking.matchReason = `Name match in ${bookingDate === todayStr ? 'today' : 'tomorrow'}'s bookings: "${booking.customerName}"`;
+                        booking.matchReason = `Name match in ${bookingDate === todayStr ? 'today' : 'tomorrow'}'s bookings: "${booking.customerName || booking.customerFullName}"`;
                         matchedBookings.push(booking);
                         foundIds.add(booking.id);
-                        console.log(`👤 MEDIUM match by name in ${bookingDate === todayStr ? 'today' : 'tomorrow'}'s bookings: ${booking.confirmationCode} (${booking.customerName})`);
+                        console.log(`👤 MEDIUM match by name in ${bookingDate === todayStr ? 'today' : 'tomorrow'}'s bookings: ${booking.confirmationCode} (${booking.customerName || booking.customerFullName})`);
                     }
                 }
             }
