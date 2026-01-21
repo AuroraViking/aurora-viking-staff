@@ -279,21 +279,6 @@ const onRescheduleRequest = onDocumentCreated(
                 confirmCode.toUpperCase().startsWith('GYG-') ||
                 confirmCode.toUpperCase().startsWith('TDI-');
 
-            if (isResellerBooking) {
-                console.log(`⚠️ Reseller booking detected: ${confirmCode} - cannot reschedule via API`);
-                const portalLink = `https://extranet.bokun.io/booking/${bookingId}`;
-
-                await snapshot.ref.update({
-                    status: 'failed',
-                    error: `OTA booking (${confirmCode}) cannot be rescheduled via API. Please use Bokun portal to reschedule manually.`,
-                    isResellerBooking: true,
-                    bokunPortalLink: portalLink,
-                    failedAt: admin.firestore.FieldValue.serverTimestamp(),
-                    message: 'OTA bookings (Viator, GYG) must be rescheduled manually in Bokun portal.',
-                });
-                return;
-            }
-
             const productBooking = foundBooking.productBookings?.[0];
             if (!productBooking) {
                 throw new Error('No product booking found');
@@ -435,8 +420,101 @@ const onRescheduleRequest = onDocumentCreated(
             }
 
             if (!octoBookingUuid) {
-                // OCTO booking not found - use cancel + rebook strategy
-                console.log(`⚠️ OCTO booking not found - using cancel + rebook strategy`);
+                // Try Bokun REST API ActivityRescheduleAction for direct date change
+                // This may work for OTA bookings where cancel+rebook fails
+                console.log(`⚠️ OCTO booking not found - trying Bokun REST ActivityRescheduleAction...`);
+
+                const activityBookingId = productBooking.id;
+                if (activityBookingId) {
+                    try {
+                        const editPath = '/booking.json/edit';
+                        const editDate = new Date().toISOString().replace('T', ' ').substring(0, 19);
+                        const editMessage = editDate + accessKey + 'POST' + editPath;
+                        const editSignature = crypto
+                            .createHmac('sha1', secretKey)
+                            .update(editMessage)
+                            .digest('base64');
+
+                        // Try ActivityRescheduleAction for direct date change
+                        const rescheduleActions = [{
+                            type: 'ActivityRescheduleAction',
+                            activityBookingId: parseInt(activityBookingId),
+                            newDate: newDate,
+                        }];
+
+                        console.log(`📅 Trying ActivityRescheduleAction for activity ${activityBookingId} to ${newDate}`);
+
+                        const rescheduleResult = await new Promise((resolve, reject) => {
+                            const editBody = JSON.stringify(rescheduleActions);
+                            const options = {
+                                hostname: 'api.bokun.io',
+                                path: editPath,
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json;charset=UTF-8',
+                                    'Content-Length': Buffer.byteLength(editBody),
+                                    'X-Bokun-AccessKey': accessKey,
+                                    'X-Bokun-Date': editDate,
+                                    'X-Bokun-Signature': editSignature,
+                                },
+                            };
+
+                            const apiReq = https.request(options, (apiRes) => {
+                                let data = '';
+                                apiRes.on('data', (chunk) => { data += chunk; });
+                                apiRes.on('end', () => {
+                                    console.log(`📅 ActivityRescheduleAction response: ${apiRes.statusCode}`);
+                                    if (apiRes.statusCode >= 200 && apiRes.statusCode < 400) {
+                                        resolve({ success: true, data });
+                                    } else {
+                                        reject(new Error(`ActivityRescheduleAction failed: ${apiRes.statusCode} - ${data}`));
+                                    }
+                                });
+                            });
+
+                            apiReq.on('error', (error) => reject(error));
+                            apiReq.write(editBody);
+                            apiReq.end();
+                        });
+
+                        console.log(`✅ ActivityRescheduleAction succeeded!`);
+
+                        // Log success
+                        await db.collection('booking_actions').add({
+                            bookingId,
+                            confirmationCode: confirmationCode || foundBooking.confirmationCode,
+                            customerName,
+                            action: 'reschedule',
+                            performedBy: userId || 'unknown',
+                            performedAt: admin.firestore.FieldValue.serverTimestamp(),
+                            reason: reason || 'Rescheduled via admin app',
+                            originalData: { date: currentDate },
+                            newData: { date: newDate },
+                            success: true,
+                            method: 'activity_reschedule_action',
+                            source: 'bokun_rest_api',
+                        });
+
+                        await snapshot.ref.update({
+                            status: 'completed',
+                            method: 'activity_reschedule_action',
+                            customerName,
+                            originalDate: currentDate,
+                            completedAt: admin.firestore.FieldValue.serverTimestamp(),
+                            message: `Booking rescheduled to ${newDate} via ActivityRescheduleAction`,
+                        });
+
+                        console.log(`✅ Reschedule completed via ActivityRescheduleAction: ${requestId}`);
+                        return;
+
+                    } catch (rescheduleActionError) {
+                        console.log(`⚠️ ActivityRescheduleAction failed: ${rescheduleActionError.message}`);
+                        console.log(`⚠️ Falling back to cancel + rebook strategy...`);
+                    }
+                }
+
+                // Fall back to cancel + rebook strategy
+                console.log(`⚠️ Using cancel + rebook strategy as fallback`);
 
                 // Extract customer and booking info for rebooking
                 const customer = foundBooking.customer || {};
