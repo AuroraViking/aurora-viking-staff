@@ -342,13 +342,18 @@ async function processGmailMessageData(gmailMessage, inboxEmail = 'info@auroravi
     const msgRef = await db.collection('messages').add(messageData);
     console.log(`📨 Message created: ${msgRef.id}`);
 
-    await db.collection('conversations').doc(conversationId).update({
+    // Build update object - only include bookingIds if there are detected booking numbers
+    // (arrayUnion requires at least 1 argument, so we can't spread an empty array)
+    const conversationUpdate = {
         messageIds: admin.firestore.FieldValue.arrayUnion(msgRef.id),
-        bookingIds: admin.firestore.FieldValue.arrayUnion(...detectedBookingNumbers),
         lastMessageAt: admin.firestore.FieldValue.serverTimestamp(),
         lastMessagePreview: body.substring(0, 100),
         unreadCount: admin.firestore.FieldValue.increment(1),
-    });
+    };
+    if (detectedBookingNumbers.length > 0) {
+        conversationUpdate.bookingIds = admin.firestore.FieldValue.arrayUnion(...detectedBookingNumbers);
+    }
+    await db.collection('conversations').doc(conversationId).update(conversationUpdate);
 
     // Send push notification to admins
     try {
