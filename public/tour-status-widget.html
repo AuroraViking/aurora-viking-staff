@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aurora Viking Tour Status</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Georgia', 'Times New Roman', serif;
+            background: transparent;
+        }
+
+        .tour-status-widget {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            padding: 12px 24px;
+            text-align: center;
+            border-bottom: 1px solid rgba(212, 175, 55, 0.3);
+        }
+
+        .tour-title {
+            color: #d4af37;
+            font-size: 14px;
+            font-weight: normal;
+            margin-bottom: 4px;
+            letter-spacing: 1px;
+        }
+
+        .status-line {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .date-text {
+            color: #d4af37;
+            font-size: 16px;
+            font-weight: bold;
+        }
+
+        .status-text {
+            color: #d4af37;
+            font-size: 16px;
+        }
+
+        .status-on {
+            color: #4ade80;
+        }
+
+        .status-off {
+            color: #f87171;
+        }
+
+        .status-unknown {
+            color: #94a3b8;
+        }
+
+        .emoji {
+            font-size: 16px;
+        }
+
+        .loading {
+            color: #94a3b8;
+            font-style: italic;
+        }
+
+        .error {
+            color: #f87171;
+            font-size: 12px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="tour-status-widget" id="widget">
+        <div class="tour-title">Northern Lights Tour</div>
+        <div class="status-line">
+            <span class="loading">Loading...</span>
+        </div>
+    </div>
+
+    <script>
+        // Configuration - update this URL if your Firebase project region is different
+        const API_URL = 'https://us-central1-aurora-viking-staff.cloudfunctions.net/getTourStatus';
+
+        async function fetchTourStatus() {
+            const widget = document.getElementById('widget');
+            const statusLine = widget.querySelector('.status-line');
+
+            try {
+                const response = await fetch(API_URL);
+                const data = await response.json();
+
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
+                const displayDate = data.displayDate || formatDate(new Date());
+                const status = data.status || 'UNKNOWN';
+
+                let statusClass = 'status-unknown';
+                let emoji = '❓';
+                let statusText = 'NOT SET';
+
+                if (status === 'ON') {
+                    statusClass = 'status-on';
+                    emoji = '✅';
+                    statusText = 'ON';
+                } else if (status === 'OFF') {
+                    statusClass = 'status-off';
+                    emoji = '😞';
+                    statusText = 'OFF';
+                }
+
+                statusLine.innerHTML = `
+          <span class="date-text">${displayDate}</span>
+          <span class="status-text">is</span>
+          <span class="status-text ${statusClass}">${statusText}</span>
+          <span class="emoji">${emoji}</span>
+        `;
+
+            } catch (error) {
+                console.error('Error fetching tour status:', error);
+
+                // Show fallback with current date
+                const displayDate = formatDate(new Date());
+                statusLine.innerHTML = `
+          <span class="date-text">${displayDate}</span>
+          <span class="status-text">status</span>
+          <span class="status-text status-unknown">LOADING...</span>
+        `;
+            }
+        }
+
+        function formatDate(date) {
+            const day = date.getDate();
+            const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+            const month = months[date.getMonth()];
+            return `${day}.${month}`;
+        }
+
+        // Fetch status on load
+        fetchTourStatus();
+
+        // Refresh every 5 minutes
+        setInterval(fetchTourStatus, 5 * 60 * 1000);
+    </script>
+</body>
+
+</html>

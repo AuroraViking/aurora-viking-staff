@@ -12,6 +12,7 @@ import 'admin_reports_screen.dart';
 import 'admin_pickup_management_screen.dart';
 import 'admin_bus_management_screen.dart';
 import 'booking_management_screen.dart';
+import 'tour_status_screen.dart';
 import '../inbox/unified_inbox_screen.dart';
 import '../inbox/inbox_controller.dart';
 
@@ -260,7 +261,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
           // Admin Status Banner
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               color: Colors.green.withOpacity(0.1),
               borderRadius: BorderRadius.circular(8),
@@ -268,7 +269,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
             ),
             child: Row(
               children: [
-                Icon(Icons.verified, color: Colors.green),
+                Icon(Icons.verified, color: Colors.green, size: 20),
                 const SizedBox(width: 8),
                 Text(
                   'Admin Mode Active',
@@ -281,218 +282,125 @@ class _AdminDashboardState extends State<AdminDashboard> {
             ),
           ),
           
-          const SizedBox(height: 24),
-          
-          // Quick Stats
-          Text(
-            'Quick Overview',
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.bold,
-              color: AppColors.primary,
-            ),
-          ),
           const SizedBox(height: 16),
           
-          if (_isLoadingStats)
-            const Center(child: CircularProgressIndicator())
-          else if (_stats != null) ...[
+          // Quick Stats as compact row
+          if (!_isLoadingStats && _stats != null)
             Row(
               children: [
-                Expanded(
-                  child: _buildStatCard(
-                    'Active Guides',
-                    _stats!.activeGuides.toString(),
-                    Icons.people,
+                _buildCompactStat('Guides', _stats!.activeGuides.toString(), Colors.blue),
+                _buildCompactStat('Pending', _stats!.pendingShifts.toString(), Colors.orange),
+                _buildCompactStat('Tours', _stats!.todayTours.toString(), Colors.green),
+                _buildCompactStat('Alerts', _stats!.alerts.toString(), Colors.red),
+              ],
+            ),
+          
+          const SizedBox(height: 16),
+          
+          // Action Cards Grid
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final crossAxisCount = constraints.maxWidth > 600 ? 3 : 2;
+              return GridView.count(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                crossAxisCount: crossAxisCount,
+                mainAxisSpacing: 12,
+                crossAxisSpacing: 12,
+                childAspectRatio: 1.1,
+                children: [
+                  // Tour Status
+                  _buildGridCard(
+                    'Tour Status',
+                    Icons.power_settings_new,
+                    Colors.amber,
+                    () => Navigator.push(context, MaterialPageRoute(
+                      builder: (context) => const TourStatusScreen(),
+                    )),
+                  ),
+                  // Inbox
+                  Consumer<InboxController>(
+                    builder: (context, inboxController, child) {
+                      if (!inboxController.isInitialized) {
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          inboxController.initialize();
+                        });
+                      }
+                      return _buildGridCardWithBadge(
+                        'Inbox',
+                        Icons.inbox_rounded,
+                        Colors.indigo,
+                        inboxController.unreadCount,
+                        () => Navigator.push(context, MaterialPageRoute(
+                          builder: (context) => const UnifiedInboxScreen(),
+                        )),
+                      );
+                    },
+                  ),
+                  // Live Map
+                  _buildGridCard(
+                    'Live Map',
+                    Icons.map,
                     Colors.blue,
+                    () => Navigator.push(context, MaterialPageRoute(
+                      builder: (context) => const AdminMapScreen(),
+                    )),
                   ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _buildStatCard(
-                    'Pending Shifts',
-                    _stats!.pendingShifts.toString(),
-                    Icons.schedule,
+                  // Shifts
+                  _buildGridCard(
+                    'Shifts',
+                    Icons.work,
                     Colors.orange,
+                    () => Navigator.push(context, MaterialPageRoute(
+                      builder: (context) => const AdminShiftManagementScreen(),
+                    )),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: _buildStatCard(
-                    'Today\'s Tours',
-                    _stats!.todayTours.toString(),
+                  // Pickups
+                  _buildGridCard(
+                    'Pickups',
+                    Icons.assignment,
+                    Colors.teal,
+                    () => Navigator.push(context, MaterialPageRoute(
+                      builder: (context) => const AdminPickupManagementScreen(),
+                    )),
+                  ),
+                  // Buses
+                  _buildGridCard(
+                    'Buses',
                     Icons.directions_bus,
+                    Colors.deepOrange,
+                    () => Navigator.push(context, MaterialPageRoute(
+                      builder: (context) => const AdminBusManagementScreen(),
+                    )),
+                  ),
+                  // Guides
+                  _buildGridCard(
+                    'Guides',
+                    Icons.people,
                     Colors.green,
+                    () => Navigator.push(context, MaterialPageRoute(
+                      builder: (context) => const AdminGuideManagementScreen(),
+                    )),
                   ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _buildStatCard(
-                    'Alerts',
-                    _stats!.alerts.toString(),
-                    Icons.warning,
-                    Colors.red,
+                  // Reports
+                  _buildGridCard(
+                    'Reports',
+                    Icons.analytics,
+                    Colors.purple,
+                    () => Navigator.push(context, MaterialPageRoute(
+                      builder: (context) => const AdminReportsScreen(),
+                    )),
                   ),
-                ),
-              ],
-            ),
-          ],
-          
-          const SizedBox(height: 32),
-          
-          // Admin Actions
-          Text(
-            'Admin Actions',
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.bold,
-              color: AppColors.primary,
-            ),
-          ),
-          const SizedBox(height: 16),
-          
-          // Inbox with unread badge
-          Consumer<InboxController>(
-            builder: (context, inboxController, child) {
-              // Initialize inbox controller when admin dashboard opens
-              if (!inboxController.isInitialized) {
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  inboxController.initialize();
-                });
-              }
-              return _buildActionCardWithBadge(
-                'Inbox',
-                'Manage customer messages from Gmail, WhatsApp, and Wix',
-                Icons.inbox_rounded,
-                Colors.indigo,
-                inboxController.unreadCount,
-                () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const UnifiedInboxScreen(),
-                    ),
-                  );
-                },
-              );
-            },
-          ),
-          
-          const SizedBox(height: 12),
-          
-          _buildActionCard(
-            'Live Tracking Map',
-            'Monitor all active tours and guide locations in real-time',
-            Icons.map,
-            Colors.blue,
-            () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const AdminMapScreen(),
-                ),
-              );
-            },
-          ),
-          
-          const SizedBox(height: 12),
-          
-          _buildActionCard(
-            'Shift Management',
-            'Review and approve pending shift applications',
-            Icons.work,
-            Colors.orange,
-            () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const AdminShiftManagementScreen(),
-                ),
-              );
-            },
-          ),
-          
-          const SizedBox(height: 12),
-          
-          _buildActionCard(
-            'Pickup Management',
-            'Distribute pickup lists to guides',
-            Icons.assignment,
-            Colors.teal,
-            () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const AdminPickupManagementScreen(),
-                ),
-              );
-            },
-          ),
-          
-          const SizedBox(height: 12),
-          
-                    _buildActionCard(
-            'Bus Management',
-            'Add, edit, and manage fleet buses',
-            Icons.directions_bus,
-            Colors.amber,
-            () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const AdminBusManagementScreen(),
-                ),
-              );
-            },
-          ),
-          
-          _buildActionCard(
-            'Guide Management',
-            'View and manage all registered guides',
-            Icons.people,
-            Colors.green,
-            () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const AdminGuideManagementScreen(),
-                ),
-              );
-            },
-          ),
-          
-          const SizedBox(height: 12),
-          
-          _buildActionCard(
-            'Reports & Analytics',
-            'View detailed reports and performance analytics',
-            Icons.analytics,
-            Colors.purple,
-            () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const AdminReportsScreen(),
-                ),
-              );
-            },
-          ),
-          
-          const SizedBox(height: 12),
-          
-          _buildActionCard(
-            'Booking Management',
-            'View, reschedule, and cancel bookings via calendar',
-            Icons.calendar_month,
-            AppColors.primary,
-            () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const BookingManagementScreen(),
-                ),
+                  // Bookings
+                  _buildGridCard(
+                    'Bookings',
+                    Icons.calendar_month,
+                    AppColors.primary,
+                    () => Navigator.push(context, MaterialPageRoute(
+                      builder: (context) => const BookingManagementScreen(),
+                    )),
+                  ),
+                ],
               );
             },
           ),
@@ -614,5 +522,122 @@ class _AdminDashboardState extends State<AdminDashboard> {
     );
   }
 
+  // Compact stat for the top row
+  Widget _buildCompactStat(String label, String value, Color color) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+        margin: const EdgeInsets.symmetric(horizontal: 2),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Column(
+          children: [
+            Text(
+              value,
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
+            ),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 10,
+                color: color,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
+  // Grid card for the main actions
+  Widget _buildGridCard(String title, IconData icon, Color color, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color.withOpacity(0.3)),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 32, color: color),
+            const SizedBox(height: 8),
+            Text(
+              title,
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                color: color,
+                fontSize: 13,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Grid card with badge for inbox
+  Widget _buildGridCardWithBadge(String title, IconData icon, Color color, int badgeCount, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color.withOpacity(0.3)),
+        ),
+        child: Stack(
+          children: [
+            Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(icon, size: 32, color: color),
+                  const SizedBox(height: 8),
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: color,
+                      fontSize: 13,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            ),
+            if (badgeCount > 0)
+              Positioned(
+                top: 8,
+                right: 8,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.red,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    badgeCount > 99 ? '99+' : '$badgeCount',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
 } 

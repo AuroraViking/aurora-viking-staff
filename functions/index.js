@@ -100,3 +100,13 @@ exports.runLearningPipeline = auroraLearning.runLearningPipeline;
 exports.triggerLearningPipeline = auroraLearning.triggerLearningPipeline;
 exports.createSightingFromShiftReport = auroraLearning.createSightingFromShiftReport;
 exports.getLearningsContext = auroraLearning.getLearningsContext;
+
+// ============================================
+// TOUR STATUS MODULE
+// ============================================
+const tourStatus = require('./modules/tour_status');
+exports.getTourStatus = tourStatus.getTourStatus;
+exports.setTourStatus = tourStatus.setTourStatus;
+exports.getTourStatusHistory = tourStatus.getTourStatusHistory;
+exports.tourStatusReminder = tourStatus.tourStatusReminder;
+
