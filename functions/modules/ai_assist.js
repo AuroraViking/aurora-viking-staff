@@ -20,7 +20,6 @@ async function getBookingContextForAi(bookingNumbers) {
     if (!bookingNumbers || bookingNumbers.length === 0) {
         return null;
     }
-
     // TODO: Look up bookings in Firestore cache
     return null;
 }
@@ -53,23 +52,16 @@ Email: ${customer?.email || 'Unknown'}
         }
     }
 
-    prompt += `\nLatest Customer Message:\n${message}\n\nGenerate a draft response. Be helpful, professional, and friendly. If you detect this is about a booking change, mention that.`;
+    prompt += `\nLatest Customer Message:\n${message}\n\nGenerate a draft response. Be helpful, professional, and friendly.`;
 
     const response = await anthropic.messages.create({
         model: 'claude-sonnet-4-20250514',
         max_tokens: 1024,
-        messages: [
-            {
-                role: 'user',
-                content: prompt,
-            },
-        ],
+        messages: [{ role: 'user', content: prompt }],
     });
 
-    const text = response.content[0].text;
-
     return {
-        content: text,
+        content: response.content[0].text,
         confidence: 0.8,
         tone: 'professional',
         reasoning: 'Generated based on message content and context',
@@ -78,101 +70,268 @@ Email: ${customer?.email || 'Unknown'}
 
 /**
  * Find customer bookings by email, name, or booking references
+ * Uses dedicated ai_booking_cache collection with all searchable fields
  */
 async function findCustomerBookings({ email, name, bookingRefs }) {
+    const matchedBookings = [];
+    const foundIds = new Set();
     const accessKey = process.env.BOKUN_ACCESS_KEY;
     const secretKey = process.env.BOKUN_SECRET_KEY;
 
-    const results = [];
-    const seenIds = new Set();
+    console.log(`🔍 Searching for bookings - refs: ${(bookingRefs || []).join(', ')}, name: ${name || 'N/A'}, email: ${email || 'N/A'}`);
 
-    // 1. Search by booking references first (most reliable)
-    if (bookingRefs && bookingRefs.length > 0) {
-        console.log(`🔍 Searching ${bookingRefs.length} booking refs...`);
+    try {
+        // Step 1: Check if we have a fresh AI booking cache (< 60 minutes old)
+        let aiCacheBookings = [];
+        const cacheDoc = await db.collection('ai_booking_cache').doc('current').get();
 
-        for (const ref of bookingRefs) {
-            // Try numeric ID
-            const numericMatch = ref.match(/\d+/);
-            if (numericMatch) {
-                const numericId = numericMatch[0];
+        if (cacheDoc.exists) {
+            const cacheData = cacheDoc.data();
+            const cachedAt = cacheData.cachedAt?.toDate?.() || new Date(0);
+            const cacheAgeMinutes = (Date.now() - cachedAt.getTime()) / (1000 * 60);
 
-                // Check AI cache first
-                const cacheDoc = await db.collection('ai_booking_cache').doc(numericId).get();
-                if (cacheDoc.exists) {
-                    const booking = cacheDoc.data();
-                    if (!seenIds.has(booking.id)) {
-                        seenIds.add(booking.id);
-                        results.push({
-                            ...booking,
-                            matchConfidence: 'HIGH',
-                            matchReason: `Matched by booking ref: ${ref}`,
-                        });
-                    }
-                    continue;
+            // Cache valid for 60 minutes (fetching ~2000 bookings is expensive)
+            if (cacheAgeMinutes < 60 && cacheData.bookings) {
+                aiCacheBookings = cacheData.bookings;
+                console.log(`📋 Using AI cache (${cacheAgeMinutes.toFixed(1)} min old): ${aiCacheBookings.length} bookings`);
+            } else {
+                console.log(`⏰ AI cache stale (${cacheAgeMinutes.toFixed(1)} min old), will refresh`);
+            }
+        }
+
+        // Step 2: If cache is empty/stale, fetch from Bokun and update cache
+        if (aiCacheBookings.length === 0 && accessKey && secretKey) {
+            console.log('🔄 Refreshing AI booking cache from Bokun API...');
+            aiCacheBookings = await refreshAIBookingCache(accessKey, secretKey);
+        }
+
+        if (aiCacheBookings.length === 0) {
+            console.log('⚠️ No bookings in AI cache');
+            return [];
+        }
+
+        console.log(`📋 Searching ${aiCacheBookings.length} bookings in AI cache`);
+
+        // Step 3: Search through cached bookings for matches
+        for (const booking of aiCacheBookings) {
+            if (foundIds.has(booking.id)) continue;
+
+            const externalRef = booking.externalBookingReference || '';
+            const confirmationCode = booking.confirmationCode || '';
+            const bookingId = String(booking.id || '');
+            const customerName = (booking.customerName || '').toLowerCase();
+            const customerEmail = (booking.customerEmail || '').toLowerCase();
+
+            // Try to match by booking references
+            for (const ref of (bookingRefs || [])) {
+                const numericRef = ref.replace(/\D/g, '');
+                if (!numericRef || numericRef.length < 6) continue;
+
+                // Match by external booking reference (e.g., "1341729451" from Viator)
+                if (externalRef && externalRef.includes(numericRef)) {
+                    booking.matchConfidence = 'HIGH';
+                    booking.matchReason = `External ref match: ${externalRef}`;
+                    matchedBookings.push(booking);
+                    foundIds.add(booking.id);
+                    console.log(`✅ HIGH match by external ref: ${confirmationCode} (ext: ${externalRef})`);
+                    break;
                 }
 
-                // Try Bokun API
-                if (accessKey && secretKey) {
-                    try {
-                        const booking = await searchBokunBookingById(numericId, accessKey, secretKey);
-                        if (booking && !seenIds.has(booking.id)) {
-                            seenIds.add(booking.id);
-                            results.push({
-                                ...booking,
-                                matchConfidence: 'HIGH',
-                                matchReason: `Found in Bokun by ID: ${numericId}`,
-                            });
+                // Match by confirmation code number (e.g., "79818040" from "VIA-79818040")
+                const confirmationNumbers = confirmationCode.replace(/\D/g, '');
+                if (confirmationNumbers && confirmationNumbers === numericRef) {
+                    booking.matchConfidence = 'HIGH';
+                    booking.matchReason = `Confirmation code match: ${confirmationCode}`;
+                    matchedBookings.push(booking);
+                    foundIds.add(booking.id);
+                    console.log(`✅ HIGH match by confirmation code: ${confirmationCode}`);
+                    break;
+                }
+
+                // Match by booking ID
+                if (bookingId === numericRef) {
+                    booking.matchConfidence = 'HIGH';
+                    booking.matchReason = `Booking ID match: ${bookingId}`;
+                    matchedBookings.push(booking);
+                    foundIds.add(booking.id);
+                    console.log(`✅ HIGH match by ID: ${confirmationCode}`);
+                    break;
+                }
+            }
+        }
+
+        // Step 4: Try customer name matching if no matches yet
+        if (name && matchedBookings.length === 0) {
+            const searchName = name.toLowerCase().trim();
+            console.log(`🔍 Trying name match: "${searchName}"`);
+
+            for (const booking of aiCacheBookings) {
+                if (foundIds.has(booking.id)) continue;
+
+                const customerName = (booking.customerName || '').toLowerCase();
+                if (customerName && customerName.includes(searchName)) {
+                    booking.matchConfidence = 'MEDIUM';
+                    booking.matchReason = `Name match: "${booking.customerName}"`;
+                    matchedBookings.push(booking);
+                    foundIds.add(booking.id);
+                    console.log(`👤 MEDIUM match by name: ${booking.confirmationCode} (${booking.customerName})`);
+                }
+            }
+        }
+
+        // Step 5: Try email matching as last resort (skip automated emails)
+        if (email && matchedBookings.length === 0 && !email.includes('expmessaging') && !email.includes('viator')) {
+            const searchEmail = email.toLowerCase();
+            for (const booking of aiCacheBookings) {
+                if (foundIds.has(booking.id)) continue;
+
+                if (booking.customerEmail && booking.customerEmail.toLowerCase() === searchEmail) {
+                    booking.matchConfidence = 'MEDIUM';
+                    booking.matchReason = `Email match: ${email}`;
+                    matchedBookings.push(booking);
+                    foundIds.add(booking.id);
+                    console.log(`📧 MEDIUM match by email: ${booking.confirmationCode}`);
+                }
+            }
+        }
+
+    } catch (error) {
+        console.log('⚠️ Error searching AI booking cache:', error.message);
+    }
+
+    console.log(`📋 Total matched bookings: ${matchedBookings.length}`);
+    return matchedBookings;
+}
+
+/**
+ * Refresh AI booking cache from Bokun API - fetches ALL bookings with pagination
+ */
+async function refreshAIBookingCache(accessKey, secretKey) {
+    try {
+        const method = 'POST';
+        const path = '/booking.json/booking-search';
+
+        // Fetch bookings from -45 days to +60 days
+        const now = new Date();
+        const startDate = new Date(now);
+        startDate.setDate(startDate.getDate() - 45);
+        const endDate = new Date(now);
+        endDate.setDate(endDate.getDate() + 60);
+
+        const startDateStr = startDate.toISOString().split('T')[0];
+        const endDateStr = endDate.toISOString().split('T')[0];
+
+        console.log(`🔄 Fetching bookings from Bokun: ${startDateStr} to ${endDateStr}`);
+
+        let allBookings = [];
+        let offset = 0;
+        const pageSize = 50;
+        let hasMore = true;
+        let totalHits = 0;
+
+        while (hasMore) {
+            const bokunDate = new Date().toISOString().replace('T', ' ').substring(0, 19);
+            const message = bokunDate + accessKey + method + path;
+            const signature = crypto.createHmac('sha1', secretKey).update(message).digest('base64');
+
+            const requestBody = JSON.stringify({
+                productConfirmationDateRange: { from: startDateStr, to: endDateStr },
+                offset: offset,
+                limit: pageSize,
+            });
+
+            const pageResult = await new Promise((resolve) => {
+                const options = {
+                    hostname: 'api.bokun.io',
+                    path,
+                    method,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Content-Length': Buffer.byteLength(requestBody),
+                        'X-Bokun-AccessKey': accessKey,
+                        'X-Bokun-Date': bokunDate,
+                        'X-Bokun-Signature': signature,
+                    },
+                };
+
+                const req = https.request(options, (res) => {
+                    let data = '';
+                    res.on('data', chunk => data += chunk);
+                    res.on('end', () => {
+                        if (res.statusCode >= 200 && res.statusCode < 300) {
+                            try {
+                                const result = JSON.parse(data);
+                                resolve({ items: result.items || [], totalHits: result.totalHits || 0 });
+                            } catch (e) {
+                                resolve({ items: [], totalHits: 0 });
+                            }
+                        } else {
+                            console.log(`Bokun API error: ${res.statusCode}`);
+                            resolve({ items: [], totalHits: 0 });
                         }
-                    } catch (e) {
-                        console.log(`⚠️ Bokun search failed for ${numericId}`);
-                    }
-                }
-            }
-        }
-    }
-
-    // 2. Search by email
-    if (email && accessKey && secretKey) {
-        console.log(`🔍 Searching by email: ${email}`);
-        try {
-            const emailBookings = await searchBokunBookingsByEmail(email, accessKey, secretKey);
-            for (const booking of emailBookings) {
-                if (!seenIds.has(booking.id)) {
-                    seenIds.add(booking.id);
-                    results.push({
-                        ...booking,
-                        matchConfidence: 'MEDIUM',
-                        matchReason: `Matched by email: ${email}`,
                     });
-                }
-            }
-        } catch (e) {
-            console.log(`⚠️ Email search failed: ${e.message}`);
-        }
-    }
-
-    // 3. Check AI cache by email
-    if (email) {
-        const cacheQuery = await db.collection('ai_booking_cache')
-            .where('customerEmail', '==', email)
-            .limit(10)
-            .get();
-
-        for (const doc of cacheQuery.docs) {
-            const booking = doc.data();
-            if (!seenIds.has(booking.id)) {
-                seenIds.add(booking.id);
-                results.push({
-                    ...booking,
-                    matchConfidence: 'MEDIUM',
-                    matchReason: `Found in cache by email`,
                 });
+
+                req.on('error', () => resolve({ items: [], totalHits: 0 }));
+                req.write(requestBody);
+                req.end();
+            });
+
+            const items = pageResult.items;
+            allBookings = allBookings.concat(items);
+            totalHits = pageResult.totalHits || allBookings.length;
+
+            console.log(`📋 Fetched page ${Math.floor(offset / pageSize) + 1}: ${items.length} bookings (total: ${allBookings.length}/${totalHits})`);
+
+            offset += pageSize;
+            hasMore = items.length > 0 && allBookings.length < totalHits;
+
+            // Safety limit to stay within Firestore 1 MB document limit
+            if (allBookings.length >= 2000) {
+                console.log('⚠️ Reached 2000 bookings limit (Firestore size constraint), stopping');
+                hasMore = false;
             }
         }
-    }
 
-    console.log(`📋 Found ${results.length} total bookings`);
-    return results;
+        console.log(`📋 Fetched ${allBookings.length} total bookings from Bokun`);
+
+        // Transform to AI cache format with all searchable fields
+        const aiCacheBookings = allBookings.map(b => ({
+            id: b.id,
+            confirmationCode: b.confirmationCode || '',
+            externalBookingReference: b.externalBookingReference || '',
+            customerName: b.customer?.fullName || `${b.customer?.firstName || ''} ${b.customer?.lastName || ''}`.trim(),
+            customerEmail: b.customer?.email || '',
+            phone: b.customer?.phoneNumber || b.customer?.phone || '',
+            productTitle: b.productBookings?.[0]?.product?.title || 'Northern Lights Tour',
+            productId: b.productBookings?.[0]?.product?.id || b.productBookings?.[0]?.productId || null,
+            productBookingId: b.productBookings?.[0]?.id || null,
+            startDate: b.productBookings?.[0]?.startDate || b.startDate,
+            startTime: b.productBookings?.[0]?.startTime || '',
+            totalParticipants: b.productBookings?.[0]?.totalParticipants || b.totalParticipants || 1,
+            status: b.productBookings?.[0]?.status || b.status || 'CONFIRMED',
+            pickupPlace: b.productBookings?.[0]?.fields?.pickupPlace?.title || '',
+            pickupPlaceId: b.productBookings?.[0]?.fields?.pickupPlace?.id || null,
+            fullyPaid: b.fullyPaid || false,
+            totalPaid: b.totalPaid || 0,
+            totalPrice: b.totalPrice || 0,
+        }));
+
+        // Save to Firestore
+        await db.collection('ai_booking_cache').doc('current').set({
+            bookings: aiCacheBookings,
+            cachedAt: new Date(),
+            count: aiCacheBookings.length,
+            dateRange: { from: startDateStr, to: endDateStr },
+        });
+
+        console.log(`💾 Saved ${aiCacheBookings.length} bookings to AI cache`);
+        return aiCacheBookings;
+
+    } catch (error) {
+        console.log('⚠️ Failed to refresh AI booking cache:', error.message);
+        return [];
+    }
 }
 
 /**
@@ -249,10 +408,7 @@ async function searchBokunBookingsByEmail(email, accessKey, secretKey) {
     const signature = crypto.createHmac('sha1', secretKey).update(message).digest('base64');
 
     const requestBody = JSON.stringify({
-        productConfirmationDateRange: {
-            from: startDateStr,
-            to: endDateStr,
-        },
+        productConfirmationDateRange: { from: startDateStr, to: endDateStr },
         customerEmail: email,
         limit: 10,
     });
@@ -312,10 +468,7 @@ async function findPickupPlaceId(productId, pickupPlaceName) {
         const pickupPath = `/activity.json/${productId}/pickup-places`;
         const pickupDate = new Date().toISOString().replace('T', ' ').substring(0, 19);
         const pickupMessage = pickupDate + accessKey + 'GET' + pickupPath;
-        const pickupSignature = crypto
-            .createHmac('sha1', secretKey)
-            .update(pickupMessage)
-            .digest('base64');
+        const pickupSignature = crypto.createHmac('sha1', secretKey).update(pickupMessage).digest('base64');
 
         const pickupPlaces = await new Promise((resolve) => {
             const options = {
@@ -444,7 +597,7 @@ ${booking.matchReason ? `- Match Reason: ${booking.matchReason}` : ''}
 
 /**
  * Generate AI draft response when new inbound message is created
- * DEPRECATED: Now using on-demand generateBookingAiAssist instead to save tokens
+ * DEPRECATED: Now using on-demand generateBookingAiAssist instead
  */
 const generateAiDraft = onDocumentCreated(
     {
@@ -454,62 +607,8 @@ const generateAiDraft = onDocumentCreated(
     },
     async (event) => {
         // DISABLED: Auto AI draft generation is disabled to save on API tokens
-        // Use the on-demand generateBookingAiAssist function instead
         console.log('⏭️ Auto AI draft generation is disabled. Use generateBookingAiAssist instead.');
         return null;
-
-        // Original implementation preserved for reference:
-        /*
-        const snapshot = event.data;
-        if (!snapshot) return null;
-    
-        const messageData = snapshot.data();
-        const messageId = event.params.messageId;
-    
-        if (messageData.direction !== 'inbound') {
-          console.log('⏭️ Skipping AI draft - not inbound message');
-          return null;
-        }
-    
-        console.log('🧠 Generating AI draft for message:', messageId);
-    
-        try {
-          const conversationId = messageData.conversationId;
-          const messagesSnapshot = await db.collection('messages')
-            .where('conversationId', '==', conversationId)
-            .orderBy('timestamp', 'asc')
-            .limit(10)
-            .get();
-    
-          const conversationHistory = messagesSnapshot.docs.map(doc => doc.data());
-    
-          const bookingContext = await getBookingContextForAi(messageData.detectedBookingNumbers);
-    
-          const draft = await generateDraftWithClaude({
-            message: messageData.content,
-            customer: null,
-            bookingContext,
-            conversationHistory,
-          });
-    
-          await snapshot.ref.update({
-            aiDraft: {
-              content: draft.content,
-              confidence: draft.confidence,
-              suggestedTone: draft.tone,
-              generatedAt: admin.firestore.FieldValue.serverTimestamp(),
-              reasoning: draft.reasoning,
-            },
-            status: 'draftReady',
-          });
-    
-          console.log('✅ AI draft saved for message:', messageId);
-          return { success: true };
-        } catch (error) {
-          console.error('❌ Error generating AI draft:', error);
-          return { success: false, error: error.message };
-        }
-        */
     }
 );
 
@@ -537,52 +636,41 @@ const generateBookingAiAssist = onCall(
 
         try {
             // Extract booking references from the message content
-            const extractedRefs = new Set();
-
-            // Pattern for various booking formats
-            const patterns = [
-                /\b(?:AUR|VIA|GET|BKN|TUI)-?\s*(\d{6,10})\b/gi,  // Prefixed refs
-                /\b(\d{8,10})\b/g,  // Pure numeric refs
+            const bookingPatterns = [
+                /\b(?:AUR|VIA|GET|TDI|AV|aur|via|get|tdi|av)[-\s]?(\d{6,10})\b/gi,  // Prefixed booking refs
+                /\b(?:booking|confirmation|reference|ref|order)[:\.\s#]*(\d{6,15})\b/gi,  // booking: 12345678
+                /\b(\d{8,10})\b/g,  // 8-10 digit numbers (common booking ID length)
+                /\b([A-Z0-9]{10,15})\b/g,  // Alphanumeric refs like GYGBLHXM9R2Y
             ];
 
-            for (const pattern of patterns) {
-                let match;
-                while ((match = pattern.exec(messageContent)) !== null) {
+            const extractedRefs = new Set(bookingRefs || []);
+            for (const pattern of bookingPatterns) {
+                const matches = messageContent.matchAll(pattern);
+                for (const match of matches) {
                     const ref = match[1] || match[0];
                     const numericRef = ref.replace(/\D/g, '');
                     if (numericRef.length >= 6) {
                         extractedRefs.add(numericRef);
-                        console.log(`🔍 Found booking reference in message: ${match[0]} -> ${numericRef}`);
+                        console.log(`🔍 Found booking reference in message: ${ref} -> ${numericRef}`);
                     }
                 }
             }
-
-            // Add any explicitly passed refs
-            if (bookingRefs) {
-                for (const ref of bookingRefs) {
-                    const numericRef = ref.replace(/\D/g, '');
-                    if (numericRef.length >= 6) {
-                        extractedRefs.add(numericRef);
-                    }
-                }
-            }
-
             const allBookingRefs = Array.from(extractedRefs);
             console.log(`🔍 Total booking refs to search: ${allBookingRefs.join(', ') || 'none'}`);
 
             // Find related bookings
             console.log('📋 Looking up bookings for:', { customerEmail, customerName, bookingRefs: allBookingRefs });
-
             const bookings = await findCustomerBookings({
                 email: customerEmail,
                 name: customerName,
                 bookingRefs: allBookingRefs,
             });
+            console.log(`📋 Found ${bookings.length} matching bookings`);
 
-            // Build booking context for AI
+            // Build context for AI
             const bookingContext = buildBookingContext(bookings);
 
-            // Call Claude API
+            // Call Claude API with system prompt as separate parameter
             const Anthropic = require('@anthropic-ai/sdk').default;
             const anthropic = new Anthropic({
                 apiKey: process.env.ANTHROPIC_API_KEY,
@@ -604,19 +692,15 @@ Please analyze this customer message and provide a suggested reply and action in
             const response = await anthropic.messages.create({
                 model: 'claude-sonnet-4-20250514',
                 max_tokens: 1024,
-                messages: [
-                    {
-                        role: 'user',
-                        content: AI_SYSTEM_PROMPT + '\n\n' + userMessage,
-                    },
-                ],
+                messages: [{ role: 'user', content: userMessage }],
+                system: AI_SYSTEM_PROMPT,  // Use system parameter correctly
             });
 
-            const responseText = response.content[0].text;
-
-            // Parse JSON response
+            // Parse the response
             let aiResult;
             try {
+                const responseText = response.content[0].text;
+                // Extract JSON from response (Claude sometimes wraps in markdown code blocks)
                 const jsonMatch = responseText.match(/\{[\s\S]*\}/);
                 if (jsonMatch) {
                     aiResult = JSON.parse(jsonMatch[0]);
@@ -624,9 +708,9 @@ Please analyze this customer message and provide a suggested reply and action in
                     throw new Error('No JSON found in response');
                 }
             } catch (parseError) {
-                console.log('⚠️ Could not parse AI response as JSON, using text response');
+                console.error('Failed to parse AI response:', parseError);
                 aiResult = {
-                    suggestedReply: responseText,
+                    suggestedReply: response.content[0].text,
                     suggestedAction: { type: 'INFO_ONLY' },
                     confidence: 0.5,
                     reasoning: 'Could not parse structured response',
@@ -638,60 +722,84 @@ Please analyze this customer message and provide a suggested reply and action in
                 const pickupName = aiResult.suggestedAction?.params?.newPickupLocation;
                 console.log(`📍 CHANGE_PICKUP action detected, pickup name: "${pickupName}"`);
 
-                const bestBooking = bookings[0];
-                const productBooking = bestBooking.productBookings?.[0];
-                const productId = bestBooking.productId || productBooking?.product?.id;
-                const correctBookingId = bestBooking.id;
-                const correctProductBookingId = bestBooking.productBookingId || productBooking?.id;
+                const booking = bookings[0];
+                const productBooking = booking.productBookings?.[0];
 
+                const correctBookingId = String(booking.id);
+                const correctProductBookingId = booking.productBookingId || productBooking?.id || null;
+                const productId = booking.productId || productBooking?.product?.id || productBooking?.productId || null;
+
+                console.log(`📋 Booking IDs: bookingId=${correctBookingId}, productBookingId=${correctProductBookingId}, productId=${productId}`);
+
+                // Ensure params object exists
+                if (!aiResult.suggestedAction.params) {
+                    aiResult.suggestedAction.params = {};
+                }
+
+                // Override booking ID with the correct one from our lookup
                 aiResult.suggestedAction.bookingId = correctBookingId;
 
+                // Add productBookingId to params
                 if (correctProductBookingId) {
-                    aiResult.suggestedAction.params = aiResult.suggestedAction.params || {};
                     aiResult.suggestedAction.params.productBookingId = correctProductBookingId;
                     console.log(`✅ Added productBookingId ${correctProductBookingId} to action`);
                 }
 
+                // Lookup and add pickup place ID
                 if (pickupName && productId) {
+                    console.log(`📍 Looking up pickup place for product ${productId}`);
+
                     const pickupPlace = await findPickupPlaceId(productId, pickupName);
                     if (pickupPlace) {
-                        aiResult.suggestedAction.params = aiResult.suggestedAction.params || {};
                         aiResult.suggestedAction.params.pickupPlaceId = pickupPlace.id;
-                        aiResult.suggestedAction.params.pickupPlaceName = pickupPlace.title;
-                        console.log(`✅ Added pickupPlaceId ${pickupPlace.id} to action`);
+                        aiResult.suggestedAction.params.pickupPlaceTitle = pickupPlace.title;
+                        console.log(`✅ Added pickup place ID ${pickupPlace.id} to action`);
                     } else {
                         console.log(`⚠️ Could not find pickup place ID for "${pickupName}"`);
-                        if (aiResult.suggestedReply) {
-                            aiResult.suggestedReply += ' (Note: Pickup place ID not found - may need manual update)';
+                        if (aiResult.suggestedAction.humanReadableDescription) {
+                            aiResult.suggestedAction.humanReadableDescription +=
+                                ' (Note: Pickup place ID not found - may need manual update)';
                         }
                     }
+                } else if (!productId) {
+                    console.log(`⚠️ No product ID found in booking - cannot lookup pickup place`);
                 }
             }
 
-            // Log the AI assist request
+            // Log the AI assist request for training
             await db.collection('ai_assist_logs').add({
                 conversationId,
                 customerEmail,
                 customerName,
                 bookingRefs: bookingRefs || [],
-                extractedRefs: allBookingRefs,
+                matchedBookings: bookings.map(b => b.confirmationCode || b.id),
                 messageContent: messageContent.substring(0, 500),
-                aiResponse: aiResult,
-                bookingsFound: bookings.length,
-                userId: request.auth.uid,
+                suggestedReply: aiResult.suggestedReply,
+                suggestedAction: aiResult.suggestedAction,
+                confidence: aiResult.confidence,
+                reasoning: aiResult.reasoning,
+                status: 'pending',
                 createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                createdBy: request.auth.uid,
             });
 
+            console.log('✅ AI Assist generated successfully');
+
+            // Return in the format expected by the frontend
             return {
                 success: true,
-                aiResponse: aiResult,
-                bookingsFound: bookings.map(b => ({
+                suggestedReply: aiResult.suggestedReply,
+                suggestedAction: aiResult.suggestedAction,
+                confidence: aiResult.confidence,
+                reasoning: aiResult.reasoning,
+                matchedBookings: bookings.map(b => ({
                     id: b.id,
                     confirmationCode: b.confirmationCode,
-                    customerName: b.customer?.fullName || b.customerFullName,
-                    startDate: b.startDate || b.productBookings?.[0]?.startDate,
+                    customerName: b.customerFullName || b.customerName,
+                    productTitle: b.productTitle,
+                    startDate: b.startDate,
                     status: b.status,
-                    pickupLocation: b.pickupPlaceName,
+                    pickupLocation: b.pickupPlaceName || b.pickupPlace,
                 })),
             };
         } catch (error) {
@@ -706,6 +814,7 @@ module.exports = {
     getBookingContextForAi,
     generateDraftWithClaude,
     findCustomerBookings,
+    refreshAIBookingCache,
     searchBokunBookingById,
     searchBokunBookingsByEmail,
     findPickupPlaceId,
