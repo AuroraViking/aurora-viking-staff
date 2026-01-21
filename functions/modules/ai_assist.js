@@ -819,6 +819,27 @@ const generateBookingAiAssist = onCall(
         }
 
         try {
+            // Extract customer name from message if not provided
+            let effectiveCustomerName = customerName;
+            if (!effectiveCustomerName) {
+                // Try to extract name from common patterns in the message
+                const namePatterns = [
+                    /(?:my name is|i am|this is|i'm)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/i,
+                    /(?:regards|thanks|cheers|best|sincerely),?\s*\n?\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/i,
+                    /^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s*$/m,  // Name alone on a line
+                    /(?:booking for|booked under|under the name)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/i,
+                ];
+
+                for (const pattern of namePatterns) {
+                    const match = messageContent.match(pattern);
+                    if (match && match[1]) {
+                        effectiveCustomerName = match[1].trim();
+                        console.log(`📛 Extracted customer name from message: "${effectiveCustomerName}"`);
+                        break;
+                    }
+                }
+            }
+
             // Extract booking references from the message content
             const bookingPatterns = [
                 /\b(?:AUR|VIA|GET|TDI|AV|aur|via|get|tdi|av)[-\s]?(\d{6,10})\b/gi,  // Prefixed booking refs
@@ -843,10 +864,10 @@ const generateBookingAiAssist = onCall(
             console.log(`🔍 Total booking refs to search: ${allBookingRefs.join(', ') || 'none'}`);
 
             // Find related bookings
-            console.log('📋 Looking up bookings for:', { customerEmail, customerName, bookingRefs: allBookingRefs });
+            console.log('📋 Looking up bookings for:', { customerEmail, customerName: effectiveCustomerName, bookingRefs: allBookingRefs });
             const bookings = await findCustomerBookings({
                 email: customerEmail,
-                name: customerName,
+                name: effectiveCustomerName,
                 bookingRefs: allBookingRefs,
             });
             console.log(`📋 Found ${bookings.length} matching bookings`);
