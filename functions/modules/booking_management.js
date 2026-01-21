@@ -181,6 +181,21 @@ const onRescheduleRequest = onDocumentCreated(
 
         console.log(`📅 Processing reschedule request: ${requestId} for booking ${bookingId}`);
 
+        // VALIDATION: Check if newDate is in the past
+        const today = new Date();
+        today.setHours(0, 0, 0, 0); // Start of today
+        const requestedDate = new Date(newDate + 'T00:00:00');
+
+        if (requestedDate < today) {
+            console.error(`❌ Requested date ${newDate} is in the past (today is ${today.toISOString().split('T')[0]})`);
+            await snapshot.ref.update({
+                status: 'failed',
+                error: `Cannot reschedule to a past date (${newDate}). Today is ${today.toISOString().split('T')[0]}.`,
+                failedAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+            return;
+        }
+
         await snapshot.ref.update({ status: 'processing' });
 
         try {

@@ -676,7 +676,16 @@ const generateBookingAiAssist = onCall(
                 apiKey: process.env.ANTHROPIC_API_KEY,
             });
 
+            // Get today's date in Iceland timezone for the AI
+            const now = new Date();
+            const icelandDate = new Date(now.toLocaleString('en-US', { timeZone: 'Atlantic/Reykjavik' }));
+            const todayStr = icelandDate.toISOString().split('T')[0];
+            const dayOfWeek = icelandDate.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'Atlantic/Reykjavik' });
+
             const userMessage = `
+TODAY'S DATE: ${todayStr} (${dayOfWeek}) - Iceland Time
+IMPORTANT: Any reschedule date MUST be in the future (${todayStr} or later). Never suggest past dates.
+
 CUSTOMER MESSAGE:
 ${messageContent}
 

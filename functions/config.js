@@ -12,9 +12,9 @@ const DRIVE_FOLDER_ID = '1NLkypBEnuxLpcDpTPdibAnGraF6fvtXC';
 // Gmail OAuth configuration
 const GMAIL_REDIRECT_URI = 'https://us-central1-aurora-viking-staff.cloudfunctions.net/gmailOAuthCallback';
 const GMAIL_SCOPES = [
-    'https://www.googleapis.com/auth/gmail.readonly',
-    'https://www.googleapis.com/auth/gmail.send',
-    'https://www.googleapis.com/auth/gmail.modify',
+  'https://www.googleapis.com/auth/gmail.readonly',
+  'https://www.googleapis.com/auth/gmail.send',
+  'https://www.googleapis.com/auth/gmail.modify',
 ];
 
 // AI System prompt for booking assist
@@ -80,7 +80,7 @@ OUTPUT FORMAT (JSON):
     "bookingId": "booking ID if action needed",
     "confirmationCode": "AUR-XXXXXXXX if found",
     "params": {
-      "newDate": "YYYY-MM-DD if reschedule",
+      "newDate": "YYYY-MM-DD format - MUST use correct year from TODAY'S DATE provided above",
       "newPickupLocation": "location name if pickup change",
       "cancelReason": "reason if cancel"
     },
@@ -91,8 +91,8 @@ OUTPUT FORMAT (JSON):
 }`;
 
 module.exports = {
-    DRIVE_FOLDER_ID,
-    GMAIL_REDIRECT_URI,
-    GMAIL_SCOPES,
-    AI_SYSTEM_PROMPT,
+  DRIVE_FOLDER_ID,
+  GMAIL_REDIRECT_URI,
+  GMAIL_SCOPES,
+  AI_SYSTEM_PROMPT,
 };
