@@ -649,6 +649,7 @@ const onRescheduleRequest = onDocumentCreated(
 const getPickupPlaces = onRequest(
     {
         cors: true,
+        invoker: 'public',
         secrets: ['BOKUN_ACCESS_KEY', 'BOKUN_SECRET_KEY'],
     },
     async (req, res) => {
@@ -745,6 +746,7 @@ const getPickupPlaces = onRequest(
 const updatePickupLocation = onRequest(
     {
         cors: true,
+        invoker: 'public',
         secrets: ['BOKUN_ACCESS_KEY', 'BOKUN_SECRET_KEY'],
     },
     async (req, res) => {
@@ -900,6 +902,7 @@ const updatePickupLocation = onRequest(
 const cancelBooking = onRequest(
     {
         cors: true,
+        invoker: 'public',
         secrets: ['BOKUN_ACCESS_KEY', 'BOKUN_SECRET_KEY'],
     },
     async (req, res) => {
