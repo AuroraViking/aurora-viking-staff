@@ -10,6 +10,7 @@ const { google } = require('googleapis');
 const { admin, db } = require('../utils/firebase');
 const { GMAIL_REDIRECT_URI, GMAIL_SCOPES } = require('../config');
 const { findOrCreateCustomer, findOrCreateConversation, extractBookingReferences } = require('./inbox_core');
+const { sendNotificationToAdminsOnly } = require('../utils/notifications');
 
 // ============================================
 // GMAIL HELPER FUNCTIONS
@@ -348,6 +349,26 @@ async function processGmailMessageData(gmailMessage, inboxEmail = 'info@auroravi
         lastMessagePreview: body.substring(0, 100),
         unreadCount: admin.firestore.FieldValue.increment(1),
     });
+
+    // Send push notification to admins
+    try {
+        const senderName = fromName || fromEmail;
+        const previewText = body.substring(0, 100) + (body.length > 100 ? '...' : '');
+        await sendNotificationToAdminsOnly(
+            `📧 New Email from ${senderName}`,
+            `${subject}: ${previewText}`,
+            {
+                type: 'new_email',
+                messageId: msgRef.id,
+                conversationId: conversationId,
+                fromEmail: fromEmail,
+                subject: subject,
+            }
+        );
+        console.log('📲 Admin notification sent for new email');
+    } catch (notifError) {
+        console.error('⚠️ Failed to send admin notification:', notifError.message);
+    }
 
     return { messageId: msgRef.id, conversationId, customerId };
 }

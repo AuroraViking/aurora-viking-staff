@@ -31,8 +31,18 @@ class _AdminDashboardState extends State<AdminDashboard> {
   @override
   void initState() {
     super.initState();
+    // Schedule auto-admin check for after build
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkAutoAdminAndLoad();
+    });
+  }
+  
+  Future<void> _checkAutoAdminAndLoad() async {
+    // Check if user is a Firebase admin and auto-enable admin mode
+    await context.read<AdminController>().checkAutoAdminLogin(context);
     _loadDashboardData();
   }
+
 
   @override
   void dispose() {

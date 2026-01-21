@@ -1,39 +1,69 @@
 import 'package:flutter/material.dart';
-import '../../core/utils/constants.dart';
+import 'package:provider/provider.dart';
+import '../../core/auth/auth_controller.dart';
 
 class AdminController extends ChangeNotifier {
   bool _isAdminMode = false;
   bool _isLoading = false;
   String _errorMessage = '';
+  bool _hasCheckedAutoLogin = false;
   
   bool get isAdminMode => _isAdminMode;
   bool get isLoading => _isLoading;
   String get errorMessage => _errorMessage;
   
-  // Login to admin mode
-  Future<bool> loginToAdminMode(String password) async {
+  /// Check if user is a Firebase admin and auto-enable admin mode
+  /// Call this when the app starts or when the admin dashboard is accessed
+  Future<void> checkAutoAdminLogin(BuildContext context) async {
+    if (_hasCheckedAutoLogin && _isAdminMode) return;
+    
+    try {
+      final authController = context.read<AuthController>();
+      final user = authController.currentUser;
+      
+      if (user != null && user.isAdmin) {
+        print('🔓 Auto-enabling admin mode for ${user.fullName} (isAdmin: true)');
+        _isAdminMode = true;
+        _hasCheckedAutoLogin = true;
+        notifyListeners();
+      }
+    } catch (e) {
+      print('⚠️ Error checking auto admin login: $e');
+    }
+  }
+  
+  // Login to admin mode (with password for non-admin users)
+  Future<bool> loginToAdminMode(String password, {BuildContext? context}) async {
     _isLoading = true;
     _errorMessage = '';
     notifyListeners();
     
     try {
-      // Simulate network delay
+      // Check if user is already a Firebase admin
+      if (context != null) {
+        final authController = context.read<AuthController>();
+        final user = authController.currentUser;
+        
+        if (user != null && user.isAdmin) {
+          // Auto-login for Firebase admins - password is optional
+          print('🔓 Firebase admin detected (${user.fullName}), granting access');
+          _isAdminMode = true;
+          _errorMessage = '';
+          _hasCheckedAutoLogin = true;
+          notifyListeners();
+          return true;
+        }
+      }
+      
+      // For non-admin users, require password
       await Future.delayed(const Duration(milliseconds: 500));
       
-      if (password == AppConstants.adminPassword) {
+      // Use hardcoded password for non-admins (temporary solution)
+      const adminPassword = 'aurora2024!';
+      
+      if (password == adminPassword) {
         _isAdminMode = true;
         _errorMessage = '';
-        
-        // TODO: Store admin session in secure storage
-        // await SecureStorage.write(key: 'admin_session', value: 'true');
-        
-        // TODO: Log admin login to Firebase
-        // await FirebaseFirestore.instance.collection('admin_logs').add({
-        //   'action': 'login',
-        //   'timestamp': FieldValue.serverTimestamp(),
-        //   'device_info': 'Flutter App',
-        // });
-        
         notifyListeners();
         return true;
       } else {
@@ -55,26 +85,14 @@ class AdminController extends ChangeNotifier {
   void logoutFromAdminMode() {
     _isAdminMode = false;
     _errorMessage = '';
-    
-    // TODO: Clear admin session from secure storage
-    // SecureStorage.delete(key: 'admin_session');
-    
-    // TODO: Log admin logout to Firebase
-    // await FirebaseFirestore.instance.collection('admin_logs').add({
-    //   'action': 'logout',
-    //   'timestamp': FieldValue.serverTimestamp(),
-    //   'device_info': 'Flutter App',
-    // });
-    
+    _hasCheckedAutoLogin = false;
     notifyListeners();
   }
   
   // Check if admin session exists (for app restart)
-  Future<void> checkAdminSession() async {
-    // TODO: Check secure storage for existing admin session
-    // final adminSession = await SecureStorage.read(key: 'admin_session');
-    // _isAdminMode = adminSession == 'true';
-    // notifyListeners();
+  // Now checks Firebase user's isAdmin field
+  Future<void> checkAdminSession(BuildContext context) async {
+    await checkAutoAdminLogin(context);
   }
   
   // Clear error message
@@ -82,4 +100,4 @@ class AdminController extends ChangeNotifier {
     _errorMessage = '';
     notifyListeners();
   }
-} 
+}
