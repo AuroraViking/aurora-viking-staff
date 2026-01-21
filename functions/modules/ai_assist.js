@@ -195,6 +195,40 @@ async function findCustomerBookings({ email, name, bookingRefs }) {
             }
         }
 
+        // Step 5.5: If still no match and we have a name, search today's (and tomorrow's) bookings by name
+        // This helps when customers email from different addresses after tour is OFF
+        if (matchedBookings.length === 0 && name) {
+            console.log(`📅 No match found, searching today's bookings by name: "${name}"`);
+            const searchName = name.toLowerCase();
+
+            // Get today's and tomorrow's date in Iceland timezone
+            const now = new Date();
+            const icelandNow = new Date(now.toLocaleString('en-US', { timeZone: 'Atlantic/Reykjavik' }));
+            const todayStr = icelandNow.toISOString().split('T')[0];
+            const tomorrow = new Date(icelandNow);
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            const tomorrowStr = tomorrow.toISOString().split('T')[0];
+
+            for (const booking of aiCacheBookings) {
+                if (foundIds.has(booking.id)) continue;
+
+                const bookingDate = booking.startDate || '';
+                // Check if booking is for today or tomorrow
+                if (bookingDate === todayStr || bookingDate === tomorrowStr) {
+                    const customerName = (booking.customerName || '').toLowerCase();
+
+                    // Check if name matches (partial match for flexibility)
+                    if (customerName && (customerName.includes(searchName) || searchName.includes(customerName.split(' ')[0]))) {
+                        booking.matchConfidence = 'MEDIUM';
+                        booking.matchReason = `Name match in ${bookingDate === todayStr ? 'today' : 'tomorrow'}'s bookings: "${booking.customerName}"`;
+                        matchedBookings.push(booking);
+                        foundIds.add(booking.id);
+                        console.log(`👤 MEDIUM match by name in ${bookingDate === todayStr ? 'today' : 'tomorrow'}'s bookings: ${booking.confirmationCode} (${booking.customerName})`);
+                    }
+                }
+            }
+        }
+
     } catch (error) {
         console.log('⚠️ Error searching AI booking cache:', error.message);
     }

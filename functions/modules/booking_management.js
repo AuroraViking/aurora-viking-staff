@@ -269,6 +269,20 @@ const onRescheduleRequest = onDocumentCreated(
 
             console.log(`✅ Found booking ${bookingId} (${foundBooking.confirmationCode})`);
 
+            // Log if this is a reseller booking (for debugging, but we'll still try to reschedule)
+            const externalRef = foundBooking.externalBookingReference || '';
+            const confirmCode = foundBooking.confirmationCode || '';
+            const isResellerBooking =
+                externalRef.toLowerCase().includes('viator') ||
+                externalRef.toLowerCase().includes('gyg') ||
+                confirmCode.toUpperCase().startsWith('VIA-') ||
+                confirmCode.toUpperCase().startsWith('GYG-') ||
+                confirmCode.toUpperCase().startsWith('TDI-');
+
+            if (isResellerBooking) {
+                console.log(`📌 Note: This is a reseller booking (${confirmCode}), attempting reschedule anyway...`);
+            }
+
             const productBooking = foundBooking.productBookings?.[0];
             if (!productBooking) {
                 throw new Error('No product booking found');
@@ -386,13 +400,24 @@ const onRescheduleRequest = onDocumentCreated(
             const availabilityId = newAvailability.id;
             console.log(`✅ Found availability: ${availabilityId}`);
 
-            // Try to find OCTO booking
+            // Try to find OCTO booking (try multiple reference formats)
             let octoBookingUuid = null;
             try {
-                const octoBookings = await octoRequest('GET', `/bookings?supplierReference=${bookingId}`);
+                // Try searching by supplier reference (booking ID)
+                let octoBookings = await octoRequest('GET', `/bookings?supplierReference=${bookingId}`);
                 if (Array.isArray(octoBookings) && octoBookings.length > 0) {
                     octoBookingUuid = octoBookings[0].uuid;
-                    console.log(`✅ Found OCTO booking UUID: ${octoBookingUuid}`);
+                    console.log(`✅ Found OCTO booking UUID by bookingId: ${octoBookingUuid}`);
+                }
+
+                // If not found, try by confirmation code
+                if (!octoBookingUuid) {
+                    const confirmCodeForSearch = confirmationCode || foundBooking.confirmationCode;
+                    octoBookings = await octoRequest('GET', `/bookings?resellerReference=${confirmCodeForSearch}`);
+                    if (Array.isArray(octoBookings) && octoBookings.length > 0) {
+                        octoBookingUuid = octoBookings[0].uuid;
+                        console.log(`✅ Found OCTO booking UUID by confirmationCode: ${octoBookingUuid}`);
+                    }
                 }
             } catch (e) {
                 console.log(`⚠️ Could not find OCTO booking: ${e.message}`);
@@ -441,53 +466,70 @@ const onRescheduleRequest = onDocumentCreated(
                 console.log(`📋 Customer: ${customerContact.fullName}, Participants: ${totalParticipants}`);
                 console.log(`📋 Pickup: ${pickupLocation || 'None'}`);
 
-                // Cancel the existing booking
+                // Cancel the existing booking - try OCTO API first, then fall back to Bokun REST
                 const bookingConfirmCode = confirmationCode || foundBooking.confirmationCode;
                 console.log(`🚫 Cancelling existing booking ${bookingConfirmCode}...`);
 
-                const cancelPath = `/booking.json/cancel-booking/${bookingConfirmCode}`;
-                const cancelDate = new Date().toISOString().replace('T', ' ').substring(0, 19);
-                const cancelMessage = cancelDate + accessKey + 'POST' + cancelPath;
-                const cancelSignature = crypto
-                    .createHmac('sha1', secretKey)
-                    .update(cancelMessage)
-                    .digest('base64');
+                let cancelSuccess = false;
 
-                await new Promise((resolve, reject) => {
-                    const cancelBody = JSON.stringify({
-                        reason: `Rescheduled to ${newDate}. ${reason || 'Rescheduled via admin app'}`,
-                    });
+                // Try OCTO API cancellation first (might work for reseller bookings)
+                if (octoBookingUuid) {
+                    try {
+                        console.log(`🚫 Trying OCTO API cancel for ${octoBookingUuid}...`);
+                        await octoRequest('DELETE', `/bookings/${octoBookingUuid}`);
+                        cancelSuccess = true;
+                        console.log(`✅ OCTO cancellation successful`);
+                    } catch (octoError) {
+                        console.log(`⚠️ OCTO cancel failed: ${octoError.message}, trying Bokun REST...`);
+                    }
+                }
 
-                    const options = {
-                        hostname: 'api.bokun.io',
-                        path: cancelPath,
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json;charset=UTF-8',
-                            'Content-Length': Buffer.byteLength(cancelBody),
-                            'X-Bokun-AccessKey': accessKey,
-                            'X-Bokun-Date': cancelDate,
-                            'X-Bokun-Signature': cancelSignature,
-                        },
-                    };
+                // Fall back to Bokun REST API if OCTO didn't work
+                if (!cancelSuccess) {
+                    const cancelPath = `/booking.json/cancel-booking/${bookingConfirmCode}`;
+                    const cancelDate = new Date().toISOString().replace('T', ' ').substring(0, 19);
+                    const cancelMessage = cancelDate + accessKey + 'POST' + cancelPath;
+                    const cancelSignature = crypto
+                        .createHmac('sha1', secretKey)
+                        .update(cancelMessage)
+                        .digest('base64');
 
-                    const apiReq = https.request(options, (apiRes) => {
-                        let data = '';
-                        apiRes.on('data', (chunk) => { data += chunk; });
-                        apiRes.on('end', () => {
-                            console.log(`🚫 Cancel response: ${apiRes.statusCode}`);
-                            if (apiRes.statusCode >= 200 && apiRes.statusCode < 400) {
-                                resolve({ success: true });
-                            } else {
-                                reject(new Error(`Cancel failed: ${apiRes.statusCode} - ${data}`));
-                            }
+                    await new Promise((resolve, reject) => {
+                        const cancelBody = JSON.stringify({
+                            reason: `Rescheduled to ${newDate}. ${reason || 'Rescheduled via admin app'}`,
                         });
-                    });
 
-                    apiReq.on('error', (error) => reject(error));
-                    apiReq.write(cancelBody);
-                    apiReq.end();
-                });
+                        const options = {
+                            hostname: 'api.bokun.io',
+                            path: cancelPath,
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json;charset=UTF-8',
+                                'Content-Length': Buffer.byteLength(cancelBody),
+                                'X-Bokun-AccessKey': accessKey,
+                                'X-Bokun-Date': cancelDate,
+                                'X-Bokun-Signature': cancelSignature,
+                            },
+                        };
+
+                        const apiReq = https.request(options, (apiRes) => {
+                            let data = '';
+                            apiRes.on('data', (chunk) => { data += chunk; });
+                            apiRes.on('end', () => {
+                                console.log(`🚫 Bokun cancel response: ${apiRes.statusCode}`);
+                                if (apiRes.statusCode >= 200 && apiRes.statusCode < 400) {
+                                    resolve({ success: true });
+                                } else {
+                                    reject(new Error(`Cancel failed: ${apiRes.statusCode} - ${data}`));
+                                }
+                            });
+                        });
+
+                        apiReq.on('error', (error) => reject(error));
+                        apiReq.write(cancelBody);
+                        apiReq.end();
+                    });
+                }
 
                 console.log(`✅ Booking cancelled successfully`);
 
