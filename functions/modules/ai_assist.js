@@ -253,6 +253,40 @@ async function findCustomerBookings({ email, name, bookingRefs }) {
         } catch (enhanceError) {
             console.log(`⚠️ Could not enhance with pickup data: ${enhanceError.message}`);
         }
+
+        // Step 7: If pickup still missing, fetch directly from Bokun API
+        const accessKey = process.env.BOKUN_ACCESS_KEY;
+        const secretKey = process.env.BOKUN_SECRET_KEY;
+
+        for (const booking of matchedBookings) {
+            if (!booking.pickupPlace || booking.pickupPlace === 'Not assigned yet') {
+                console.log(`📍 Pickup missing for ${booking.confirmationCode}, fetching from Bokun API...`);
+
+                try {
+                    const fullBooking = await searchBokunBookingById(booking.id, accessKey, secretKey);
+                    if (fullBooking) {
+                        const productBooking = fullBooking.productBookings?.[0];
+                        const pickup = productBooking?.pickupPlace?.title ||
+                            productBooking?.pickupPlace?.name ||
+                            productBooking?.fields?.pickupPlace?.title ||
+                            productBooking?.fields?.pickupPlaceDescription ||
+                            null;
+
+                        if (pickup) {
+                            console.log(`✅ Found pickup from API: ${pickup}`);
+                            booking.pickupPlace = pickup;
+                            booking.pickupPlaceName = pickup;
+                            booking.pickupPlaceId = productBooking?.pickupPlace?.id ||
+                                productBooking?.fields?.pickupPlace?.id || null;
+                        } else {
+                            console.log(`⚠️ No pickup found in Bokun API response`);
+                        }
+                    }
+                } catch (apiError) {
+                    console.log(`⚠️ Could not fetch from Bokun: ${apiError.message}`);
+                }
+            }
+        }
     }
 
     console.log(`📋 Total matched bookings: ${matchedBookings.length}`);
