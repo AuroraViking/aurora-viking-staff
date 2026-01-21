@@ -643,10 +643,482 @@ const onRescheduleRequest = onDocumentCreated(
     }
 );
 
+/**
+ * Get pickup places for an activity/product
+ */
+const getPickupPlaces = onRequest(
+    {
+        cors: true,
+        secrets: ['BOKUN_ACCESS_KEY', 'BOKUN_SECRET_KEY'],
+    },
+    async (req, res) => {
+        if (req.method !== 'GET' && req.method !== 'POST') {
+            res.status(405).json({ error: 'Method not allowed' });
+            return;
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            res.status(401).json({ error: 'Unauthorized' });
+            return;
+        }
+
+        try {
+            const idToken = authHeader.split('Bearer ')[1];
+            await admin.auth().verifyIdToken(idToken);
+        } catch (error) {
+            res.status(401).json({ error: 'Invalid token' });
+            return;
+        }
+
+        const productId = req.query.productId || req.body.productId;
+        if (!productId) {
+            res.status(400).json({ error: 'productId is required' });
+            return;
+        }
+
+        const accessKey = process.env.BOKUN_ACCESS_KEY;
+        const secretKey = process.env.BOKUN_SECRET_KEY;
+
+        if (!accessKey || !secretKey) {
+            res.status(500).json({ error: 'Bokun API keys not configured' });
+            return;
+        }
+
+        try {
+            console.log(`📍 Fetching pickup places for product ${productId}`);
+
+            const pickupPath = `/activity.json/${productId}/pickup-places`;
+            const pickupDate = new Date().toISOString().replace('T', ' ').substring(0, 19);
+            const pickupMessage = pickupDate + accessKey + 'GET' + pickupPath;
+            const pickupSignature = crypto.createHmac('sha1', secretKey).update(pickupMessage).digest('base64');
+
+            const pickupPlaces = await new Promise((resolve) => {
+                const options = {
+                    hostname: 'api.bokun.io',
+                    path: pickupPath,
+                    method: 'GET',
+                    headers: {
+                        'X-Bokun-AccessKey': accessKey,
+                        'X-Bokun-Date': pickupDate,
+                        'X-Bokun-Signature': pickupSignature,
+                    },
+                };
+
+                const apiReq = https.request(options, (apiRes) => {
+                    let data = '';
+                    apiRes.on('data', (chunk) => { data += chunk; });
+                    apiRes.on('end', () => {
+                        if (apiRes.statusCode >= 200 && apiRes.statusCode < 300) {
+                            try {
+                                const parsed = JSON.parse(data);
+                                resolve(parsed.pickupPlaces || parsed.pickupDropoffPlaces || parsed.items || parsed);
+                            } catch (e) { resolve([]); }
+                        } else { resolve([]); }
+                    });
+                });
+                apiReq.on('error', () => resolve([]));
+                apiReq.end();
+            });
+
+            const places = (Array.isArray(pickupPlaces) ? pickupPlaces : []).map(place => ({
+                id: place.id,
+                title: place.title || place.name,
+                address: place.address?.streetAddress || place.address || '',
+                city: place.address?.city || '',
+                type: place.type || 'HOTEL',
+            }));
+
+            console.log(`✅ Found ${places.length} pickup places`);
+            res.json({ pickupPlaces: places });
+
+        } catch (error) {
+            console.error(`❌ Error fetching pickup places: ${error.message}`);
+            res.status(500).json({ error: error.message });
+        }
+    }
+);
+
+/**
+ * Update pickup location on an existing booking
+ */
+const updatePickupLocation = onRequest(
+    {
+        cors: true,
+        secrets: ['BOKUN_ACCESS_KEY', 'BOKUN_SECRET_KEY'],
+    },
+    async (req, res) => {
+        if (req.method !== 'POST') {
+            res.status(405).json({ error: 'Method not allowed' });
+            return;
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            res.status(401).json({ error: 'Unauthorized' });
+            return;
+        }
+
+        try {
+            const idToken = authHeader.split('Bearer ')[1];
+            await admin.auth().verifyIdToken(idToken);
+        } catch (error) {
+            res.status(401).json({ error: 'Invalid token' });
+            return;
+        }
+
+        const { bookingId, productBookingId, pickupPlaceId, pickupPlaceName } = req.body;
+
+        if (!bookingId || !pickupPlaceId) {
+            res.status(400).json({ error: 'bookingId and pickupPlaceId are required' });
+            return;
+        }
+
+        const accessKey = process.env.BOKUN_ACCESS_KEY;
+        const secretKey = process.env.BOKUN_SECRET_KEY;
+
+        if (!accessKey || !secretKey) {
+            res.status(500).json({ error: 'Bokun API keys not configured' });
+            return;
+        }
+
+        try {
+            console.log(`📍 Updating pickup for booking ${bookingId} to place ${pickupPlaceId}`);
+
+            let actualProductBookingId = productBookingId;
+
+            if (!actualProductBookingId) {
+                const searchPath = '/booking.json/booking-search';
+                const searchDate = new Date().toISOString().replace('T', ' ').substring(0, 19);
+                const searchMessage = searchDate + accessKey + 'POST' + searchPath;
+                const searchSignature = crypto.createHmac('sha1', secretKey).update(searchMessage).digest('base64');
+
+                const searchResult = await new Promise((resolve, reject) => {
+                    const searchBody = JSON.stringify({ bookingId: parseInt(bookingId) });
+                    const options = {
+                        hostname: 'api.bokun.io',
+                        path: searchPath,
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json;charset=UTF-8',
+                            'Content-Length': Buffer.byteLength(searchBody),
+                            'X-Bokun-AccessKey': accessKey,
+                            'X-Bokun-Date': searchDate,
+                            'X-Bokun-Signature': searchSignature,
+                        },
+                    };
+
+                    const apiReq = https.request(options, (apiRes) => {
+                        let data = '';
+                        apiRes.on('data', (chunk) => { data += chunk; });
+                        apiRes.on('end', () => {
+                            if (apiRes.statusCode >= 200 && apiRes.statusCode < 300) {
+                                resolve(JSON.parse(data));
+                            } else {
+                                reject(new Error(`Search failed: ${apiRes.statusCode}`));
+                            }
+                        });
+                    });
+                    apiReq.on('error', reject);
+                    apiReq.write(searchBody);
+                    apiReq.end();
+                });
+
+                const booking = searchResult.items?.find(b => String(b.id) === String(bookingId));
+                if (!booking) throw new Error(`Booking ${bookingId} not found`);
+                actualProductBookingId = booking.productBookings?.[0]?.id;
+            }
+
+            if (!actualProductBookingId) throw new Error('Could not find productBookingId');
+
+            const editPath = '/booking.json/edit';
+            const editDate = new Date().toISOString().replace('T', ' ').substring(0, 19);
+            const editMessage = editDate + accessKey + 'POST' + editPath;
+            const editSignature = crypto.createHmac('sha1', secretKey).update(editMessage).digest('base64');
+
+            const editActions = [{
+                type: 'ActivityPickupAction',
+                activityBookingId: parseInt(actualProductBookingId),
+                pickup: true,
+                pickupPlaceId: parseInt(pickupPlaceId),
+                description: pickupPlaceName || '',
+            }];
+
+            const editResult = await new Promise((resolve, reject) => {
+                const editBody = JSON.stringify(editActions);
+                const options = {
+                    hostname: 'api.bokun.io',
+                    path: editPath,
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json;charset=UTF-8',
+                        'Content-Length': Buffer.byteLength(editBody),
+                        'X-Bokun-AccessKey': accessKey,
+                        'X-Bokun-Date': editDate,
+                        'X-Bokun-Signature': editSignature,
+                    },
+                };
+
+                const apiReq = https.request(options, (apiRes) => {
+                    let data = '';
+                    apiRes.on('data', (chunk) => { data += chunk; });
+                    apiRes.on('end', () => {
+                        if (apiRes.statusCode >= 200 && apiRes.statusCode < 300) {
+                            try { resolve(JSON.parse(data)); } catch (e) { resolve({ success: true }); }
+                        } else {
+                            reject(new Error(`Edit failed: ${apiRes.statusCode} - ${data}`));
+                        }
+                    });
+                });
+                apiReq.on('error', reject);
+                apiReq.write(editBody);
+                apiReq.end();
+            });
+
+            console.log(`✅ Pickup updated successfully`);
+
+            await db.collection('booking_actions').add({
+                bookingId,
+                action: 'update_pickup',
+                pickupPlaceId,
+                pickupPlaceName: pickupPlaceName || '',
+                performedAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+
+            res.json({ success: true, message: `Pickup updated to ${pickupPlaceName || pickupPlaceId}`, result: editResult });
+
+        } catch (error) {
+            console.error(`❌ Error updating pickup: ${error.message}`);
+            res.status(500).json({ error: error.message });
+        }
+    }
+);
+
+/**
+ * Cancel a booking
+ */
+const cancelBooking = onRequest(
+    {
+        cors: true,
+        secrets: ['BOKUN_ACCESS_KEY', 'BOKUN_SECRET_KEY'],
+    },
+    async (req, res) => {
+        if (req.method !== 'POST') {
+            res.status(405).json({ error: 'Method not allowed' });
+            return;
+        }
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            res.status(401).json({ error: 'Unauthorized - missing token' });
+            return;
+        }
+
+        try {
+            const token = authHeader.split('Bearer ')[1];
+            const decodedToken = await admin.auth().verifyIdToken(token);
+            const uid = decodedToken.uid;
+
+            const requestData = req.body.data || req.body;
+            const { bookingId, confirmationCode, reason } = requestData;
+
+            if (!bookingId) {
+                res.status(400).json({ error: 'bookingId is required' });
+                return;
+            }
+
+            if (!reason) {
+                res.status(400).json({ error: 'reason is required for cancellation' });
+                return;
+            }
+
+            if (!confirmationCode) {
+                res.status(400).json({ error: 'confirmationCode is required for cancellation' });
+                return;
+            }
+
+            const accessKey = process.env.BOKUN_ACCESS_KEY;
+            const secretKey = process.env.BOKUN_SECRET_KEY;
+
+            if (!accessKey || !secretKey) {
+                res.status(500).json({ error: 'Bokun API keys not configured' });
+                return;
+            }
+
+            // Get current booking for logging
+            let currentBooking = null;
+            try {
+                currentBooking = await makeBokunRequest('GET', `/booking.json/${bookingId}`, null, accessKey, secretKey);
+            } catch (e) {
+                console.warn('Could not fetch booking details for logging:', e.message);
+            }
+
+            const cancelRequest = { note: reason, notify: true };
+            const result = await makeBokunRequest('POST', `/booking.json/cancel-booking/${confirmationCode}`, cancelRequest, accessKey, secretKey);
+
+            await db.collection('booking_actions').add({
+                bookingId,
+                confirmationCode: confirmationCode || '',
+                action: 'cancel',
+                performedBy: uid,
+                performedAt: admin.firestore.FieldValue.serverTimestamp(),
+                reason,
+                originalData: currentBooking ? { date: currentBooking.startDate, status: currentBooking.status } : null,
+                success: true,
+                source: 'cloud_function',
+            });
+
+            res.status(200).json({ result, success: true });
+        } catch (error) {
+            console.error('Error in cancelBooking:', error);
+            res.status(500).json({ error: error.message });
+        }
+    }
+);
+
+/**
+ * Check availability for a booking reschedule
+ */
+const checkRescheduleAvailability = onDocumentCreated(
+    {
+        document: 'availability_checks/{checkId}',
+        region: 'us-central1',
+        secrets: ['BOKUN_ACCESS_KEY', 'BOKUN_SECRET_KEY', 'BOKUN_OCTO_TOKEN'],
+    },
+    async (event) => {
+        const snapshot = event.data;
+        if (!snapshot) return;
+
+        const data = snapshot.data();
+        const { bookingId, targetDate } = data;
+
+        console.log(`🔍 Checking availability for booking ${bookingId} on ${targetDate}`);
+        await snapshot.ref.update({ status: 'processing' });
+
+        try {
+            const accessKey = process.env.BOKUN_ACCESS_KEY;
+            const secretKey = process.env.BOKUN_SECRET_KEY;
+            const octoToken = process.env.BOKUN_OCTO_TOKEN;
+
+            if (!octoToken) throw new Error('OCTO token not configured');
+
+            const now = new Date();
+            const bokunDate = now.toISOString().replace('T', ' ').substring(0, 19);
+            const searchPath = '/booking.json/booking-search';
+            const message = bokunDate + accessKey + 'POST' + searchPath;
+            const signature = crypto.createHmac('sha1', secretKey).update(message).digest('base64');
+
+            const searchResult = await new Promise((resolve, reject) => {
+                const postData = JSON.stringify({ id: parseInt(bookingId), limit: 10 });
+                const options = {
+                    hostname: 'api.bokun.io',
+                    path: searchPath,
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json;charset=UTF-8',
+                        'Content-Length': Buffer.byteLength(postData),
+                        'X-Bokun-AccessKey': accessKey,
+                        'X-Bokun-Date': bokunDate,
+                        'X-Bokun-Signature': signature,
+                    },
+                };
+
+                const apiReq = https.request(options, (apiRes) => {
+                    let data = '';
+                    apiRes.on('data', (chunk) => { data += chunk; });
+                    apiRes.on('end', () => {
+                        if (apiRes.statusCode >= 200 && apiRes.statusCode < 300) {
+                            resolve(JSON.parse(data));
+                        } else {
+                            reject(new Error(`Search error: ${apiRes.statusCode}`));
+                        }
+                    });
+                });
+                apiReq.on('error', reject);
+                apiReq.write(postData);
+                apiReq.end();
+            });
+
+            const foundBooking = searchResult.items?.find(b => String(b.id) === String(bookingId));
+            if (!foundBooking) throw new Error('Booking not found');
+
+            const otaInfo = detectOTABooking(foundBooking);
+            const productBooking = foundBooking.productBookings?.[0];
+            const productId = productBooking?.product?.id;
+            const optionId = productBooking?.activity?.id || productBooking?.rate?.id || productId;
+
+            const availabilityResult = await new Promise((resolve) => {
+                const body = JSON.stringify({ productId: String(productId), optionId: String(optionId), localDate: targetDate });
+                const options = {
+                    hostname: 'api.bokun.io',
+                    path: '/octo/v1/availability',
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Content-Length': Buffer.byteLength(body),
+                        'Authorization': `Bearer ${octoToken}`,
+                    },
+                };
+
+                const apiReq = https.request(options, (apiRes) => {
+                    let data = '';
+                    apiRes.on('data', (chunk) => { data += chunk; });
+                    apiRes.on('end', () => {
+                        if (apiRes.statusCode >= 200 && apiRes.statusCode < 300) {
+                            try { resolve(JSON.parse(data)); } catch (e) { resolve([]); }
+                        } else { resolve([]); }
+                    });
+                });
+                apiReq.on('error', () => resolve([]));
+                apiReq.write(body);
+                apiReq.end();
+            });
+
+            const slots = (Array.isArray(availabilityResult) ? availabilityResult : []).map(slot => ({
+                id: slot.id,
+                localDateTimeStart: slot.localDateTimeStart,
+                localDateTimeEnd: slot.localDateTimeEnd,
+                available: slot.available,
+                status: slot.status,
+                vacancies: slot.vacancies,
+            }));
+
+            console.log(`📅 Found ${slots.length} availability slots`);
+
+            await snapshot.ref.update({
+                status: 'completed',
+                productId,
+                optionId,
+                currentDate: productBooking?.startDate,
+                customerName: foundBooking.customer?.firstName
+                    ? `${foundBooking.customer.firstName} ${foundBooking.customer.lastName || ''}`.trim()
+                    : 'Unknown',
+                slots,
+                completedAt: admin.firestore.FieldValue.serverTimestamp(),
+                isOTABooking: otaInfo.isOTA,
+                otaName: otaInfo.otaName,
+                otaPortalUrl: otaInfo.otaPortalUrl,
+            });
+
+        } catch (error) {
+            console.error(`❌ Availability check failed: ${error.message}`);
+            await snapshot.ref.update({
+                status: 'failed',
+                error: error.message,
+                failedAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+        }
+    }
+);
+
 // Export all functions
 module.exports = {
     getBookingDetails,
     rescheduleBooking,
     onRescheduleRequest,
+    checkRescheduleAvailability,
+    getPickupPlaces,
+    updatePickupLocation,
+    cancelBooking,
     detectOTABooking,
 };
