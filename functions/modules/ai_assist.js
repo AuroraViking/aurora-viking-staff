@@ -199,6 +199,62 @@ async function findCustomerBookings({ email, name, bookingRefs }) {
         console.log('⚠️ Error searching AI booking cache:', error.message);
     }
 
+    // Step 6: Enhance matched bookings with pickup data from booking_management_cache
+    // This cache has better pickup info because it uses the getBookings API which returns pickupPlace correctly
+    if (matchedBookings.length > 0) {
+        console.log(`📍 Enhancing ${matchedBookings.length} bookings with pickup data from booking_management_cache...`);
+
+        try {
+            // Get recent booking_management_cache documents
+            const today = new Date();
+            const startDate = new Date(today);
+            startDate.setDate(startDate.getDate() - 7); // Look back 7 days
+            const endDate = new Date(today);
+            endDate.setDate(endDate.getDate() + 30); // Look forward 30 days
+
+            // Try to find cache documents for recent date ranges
+            const cacheSnapshot = await db.collection('booking_management_cache')
+                .limit(10) // Get up to 10 cache documents
+                .get();
+
+            const pickupLookup = new Map(); // bookingId -> pickup info
+
+            for (const doc of cacheSnapshot.docs) {
+                const data = doc.data();
+                const bookings = data.bookings || [];
+
+                for (const b of bookings) {
+                    const bookingId = String(b.id || b.bookingId || '');
+                    const pickup = b.pickupLocation || b.pickupPlaceName || '';
+                    const pickupTime = b.pickupTime || '';
+
+                    if (bookingId && pickup) {
+                        pickupLookup.set(bookingId, { location: pickup, time: pickupTime });
+                    }
+                }
+            }
+
+            console.log(`📍 Found pickup data for ${pickupLookup.size} bookings in cache`);
+
+            // Enhance matched bookings with pickup info
+            for (const booking of matchedBookings) {
+                const bookingId = String(booking.id);
+                const cachedPickup = pickupLookup.get(bookingId);
+
+                if (cachedPickup && cachedPickup.location) {
+                    console.log(`✅ Enhanced booking ${booking.confirmationCode} with pickup: ${cachedPickup.location}`);
+                    booking.pickupPlace = cachedPickup.location;
+                    booking.pickupPlaceName = cachedPickup.location;
+                    if (cachedPickup.time) {
+                        booking.pickupTime = cachedPickup.time;
+                    }
+                }
+            }
+        } catch (enhanceError) {
+            console.log(`⚠️ Could not enhance with pickup data: ${enhanceError.message}`);
+        }
+    }
+
     console.log(`📋 Total matched bookings: ${matchedBookings.length}`);
     return matchedBookings;
 }
