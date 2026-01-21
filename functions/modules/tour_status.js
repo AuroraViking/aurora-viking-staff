@@ -59,6 +59,17 @@ const getTourStatus = onRequest(
         cors: true,
     },
     async (req, res) => {
+        // Set CORS headers explicitly for Wix compatibility
+        res.set('Access-Control-Allow-Origin', '*');
+        res.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
+        res.set('Access-Control-Allow-Headers', 'Content-Type');
+
+        // Handle preflight
+        if (req.method === 'OPTIONS') {
+            res.status(204).send('');
+            return;
+        }
+
         try {
             // Allow specific date query or default to today
             const dateParam = req.query.date;
