@@ -358,6 +358,27 @@ class PickupController extends ChangeNotifier {
       // Sort bookings alphabetically by pickup place name
       updatedBookings.sort((a, b) => a.pickupPlaceName.compareTo(b.pickupPlaceName));
 
+      // ========================================
+      // AUTO-SNAPSHOT: If this date is >23h in the past and we have booking data,
+      // write a frozen tour report to Firestore so participants are preserved even
+      // after Bokun can no longer serve the old booking data.
+      // This is fire-and-forget (unawaited) — it must not block the UI.
+      // ========================================
+      final _snapNow = DateTime.now();
+      final _snapCutoff = DateTime(
+        _snapNow.year, _snapNow.month, _snapNow.day,
+        _snapNow.hour, _snapNow.minute,
+      ).subtract(const Duration(hours: 23));
+      final _selectedDateMidnight = DateTime(date.year, date.month, date.day);
+      if (_selectedDateMidnight.isBefore(_snapCutoff) && updatedBookings.isNotEmpty) {
+        print('📸 Date $dateKey is >23h past — triggering tour report snapshot');
+        FirebaseService.snapshotTourReport(
+          date: dateKey,
+          bookings: updatedBookings,
+        ); // intentionally not awaited
+      }
+
+
       // Filter bookings for current user if set
       // FIX: Additional null check here
       if (_currentUser != null) {

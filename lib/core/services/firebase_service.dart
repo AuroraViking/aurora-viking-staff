@@ -239,7 +239,12 @@ class FirebaseService {
 
       final statuses = <String, Map<String, dynamic>>{};
       for (final doc in querySnapshot.docs) {
-        final bookingId = doc.id.split('_').last;
+        // Strip "YYYY-MM-DD_" prefix (date is always 10 chars, +1 for "_" = 11 chars)
+        // This correctly handles bookingIds that themselves contain underscores,
+        // e.g. "manual_1710000000000" stored as "2024-02-27_manual_1710000000000".
+        final bookingId = doc.id.length > date.length + 1
+            ? doc.id.substring(date.length + 1)
+            : doc.id;
         statuses[bookingId] = doc.data();
       }
       return statuses;
@@ -1290,6 +1295,83 @@ class FirebaseService {
     } catch (e) {
       print('❌ Failed to get recent tour reports: $e');
       return [];
+    }
+  }
+
+  /// Snapshot tour report from cached booking data.
+  /// Called automatically 23h after the tour date to preserve participant data
+  /// that Bokun can no longer serve via API.
+  /// Write-once: if the document already has a [frozenAt] field, it is skipped.
+  static Future<void> snapshotTourReport({
+    required String date,
+    required List<PickupBooking> bookings,
+  }) async {
+    if (!_initialized || _firestore == null) return;
+    if (bookings.isEmpty) return;
+
+    try {
+      final docRef = _firestore!.collection('tour_reports').doc(date);
+
+      // Check if already frozen — if so, don't overwrite
+      final existing = await docRef.get();
+      if (existing.exists && existing.data()?['frozenAt'] != null) {
+        print('ℹ️ Tour report for $date already frozen — skipping snapshot');
+        return;
+      }
+
+      // Build per-guide breakdown
+      final guideMap = <String, Map<String, dynamic>>{};
+      for (final booking in bookings) {
+        final guideId = booking.assignedGuideId ?? 'unassigned';
+        final guideName = booking.assignedGuideName ?? 'Unassigned';
+
+        guideMap.putIfAbsent(guideId, () => {
+          'guideId': guideId,
+          'guideName': guideName,
+          'totalPassengers': 0,
+          'arrivedPassengers': 0,
+          'noShowPassengers': 0,
+          'bookings': <Map<String, dynamic>>[],
+        });
+
+        final g = guideMap[guideId]!;
+        g['totalPassengers'] = (g['totalPassengers'] as int) + booking.numberOfGuests;
+        if (booking.isArrived) {
+          g['arrivedPassengers'] = (g['arrivedPassengers'] as int) + booking.numberOfGuests;
+        }
+        if (booking.isNoShow) {
+          g['noShowPassengers'] = (g['noShowPassengers'] as int) + booking.numberOfGuests;
+        }
+        (g['bookings'] as List<Map<String, dynamic>>).add({
+          'id': booking.id,
+          'customerName': booking.customerFullName,
+          'pickupPlace': booking.pickupPlaceName,
+          'numberOfGuests': booking.numberOfGuests,
+          'isArrived': booking.isArrived,
+          'isNoShow': booking.isNoShow,
+          'paidOnArrival': booking.paidOnArrival,
+          'isManual': booking.id.startsWith('manual_'),
+        });
+      }
+
+      final totalPassengers = bookings.fold<int>(0, (s, b) => s + b.numberOfGuests);
+      final arrivedPassengers = bookings.where((b) => b.isArrived).fold<int>(0, (s, b) => s + b.numberOfGuests);
+      final noShowPassengers = bookings.where((b) => b.isNoShow).fold<int>(0, (s, b) => s + b.numberOfGuests);
+
+      await docRef.set({
+        'date': date,
+        'totalGuides': guideMap.values.where((g) => g['guideId'] != 'unassigned').length,
+        'totalPassengers': totalPassengers,
+        'arrivedPassengers': arrivedPassengers,
+        'noShowPassengers': noShowPassengers,
+        'guides': guideMap.values.toList(),
+        'frozenAt': FieldValue.serverTimestamp(),
+        'snapshotSource': 'auto_23h',
+      }, SetOptions(merge: true));
+
+      print('✅ Tour report snapshot saved for $date: $totalPassengers pax across ${guideMap.length} guides');
+    } catch (e) {
+      print('⚠️ Failed to snapshot tour report for $date (non-critical): $e');
     }
   }
 
