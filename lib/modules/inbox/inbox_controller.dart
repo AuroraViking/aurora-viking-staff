@@ -3,7 +3,9 @@
 
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../../core/models/messaging/messaging_models.dart';
 import '../admin/booking_service.dart' hide Customer;
 import 'messaging_service.dart';
@@ -33,9 +35,13 @@ class InboxController extends ChangeNotifier {
 
   // Subscriptions
   StreamSubscription<List<Conversation>>? _conversationsSubscription;
+  StreamSubscription<List<Conversation>>? _assignedConversationsSubscription;
   StreamSubscription<List<Message>>? _messagesSubscription;
   StreamSubscription<Customer?>? _customerSubscription;
   StreamSubscription<int>? _unreadSubscription;
+
+  // Assigned conversations (separate list to ensure persistence beyond 100 limit)
+  List<Conversation> _assignedConversations = [];
 
   // Getters
   List<Conversation> get conversations {
@@ -46,6 +52,9 @@ class InboxController extends ChangeNotifier {
     if (_selectedInboxFilter == null) {
       // Main inbox - show only unhandled
       filtered = filtered.where((c) => !c.isHandled).toList();
+    } else if (_selectedInboxFilter == 'my_tasks') {
+      // My Tasks - use dedicated assigned conversations stream (persists beyond 100 limit)
+      return _assignedConversations;
     } else if (_selectedInboxFilter == 'info@auroraviking.is') {
       // Info inbox - include legacy data (null inboxEmail) and explicit info@
       filtered = filtered.where((c) => 
@@ -109,6 +118,10 @@ class InboxController extends ChangeNotifier {
   int get websiteCount => _conversations.where((c) => c.channel == 'website').length;
   int get whatsappInboxCount => _conversations.where((c) => c.channel == 'whatsapp').length;
   
+  // My assigned emails count (from dedicated stream for persistence)
+  String? get currentUserId => FirebaseAuth.instance.currentUser?.uid;
+  int get myAssignedCount => _assignedConversations.length;
+  
   // Get unique inbox emails for dynamic tabs
   List<String> get availableInboxes {
     final inboxes = _conversations
@@ -131,12 +144,14 @@ class InboxController extends ChangeNotifier {
     _isInitialized = true;
     print('📬 InboxController: Initializing...');
     _subscribeToConversations();
+    _subscribeToAssignedConversations();
     _subscribeToUnreadCount();
   }
 
   @override
   void dispose() {
     _conversationsSubscription?.cancel();
+    _assignedConversationsSubscription?.cancel();
     _messagesSubscription?.cancel();
     _customerSubscription?.cancel();
     _unreadSubscription?.cancel();
@@ -168,6 +183,29 @@ class InboxController extends ChangeNotifier {
         _error = error.toString();
         _isLoading = false;
         notifyListeners();
+      },
+    );
+  }
+
+  void _subscribeToAssignedConversations() {
+    _assignedConversationsSubscription?.cancel();
+    
+    final userId = currentUserId;
+    if (userId == null) {
+      print('⚠️ No user ID for assigned conversations subscription');
+      return;
+    }
+
+    _assignedConversationsSubscription = _messagingService
+        .getAssignedConversationsStream(userId)
+        .listen(
+      (conversations) {
+        _assignedConversations = conversations;
+        print('📋 Received ${conversations.length} assigned conversations');
+        notifyListeners();
+      },
+      onError: (error) {
+        print('❌ Error in assigned conversations stream: $error');
       },
     );
   }
@@ -427,6 +465,25 @@ class InboxController extends ChangeNotifier {
     _subscribeToConversations();
   }
 
+  /// Get list of admin users for assignment
+  Future<List<Map<String, dynamic>>> getAdminUsers() async {
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .where('isAdmin', isEqualTo: true)
+          .get();
+      
+      return snapshot.docs.map((doc) => {
+        'id': doc.id,
+        'fullName': doc.data()['fullName'] ?? doc.data()['email'] ?? 'Unknown',
+        'email': doc.data()['email'],
+      }).toList();
+    } catch (e) {
+      print('Error fetching admin users: $e');
+      return [];
+    }
+  }
+
   /// Clear error
   void clearError() {
     _error = null;
@@ -545,6 +602,8 @@ class InboxController extends ChangeNotifier {
       _aiAssistResult = Map<String, dynamic>.from(result.data);
       _isAiAssistLoading = false;
       print('✅ AI Assist result: ${_aiAssistResult?['suggestedAction']?['type']}');
+      print('📋 AI Assist bookingId: ${_aiAssistResult?['suggestedAction']?['bookingId']}');
+      print('📋 AI Assist confirmationCode: ${_aiAssistResult?['suggestedAction']?['confirmationCode']}');
       notifyListeners();
     } catch (e) {
       print('❌ AI Assist error: $e');

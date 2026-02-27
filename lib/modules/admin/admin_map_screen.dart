@@ -43,11 +43,12 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
   Map<String, Map<String, dynamic>> _busData = {};
   Set<Marker> _markers = {};
   Set<Polyline> _trails = {};
+  Set<Circle> _trailCircles = {};
   List<Map<String, dynamic>> _activeBuses = [];
   bool _isLoading = true;
   bool _hasApiKey = false;
   bool _showTrails = true;
-  Map<String, List<LatLng>> _busTrails = {};
+  Map<String, List<Map<String, dynamic>>> _busTrails = {};
 
   // NEW: Trail duration selector
   int _trailHours = 12;
@@ -62,6 +63,11 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
 
   // Timer to periodically refresh assignments
   Timer? _assignmentRefreshTimer;
+
+  // Static in-memory cache so trail data survives navigation
+  static Map<String, List<Map<String, dynamic>>> _trailCache = {};
+  static DateTime? _trailCacheTimestamp;
+  static const _trailCacheDuration = Duration(minutes: 5);
 
   @override
   void initState() {
@@ -215,15 +221,15 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
   // ============================================
 
   /// Calculate total distance from trail points (in kilometers)
-  double _calculateTrailDistance(List<LatLng> trail) {
+  double _calculateTrailDistance(List<Map<String, dynamic>> trail) {
     if (trail.length < 2) return 0.0;
 
     double totalDistance = 0.0;
 
     for (int i = 0; i < trail.length - 1; i++) {
       totalDistance += _calculateDistanceBetweenPoints(
-        trail[i].latitude, trail[i].longitude,
-        trail[i + 1].latitude, trail[i + 1].longitude,
+        trail[i]['latitude'] as double, trail[i]['longitude'] as double,
+        trail[i + 1]['latitude'] as double, trail[i + 1]['longitude'] as double,
       );
     }
 
@@ -292,7 +298,8 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
         _updateBusLocations(snapshot);
       });
 
-      await _loadAllBusTrails();
+      // Load trails in background — don't block the map from showing
+      _loadAllBusTrails();
     } catch (e) {
       print('❌ Error loading bus locations: $e');
     } finally {
@@ -304,9 +311,32 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
 
   Future<void> _loadAllBusTrails() async {
     try {
-      for (final busId in _busData.keys) {
-        await _loadBusTrail(busId);
+      // Check if we have a valid cache
+      final now = DateTime.now();
+      final cacheValid = _trailCacheTimestamp != null &&
+          now.difference(_trailCacheTimestamp!) < _trailCacheDuration;
+
+      if (cacheValid && _trailCache.isNotEmpty) {
+        print('⚡ Using cached trail data (${_trailCache.length} buses)');
+        for (final entry in _trailCache.entries) {
+          if (_busData.containsKey(entry.key)) {
+            setState(() {
+              _busTrails[entry.key] = entry.value;
+              _busDistances[entry.key] = _calculateTrailDistance(entry.value);
+            });
+          }
+        }
+        _updateTrails();
+        return;
       }
+
+      // Load all bus trails in parallel
+      await Future.wait(
+        _busData.keys.map((busId) => _loadBusTrail(busId)),
+      );
+
+      // Update cache timestamp
+      _trailCacheTimestamp = DateTime.now();
     } catch (e) {
       print('❌ Error loading bus trails: $e');
     }
@@ -316,19 +346,21 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
     try {
       // Use dynamic trail hours
       final trailData = await _locationService.getBusLocationTrail(busId, hours: _trailHours);
-      final trailPoints = trailData.map((point) {
-        return LatLng(point['latitude'] as double, point['longitude'] as double);
-      }).toList();
 
       // Calculate distance
-      final distance = _calculateTrailDistance(trailPoints);
+      final distance = _calculateTrailDistance(trailData);
 
-      setState(() {
-        _busTrails[busId] = trailPoints;
-        _busDistances[busId] = distance;
-      });
+      // Update cache
+      _trailCache[busId] = trailData;
 
-      _updateTrails();
+      if (mounted) {
+        setState(() {
+          _busTrails[busId] = trailData;
+          _busDistances[busId] = distance;
+        });
+
+        _updateTrails();
+      }
     } catch (e) {
       print('❌ Error loading trail for bus $busId: $e');
     }
@@ -338,11 +370,13 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
     if (!_showTrails) {
       setState(() {
         _trails = {};
+        _trailCircles = {};
       });
       return;
     }
 
     final trails = <Polyline>{};
+    final circles = <Circle>{};
 
     for (final entry in _busTrails.entries) {
       final busId = entry.key;
@@ -351,20 +385,182 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
       if (trailPoints.length > 1) {
         final busInfo = _busData[busId];
         if (busInfo != null) {
+          // Build LatLng list for the polyline
+          final latLngs = trailPoints.map((p) {
+            return LatLng(p['latitude'] as double, p['longitude'] as double);
+          }).toList();
+
           trails.add(Polyline(
             polylineId: PolylineId('trail_$busId'),
-            points: trailPoints,
+            points: latLngs,
             color: busInfo['trailColor'] as Color,
             width: 3,
             geodesic: true,
           ));
+
+          // Add tappable circle markers at intervals
+          final interval = (trailPoints.length / 30).ceil().clamp(1, 100);
+          for (int i = 0; i < trailPoints.length; i += interval) {
+            final point = trailPoints[i];
+            final lat = point['latitude'] as double;
+            final lng = point['longitude'] as double;
+            final speed = point['speed'] as double? ?? 0.0;
+            final timestamp = point['timestamp'] as Timestamp?;
+            final speedKmh = (speed * 3.6);
+
+            // Rainbow color by speed
+            final circleColor = _getSpeedColor(speedKmh);
+
+            circles.add(Circle(
+              circleId: CircleId('trail_circle_${busId}_$i'),
+              center: LatLng(lat, lng),
+              radius: 25,
+              fillColor: circleColor.withOpacity(0.7),
+              strokeColor: circleColor,
+              strokeWidth: 1,
+              consumeTapEvents: true,
+              onTap: () => _showTrailPointInfo(
+                busName: busInfo['name'] as String,
+                speedKmh: speedKmh,
+                timestamp: timestamp,
+                lat: lat,
+                lng: lng,
+              ),
+            ));
+          }
         }
       }
     }
 
     setState(() {
       _trails = trails;
+      _trailCircles = circles;
     });
+  }
+
+  /// Rainbow color gradient based on speed in km/h
+  Color _getSpeedColor(double speedKmh) {
+    if (speedKmh < 5) return Colors.blue;           // Stationary/crawling
+    if (speedKmh < 30) return Colors.cyan;           // Very slow
+    if (speedKmh < 50) return Colors.green;          // Slow
+    if (speedKmh < 70) return Colors.lime;           // Moderate
+    if (speedKmh < 90) return Colors.yellow.shade700; // Fast
+    if (speedKmh < 110) return Colors.orange;        // Very fast
+    return Colors.red;                                // Speeding
+  }
+
+  /// Show time & speed info when a trail circle marker is tapped
+  void _showTrailPointInfo({
+    required String busName,
+    required double speedKmh,
+    required Timestamp? timestamp,
+    required double lat,
+    required double lng,
+  }) {
+    final timeStr = timestamp != null
+        ? '${timestamp.toDate().hour.toString().padLeft(2, '0')}:${timestamp.toDate().minute.toString().padLeft(2, '0')}:${timestamp.toDate().second.toString().padLeft(2, '0')}'
+        : 'Unknown';
+    final dateStr = timestamp != null
+        ? '${timestamp.toDate().day}/${timestamp.toDate().month}/${timestamp.toDate().year}'
+        : '';
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        margin: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1E1E3A),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.directions_bus, color: Colors.white, size: 20),
+                const SizedBox(width: 8),
+                Text(busName, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildInfoTile(
+                    icon: Icons.speed,
+                    label: 'Speed',
+                    value: '${speedKmh.toStringAsFixed(1)} km/h',
+                    color: _getSpeedColor(speedKmh),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildInfoTile(
+                    icon: Icons.access_time,
+                    label: 'Time',
+                    value: timeStr,
+                    color: Colors.blue,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildInfoTile(
+                    icon: Icons.calendar_today,
+                    label: 'Date',
+                    value: dateStr,
+                    color: Colors.purple,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildInfoTile(
+                    icon: Icons.location_on,
+                    label: 'Position',
+                    value: '${lat.toStringAsFixed(4)}, ${lng.toStringAsFixed(4)}',
+                    color: Colors.teal,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInfoTile({
+    required IconData icon,
+    required String label,
+    required String value,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 14, color: color),
+              const SizedBox(width: 4),
+              Text(label, style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w600)),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(value, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+        ],
+      ),
+    );
   }
 
   void _updateBusLocations(QuerySnapshot snapshot) {
@@ -438,6 +634,7 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
           'heading': heading,
           'timestamp': timestamp,
           'color': busInfo['color'],
+          'isTracking': isTracking,
         });
       }
     }
@@ -538,6 +735,7 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
   }
 
   void _refreshTrails() async {
+    _trailCacheTimestamp = null; // Force fresh data on manual refresh
     await _loadAllBusTrails();
     // Also refresh assignments to pick up any changes from pickup management
     await _loadBusGuideAssignments();
@@ -569,6 +767,7 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
               setState(() {
                 _trailHours = hours;
               });
+              _trailCacheTimestamp = null; // Invalidate cache
               _loadAllBusTrails();
             },
             itemBuilder: (context) => _trailHourOptions.map((hours) {
@@ -622,6 +821,7 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
                   initialCameraPosition: _initialPosition,
                   markers: _markers,
                   polylines: _trails,
+                  circles: _trailCircles,
                   myLocationEnabled: false,
                   myLocationButtonEnabled: false,
                   zoomControlsEnabled: false,
@@ -674,10 +874,11 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
 
   // NEW: Bus list legend showing names and completion percentages
   Widget _buildLegend() {
-    // Get bus completion data
+    // Get bus completion data — only for currently tracking buses
     final busCompletionData = <Map<String, dynamic>>[];
+    final trackingBuses = _activeBuses.where((b) => b['isTracking'] == true).toList();
     
-    for (final bus in _activeBuses) {
+    for (final bus in trackingBuses) {
       final busId = bus['busId'] as String;
       final busName = bus['name'] as String;
       
@@ -1034,46 +1235,36 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
       final today = DateTime.now();
       final dateStr = '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
 
-      print('🔄 _loadBusGuideAssignments: Loading assignments for ${_busData.length} buses on date $dateStr');
+      // Load all assignments in parallel
+      await Future.wait(
+        _busData.keys.map((busId) async {
+          final assignment = await FirebaseService.getGuideAssignmentForBus(
+            busId: busId,
+            date: dateStr,
+          );
 
-      // Check for assignments for all buses
-      for (final busId in _busData.keys) {
-        final busName = _busData[busId]?['name'] ?? 'Unknown';
-        print('🔍 Checking assignment for bus: $busName (ID: $busId)');
-        final assignment = await FirebaseService.getGuideAssignmentForBus(
-          busId: busId,
-          date: dateStr,
-        );
-
-        if (assignment != null && assignment['guideId']!.isNotEmpty) {
-          print('✅ Found assignment for $busName: ${assignment['guideName']} (${assignment['guideId']})');
-          // Always update the assignment - the query filters by date, so if we get a result
-          // it's for today. This fixes the issue where the same guide on consecutive days
-          // wasn't updating because the guideId comparison was the same.
-          if (mounted) {
-            setState(() {
-              _busGuideAssignments[busId] = assignment;
-            });
-          }
-          // Always reload pickup list - even if same guide, date has changed
-          await _loadGuidePickupList(assignment['guideId']!, today);
-        } else {
-          print('⚠️ No assignment found for $busName (ID: $busId) on date $dateStr');
-          // Remove assignment if it was removed from Firebase
-          if (_busGuideAssignments.containsKey(busId)) {
+          if (assignment != null && assignment['guideId']!.isNotEmpty) {
             if (mounted) {
               setState(() {
-                _busGuideAssignments.remove(busId);
+                _busGuideAssignments[busId] = assignment;
               });
             }
-            // Also clear the pickup list for this bus
-            final oldAssignment = _busGuideAssignments[busId];
-            if (oldAssignment != null && oldAssignment['guideId'] != null) {
-              _guidePickupLists.remove(oldAssignment['guideId']);
+            await _loadGuidePickupList(assignment['guideId']!, today);
+          } else {
+            if (_busGuideAssignments.containsKey(busId)) {
+              final oldAssignment = _busGuideAssignments[busId];
+              if (mounted) {
+                setState(() {
+                  _busGuideAssignments.remove(busId);
+                });
+              }
+              if (oldAssignment != null && oldAssignment['guideId'] != null) {
+                _guidePickupLists.remove(oldAssignment['guideId']);
+              }
             }
           }
-        }
-      }
+        }),
+      );
 
       _refreshMarkers();
     } catch (e) {
@@ -1086,7 +1277,21 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
       if (!mounted) return;
 
       final controller = context.read<PickupController>();
-      await controller.loadBookingsForDate(date, forceRefresh: true);
+      
+      // First, check if the controller already has data for this guide (fast path)
+      final existingList = controller.getGuideList(guideId);
+      if (existingList != null) {
+        if (mounted) {
+          setState(() {
+            _guidePickupLists[guideId] = existingList;
+          });
+          _refreshMarkers();
+        }
+        return;
+      }
+      
+      // Only load from API if we don't have cached data (no forceRefresh!)
+      await controller.loadBookingsForDate(date);
 
       final guideList = controller.getGuideList(guideId);
       if (guideList != null && mounted) {

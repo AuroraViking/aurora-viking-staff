@@ -266,16 +266,25 @@ const onRescheduleRequest = onDocumentCreated(
             }
 
             // Search for the booking
-            console.log(`🔍 Searching for booking ${bookingId}...`);
+            // For OTA bookings (GetYourGuide, Viator), the bookingId from the AI cache may be wrong
+            // So we try multiple search strategies
+            console.log(`🔍 Searching for booking ${bookingId} (confirmationCode: ${confirmationCode})...`);
 
             const now = new Date();
             const bokunDate = now.toISOString().replace('T', ' ').substring(0, 19);
             const searchPath = '/booking.json/booking-search';
             const message = bokunDate + accessKey + 'POST' + searchPath;
             const signature = crypto.createHmac('sha1', secretKey).update(message).digest('base64');
-            const searchRequest = { id: parseInt(bookingId), limit: 10 };
 
-            const searchResult = await new Promise((resolve, reject) => {
+            // Try searching by confirmation code first (more reliable for OTA bookings)
+            let searchRequest;
+            if (confirmationCode) {
+                searchRequest = { confirmationCode: confirmationCode, limit: 10 };
+            } else {
+                searchRequest = { id: parseInt(bookingId), limit: 10 };
+            }
+
+            let searchResult = await new Promise((resolve, reject) => {
                 const postData = JSON.stringify(searchRequest);
                 const options = {
                     hostname: 'api.bokun.io',
@@ -306,12 +315,59 @@ const onRescheduleRequest = onDocumentCreated(
                 apiReq.end();
             });
 
-            const foundBooking = searchResult.items?.find(b => String(b.id) === String(bookingId));
-            if (!foundBooking) {
-                throw new Error(`Booking ${bookingId} not found`);
+            // Try to find by confirmation code match
+            let foundBooking = searchResult.items?.find(b =>
+                String(b.confirmationCode) === String(confirmationCode) ||
+                String(b.id) === String(bookingId)
+            );
+
+            // If not found by confirmation code, try searching by ID as fallback
+            if (!foundBooking && confirmationCode) {
+                console.log(`⚠️ No match by confirmation code, trying by ID ${bookingId}...`);
+
+                const fallbackBokunDate = new Date().toISOString().replace('T', ' ').substring(0, 19);
+                const fallbackMessage = fallbackBokunDate + accessKey + 'POST' + searchPath;
+                const fallbackSignature = crypto.createHmac('sha1', secretKey).update(fallbackMessage).digest('base64');
+
+                searchResult = await new Promise((resolve, reject) => {
+                    const postData = JSON.stringify({ id: parseInt(bookingId), limit: 10 });
+                    const options = {
+                        hostname: 'api.bokun.io',
+                        path: searchPath,
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json;charset=UTF-8',
+                            'Content-Length': Buffer.byteLength(postData),
+                            'X-Bokun-AccessKey': accessKey,
+                            'X-Bokun-Date': fallbackBokunDate,
+                            'X-Bokun-Signature': fallbackSignature,
+                        },
+                    };
+
+                    const apiReq = https.request(options, (apiRes) => {
+                        let data = '';
+                        apiRes.on('data', (chunk) => { data += chunk; });
+                        apiRes.on('end', () => {
+                            if (apiRes.statusCode >= 200 && apiRes.statusCode < 300) {
+                                try { resolve(JSON.parse(data)); } catch (e) { resolve({ items: [] }); }
+                            } else {
+                                resolve({ items: [] });
+                            }
+                        });
+                    });
+                    apiReq.on('error', () => resolve({ items: [] }));
+                    apiReq.write(postData);
+                    apiReq.end();
+                });
+
+                foundBooking = searchResult.items?.find(b => String(b.id) === String(bookingId));
             }
 
-            console.log(`✅ Found booking ${bookingId} (${foundBooking.confirmationCode})`);
+            if (!foundBooking) {
+                throw new Error(`Booking ${bookingId} (${confirmationCode}) not found`);
+            }
+
+            console.log(`✅ Found booking ${foundBooking.id} (${foundBooking.confirmationCode})`);
 
             // OTA DETECTION
             const otaInfo = detectOTABooking(foundBooking);

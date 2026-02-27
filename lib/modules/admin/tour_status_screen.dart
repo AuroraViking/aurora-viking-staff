@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:intl/intl.dart';
 import '../../core/theme/colors.dart';
+import '../../theme/colors.dart';
 
 class TourStatusScreen extends StatefulWidget {
   const TourStatusScreen({super.key});
@@ -19,6 +20,8 @@ class _TourStatusScreenState extends State<TourStatusScreen> {
   DateTime? _lastUpdatedAt;
   List<Map<String, dynamic>> _history = [];
   bool _isSaving = false;
+  bool _isSendingEmails = false;
+  int? _lastEmailCount;
 
   @override
   void initState() {
@@ -77,6 +80,39 @@ class _TourStatusScreenState extends State<TourStatusScreen> {
   }
 
   Future<void> _setStatus(String status) async {
+    // Show confirmation dialog first
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        title: Text(
+          status == 'ON' ? 'Confirm Tour ON' : 'Confirm Tour Cancellation',
+          style: const TextStyle(color: Colors.white),
+        ),
+        content: Text(
+          status == 'ON' 
+            ? 'This will set the tour to ON and send pickup information emails to all customers booked for today.'
+            : 'This will set the tour to OFF and send cancellation emails to all customers booked for today.',
+          style: TextStyle(color: Colors.grey[300]),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: status == 'ON' ? Colors.green : Colors.orange,
+            ),
+            child: Text('Set ${status} & Send Emails'),
+          ),
+        ],
+      ),
+    );
+    
+    if (confirmed != true) return;
+    
     setState(() => _isSaving = true);
     
     try {
@@ -87,15 +123,28 @@ class _TourStatusScreenState extends State<TourStatusScreen> {
       
       if (result.data['success'] == true) {
         // Update status immediately from response
+        final emailsSent = result.data['emailsSent'] as int? ?? 0;
+        final emailError = result.data['emailError'] as String?;
+        
         setState(() {
           _currentStatus = result.data['status'] as String?;
           _lastUpdatedBy = result.data['updatedByName'] as String?;
+          _lastEmailCount = emailsSent;
         });
+        
+        // Show success message with email info
+        String message = 'Tour status set to $status';
+        if (emailsSent > 0) {
+          message += ' • $emailsSent emails sent';
+        } else if (emailError != null) {
+          message += ' (emails failed: $emailError)';
+        }
         
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Tour status set to $status'),
+            content: Text(message),
             backgroundColor: status == 'ON' ? Colors.green : Colors.orange,
+            duration: const Duration(seconds: 4),
           ),
         );
         
@@ -114,6 +163,7 @@ class _TourStatusScreenState extends State<TourStatusScreen> {
       setState(() => _isSaving = false);
     }
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -258,6 +308,12 @@ class _TourStatusScreenState extends State<TourStatusScreen> {
                     ],
                   ),
                   
+                  const SizedBox(height: 24),
+                  
+                  // Send Emails Button
+                  if (_currentStatus != null)
+                    _buildSendEmailsButton(),
+                  
                   const SizedBox(height: 32),
                   
                   // History Section
@@ -394,5 +450,110 @@ class _TourStatusScreenState extends State<TourStatusScreen> {
     if (_currentStatus == 'ON') return '✅';
     if (_currentStatus == 'OFF') return '😞';
     return '❓';
+  }
+
+  Future<void> _sendEmails() async {
+    if (_currentStatus == null) return;
+    
+    setState(() => _isSendingEmails = true);
+    
+    try {
+      final result = await _functions.httpsCallable('sendTourStatusEmails').call({
+        'status': _currentStatus,
+      });
+      
+      final emailsSent = result.data['emailsSent'] as int? ?? 0;
+      final uniqueCustomers = result.data['uniqueCustomers'] as int? ?? 0;
+      
+      setState(() {
+        _lastEmailCount = emailsSent;
+      });
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('✅ Sent $emailsSent emails to $uniqueCustomers customers'),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    } catch (e) {
+      print('Error sending emails: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to send emails: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      setState(() => _isSendingEmails = false);
+    }
+  }
+
+  Widget _buildSendEmailsButton() {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: AVColors.slateElev,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AVColors.outline),
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.email_outlined, color: AVColors.primaryTeal),
+              const SizedBox(width: 8),
+              Text(
+                'Email Customers',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: AVColors.textHigh,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Send a ${_currentStatus == "ON" ? "confirmation" : "cancellation"} email to all customers with bookings today.',
+            style: TextStyle(
+              color: Colors.grey[400],
+              fontSize: 13,
+            ),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _isSendingEmails ? null : _sendEmails,
+              icon: _isSendingEmails
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Icon(Icons.send),
+              label: Text(_isSendingEmails ? 'Sending...' : 'Send Emails Now'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _currentStatus == 'ON' ? Colors.green : Colors.orange,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+            ),
+          ),
+          if (_lastEmailCount != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Last sent: $_lastEmailCount emails',
+              style: TextStyle(
+                color: Colors.grey[500],
+                fontSize: 12,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
   }
 }

@@ -103,6 +103,17 @@ class _UnifiedInboxScreenState extends State<UnifiedInboxScreen> {
             ),
             const SizedBox(width: 8),
             _buildInboxTab(
+              label: 'My Tasks',
+              count: controller.myAssignedCount,
+              inbox: 'my_tasks',
+              isSelected: controller.selectedInboxFilter == 'my_tasks',
+              onTap: () => controller.setInboxFilter('my_tasks'),
+              icon: Icons.assignment_ind,
+              color: Colors.orange,
+              showBadge: controller.myAssignedCount > 0,
+            ),
+            const SizedBox(width: 8),
+            _buildInboxTab(
               label: 'Info',
               count: controller.infoInboxCount,
               inbox: 'info@auroraviking.is',
@@ -377,7 +388,7 @@ class _UnifiedInboxScreenState extends State<UnifiedInboxScreen> {
                   conversation: conversation,
                   onTap: () => _openConversation(context, controller, conversation),
                   onMarkComplete: () => _markComplete(context, controller, conversation),
-                  onAssignToMe: () => _assignToMe(context, controller, conversation),
+                  onAssignToMe: () => _showAssignDialog(context, controller, conversation),
                   onReopen: () => _reopenConversation(context, controller, conversation),
                   showInMain: controller.selectedInboxFilter == null,
                 );
@@ -407,17 +418,85 @@ class _UnifiedInboxScreenState extends State<UnifiedInboxScreen> {
     }
   }
 
-  void _assignToMe(BuildContext context, InboxController controller, Conversation conversation) async {
-    // TODO: Get actual user ID and name from auth
-    await controller.assignToMe(conversation.id, 'current_user_id', 'You');
-    if (mounted) {
+  void _showAssignDialog(BuildContext context, InboxController controller, Conversation conversation) async {
+    // Fetch admin users
+    final admins = await controller.getAdminUsers();
+    
+    if (!mounted) return;
+    
+    if (admins.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Assigned to you'),
-          backgroundColor: AVColors.primaryTeal,
+          content: Text('No admin users found'),
+          backgroundColor: Colors.red,
         ),
       );
+      return;
     }
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AVColors.slate,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) => Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Assign to',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: AVColors.textHigh,
+              ),
+            ),
+            const SizedBox(height: 16),
+            ...admins.map((admin) => ListTile(
+              leading: CircleAvatar(
+                backgroundColor: Colors.orange.withOpacity(0.2),
+                child: Text(
+                  (admin['fullName'] as String).isNotEmpty 
+                      ? (admin['fullName'] as String)[0].toUpperCase() 
+                      : '?',
+                  style: const TextStyle(color: Colors.orange),
+                ),
+              ),
+              title: Text(
+                admin['fullName'] as String,
+                style: const TextStyle(color: AVColors.textHigh),
+              ),
+              subtitle: admin['email'] != null 
+                  ? Text(
+                      admin['email'] as String,
+                      style: const TextStyle(color: AVColors.textLow, fontSize: 12),
+                    )
+                  : null,
+              onTap: () async {
+                Navigator.pop(context);
+                await controller.assignToMe(
+                  conversation.id, 
+                  admin['id'] as String, 
+                  admin['fullName'] as String,
+                );
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Assigned to ${admin['fullName']}'),
+                      backgroundColor: AVColors.primaryTeal,
+                    ),
+                  );
+                }
+              },
+            )),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
   }
 
   void _reopenConversation(BuildContext context, InboxController controller, Conversation conversation) async {

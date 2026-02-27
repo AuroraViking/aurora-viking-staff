@@ -449,38 +449,28 @@ async function refreshAIBookingCache(accessKey, secretKey) {
 
         console.log(`📋 Fetched ${allBookings.length} total bookings from Bokun`);
 
-        // Transform to AI cache format with all searchable fields
+        // Transform to AI cache format - SLIMMED DOWN to fit Firestore 1MB limit
         const aiCacheBookings = allBookings.map(b => ({
             id: b.id,
             confirmationCode: b.confirmationCode || '',
             externalBookingReference: b.externalBookingReference || '',
             customerName: b.customer?.fullName || `${b.customer?.firstName || ''} ${b.customer?.lastName || ''}`.trim(),
+            customerFullName: `${b.customer?.firstName || ''} ${b.customer?.lastName || ''}`.trim(),
             customerEmail: b.customer?.email || '',
-            phone: b.customer?.phoneNumber || b.customer?.phone || '',
             productTitle: b.productBookings?.[0]?.product?.title || 'Northern Lights Tour',
-            productId: b.productBookings?.[0]?.product?.id || b.productBookings?.[0]?.productId || null,
+            productId: b.productBookings?.[0]?.product?.id || null,
             productBookingId: b.productBookings?.[0]?.id || null,
             startDate: b.productBookings?.[0]?.startDate || b.startDate,
-            startTime: b.productBookings?.[0]?.startTime || '',
             totalParticipants: b.productBookings?.[0]?.totalParticipants || b.totalParticipants || 1,
             status: b.productBookings?.[0]?.status || b.status || 'CONFIRMED',
-            // Check multiple locations for pickup place - Bokun stores it in different places
             pickupPlace: b.productBookings?.[0]?.pickupPlace?.title ||
                 b.productBookings?.[0]?.pickupPlace?.name ||
                 b.productBookings?.[0]?.fields?.pickupPlace?.title ||
                 b.productBookings?.[0]?.fields?.pickupPlaceDescription ||
-                b.productBookings?.[0]?.pickup?.title ||
-                b.productBookings?.[0]?.pickup?.name ||
                 '',
             pickupPlaceId: b.productBookings?.[0]?.pickupPlace?.id ||
                 b.productBookings?.[0]?.fields?.pickupPlace?.id ||
-                b.productBookings?.[0]?.pickup?.id ||
                 null,
-            fullyPaid: b.fullyPaid || false,
-            totalPaid: b.totalPaid || 0,
-            totalPrice: b.totalPrice || 0,
-            // Store raw fields for debugging
-            rawPickupFields: JSON.stringify(b.productBookings?.[0]?.fields || {}),
         }));
 
         // Save to Firestore
@@ -931,52 +921,136 @@ Please analyze this customer message and provide a suggested reply and action in
                 };
             }
 
-            // Post-process CHANGE_PICKUP actions to include pickup place ID
-            if (aiResult.suggestedAction?.type === 'CHANGE_PICKUP' && bookings.length > 0) {
-                const pickupName = aiResult.suggestedAction?.params?.newPickupLocation;
-                console.log(`📍 CHANGE_PICKUP action detected, pickup name: "${pickupName}"`);
+            // Post-process booking actions to use correct booking IDs from our lookup
+            // This is critical - the AI may extract incorrect IDs from messages, but we have the actual booking data
+            if (bookings.length > 0 && aiResult.suggestedAction?.type) {
+                const actionType = aiResult.suggestedAction.type;
 
-                const booking = bookings[0];
-                const productBooking = booking.productBookings?.[0];
+                // For RESCHEDULE, CANCEL, and CHANGE_PICKUP - use correct booking ID from matched bookings
+                if (['RESCHEDULE', 'CANCEL', 'CHANGE_PICKUP'].includes(actionType)) {
+                    const booking = bookings[0];
+                    const productBooking = booking.productBookings?.[0];
 
-                const correctBookingId = String(booking.id);
-                const correctProductBookingId = booking.productBookingId || productBooking?.id || null;
-                const productId = booking.productId || productBooking?.product?.id || productBooking?.productId || null;
+                    let correctBookingId = String(booking.id);
+                    const correctConfirmationCode = booking.confirmationCode || '';
+                    const correctProductBookingId = booking.productBookingId || productBooking?.id || null;
+                    const productId = booking.productId || productBooking?.product?.id || productBooking?.productId || null;
 
-                console.log(`📋 Booking IDs: bookingId=${correctBookingId}, productBookingId=${correctProductBookingId}, productId=${productId}`);
+                    console.log(`📋 ${actionType} action: Overriding AI booking IDs with matched booking data`);
+                    console.log(`📋 RAW booking.id from cache: ${booking.id}, productBookingId: ${correctProductBookingId}`);
 
-                // Ensure params object exists
-                if (!aiResult.suggestedAction.params) {
-                    aiResult.suggestedAction.params = {};
-                }
+                    // For OTA bookings (GET-, VIA-, etc.), the cached booking.id may be wrong
+                    // Fetch the REAL booking from Bokun using productBookingId to get correct ID
+                    const accessKey = process.env.BOKUN_ACCESS_KEY;
+                    const secretKey = process.env.BOKUN_SECRET_KEY;
 
-                // Override booking ID with the correct one from our lookup
-                aiResult.suggestedAction.bookingId = correctBookingId;
+                    if (correctProductBookingId && accessKey && secretKey) {
+                        try {
+                            console.log(`🔍 Fetching real booking from Bokun using productBookingId ${correctProductBookingId}...`);
 
-                // Add productBookingId to params
-                if (correctProductBookingId) {
-                    aiResult.suggestedAction.params.productBookingId = correctProductBookingId;
-                    console.log(`✅ Added productBookingId ${correctProductBookingId} to action`);
-                }
+                            // Search for the booking that contains this productBookingId
+                            const bokunDate = new Date().toISOString().replace('T', ' ').substring(0, 19);
+                            const searchPath = '/booking.json/product-booking-search';
+                            const message = bokunDate + accessKey + 'POST' + searchPath;
+                            const signature = crypto.createHmac('sha1', secretKey).update(message).digest('base64');
 
-                // Lookup and add pickup place ID
-                if (pickupName && productId) {
-                    console.log(`📍 Looking up pickup place for product ${productId}`);
+                            const searchResult = await new Promise((resolve) => {
+                                const searchBody = JSON.stringify({ id: parseInt(correctProductBookingId) });
+                                const options = {
+                                    hostname: 'api.bokun.io',
+                                    path: searchPath,
+                                    method: 'POST',
+                                    headers: {
+                                        'Content-Type': 'application/json',
+                                        'Content-Length': Buffer.byteLength(searchBody),
+                                        'X-Bokun-AccessKey': accessKey,
+                                        'X-Bokun-Date': bokunDate,
+                                        'X-Bokun-Signature': signature,
+                                    },
+                                };
 
-                    const pickupPlace = await findPickupPlaceId(productId, pickupName);
-                    if (pickupPlace) {
-                        aiResult.suggestedAction.params.pickupPlaceId = pickupPlace.id;
-                        aiResult.suggestedAction.params.pickupPlaceTitle = pickupPlace.title;
-                        console.log(`✅ Added pickup place ID ${pickupPlace.id} to action`);
-                    } else {
-                        console.log(`⚠️ Could not find pickup place ID for "${pickupName}"`);
-                        if (aiResult.suggestedAction.humanReadableDescription) {
-                            aiResult.suggestedAction.humanReadableDescription +=
-                                ' (Note: Pickup place ID not found - may need manual update)';
+                                const req = https.request(options, (res) => {
+                                    let data = '';
+                                    res.on('data', chunk => data += chunk);
+                                    res.on('end', () => {
+                                        if (res.statusCode >= 200 && res.statusCode < 300) {
+                                            try {
+                                                resolve(JSON.parse(data));
+                                            } catch (e) {
+                                                console.log(`⚠️ Failed to parse search result: ${e.message}`);
+                                                resolve(null);
+                                            }
+                                        } else {
+                                            console.log(`⚠️ Product booking search failed: ${res.statusCode} - ${data}`);
+                                            resolve(null);
+                                        }
+                                    });
+                                });
+                                req.on('error', (e) => {
+                                    console.log(`⚠️ Request error: ${e.message}`);
+                                    resolve(null);
+                                });
+                                req.write(searchBody);
+                                req.end();
+                            });
+
+                            // Extract the real booking ID from the result
+                            if (searchResult) {
+                                const realBookingId = searchResult.bookingId || searchResult.booking?.id || searchResult.id;
+                                if (realBookingId && String(realBookingId) !== String(booking.id)) {
+                                    console.log(`✅ Found REAL Bokun booking ID: ${realBookingId} (cache had: ${booking.id})`);
+                                    correctBookingId = String(realBookingId);
+                                } else {
+                                    console.log(`📋 Product booking search result: ${JSON.stringify(searchResult).substring(0, 200)}`);
+                                }
+                            }
+                        } catch (lookupError) {
+                            console.log(`⚠️ Could not fetch real booking: ${lookupError.message}`);
                         }
                     }
-                } else if (!productId) {
-                    console.log(`⚠️ No product ID found in booking - cannot lookup pickup place`);
+
+                    console.log(`📋 Final IDs: bookingId=${correctBookingId}, confirmationCode=${correctConfirmationCode}, productBookingId=${correctProductBookingId}`);
+
+                    // Override booking ID with the correct one
+                    aiResult.suggestedAction.bookingId = correctBookingId;
+                    aiResult.suggestedAction.confirmationCode = correctConfirmationCode;
+                    console.log(`🔧 AFTER SET: aiResult.suggestedAction.bookingId = ${aiResult.suggestedAction.bookingId}`);
+
+                    // Ensure params object exists
+                    if (!aiResult.suggestedAction.params) {
+                        aiResult.suggestedAction.params = {};
+                    }
+
+                    // Add productBookingId to params (needed for pickup changes and some reschedules)
+                    if (correctProductBookingId) {
+                        aiResult.suggestedAction.params.productBookingId = correctProductBookingId;
+                        console.log(`✅ Added productBookingId ${correctProductBookingId} to action`);
+                    }
+
+                    // CHANGE_PICKUP specific: Lookup and add pickup place ID
+                    if (actionType === 'CHANGE_PICKUP') {
+                        const pickupName = aiResult.suggestedAction?.params?.newPickupLocation;
+                        console.log(`📍 CHANGE_PICKUP action detected, pickup name: "${pickupName}"`);
+
+                        if (pickupName && productId) {
+                            console.log(`📍 Looking up pickup place for product ${productId}`);
+
+                            const pickupPlace = await findPickupPlaceId(productId, pickupName);
+                            if (pickupPlace) {
+                                aiResult.suggestedAction.params.pickupPlaceId = pickupPlace.id;
+                                aiResult.suggestedAction.params.pickupPlaceTitle = pickupPlace.title;
+                                console.log(`✅ Added pickup place ID ${pickupPlace.id} to action`);
+                            } else {
+                                console.log(`⚠️ Could not find pickup place ID for "${pickupName}"`);
+                                if (aiResult.suggestedAction.humanReadableDescription) {
+                                    aiResult.suggestedAction.humanReadableDescription +=
+                                        ' (Note: Pickup place ID not found - may need manual update)';
+                                }
+                            }
+                        } else if (!productId) {
+                            console.log(`⚠️ No product ID found in booking - cannot lookup pickup place`);
+                        }
+                    }
                 }
             }
 
@@ -998,6 +1072,7 @@ Please analyze this customer message and provide a suggested reply and action in
             });
 
             console.log('✅ AI Assist generated successfully');
+            console.log(`📤 RETURNING suggestedAction.bookingId: ${aiResult.suggestedAction?.bookingId}`);
 
             // Return in the format expected by the frontend
             return {

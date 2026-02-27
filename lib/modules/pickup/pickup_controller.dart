@@ -291,28 +291,29 @@ class PickupController extends ChangeNotifier {
       // FIX: Use normalized date key for Firebase (same format as dateStr)
       final dateStr = dateKey;
 
-      // FIX: Wrap Firebase calls in individual try-catch blocks
+      // FIX: Run Firebase calls in parallel instead of sequentially
       Map<String, Map<String, dynamic>> statuses = {};
       Map<String, Map<String, dynamic>> assignments = {};
       Map<String, String> updatedPickupPlaces = {};
 
-      try {
-        statuses = await FirebaseService.getBookingStatuses(dateStr);
-      } catch (e) {
-        print('⚠️ Failed to load booking statuses: $e');
-      }
+      final results = await Future.wait([
+        FirebaseService.getBookingStatuses(dateStr).catchError((e) {
+          print('⚠️ Failed to load booking statuses: $e');
+          return <String, Map<String, dynamic>>{};
+        }),
+        FirebaseService.getIndividualPickupAssignments(dateStr).catchError((e) {
+          print('⚠️ Failed to load pickup assignments: $e');
+          return <String, Map<String, dynamic>>{};
+        }),
+        FirebaseService.getUpdatedPickupPlaces(dateStr).catchError((e) {
+          print('⚠️ Failed to load updated pickup places: $e');
+          return <String, String>{};
+        }),
+      ]);
 
-      try {
-        assignments = await FirebaseService.getIndividualPickupAssignments(dateStr);
-      } catch (e) {
-        print('⚠️ Failed to load pickup assignments: $e');
-      }
-
-      try {
-        updatedPickupPlaces = await FirebaseService.getUpdatedPickupPlaces(dateStr);
-      } catch (e) {
-        print('⚠️ Failed to load updated pickup places: $e');
-      }
+      statuses = results[0] as Map<String, Map<String, dynamic>>;
+      assignments = results[1] as Map<String, Map<String, dynamic>>;
+      updatedPickupPlaces = results[2] as Map<String, String>;
 
       // Apply statuses and assignments to bookings (including manual bookings)
       final updatedBookings = bookings.map((booking) {

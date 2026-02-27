@@ -62,6 +62,27 @@ class MessagingService {
     });
   }
 
+  /// Get assigned conversations stream (for My Tasks - no limit to ensure persistence)
+  /// Note: Firestore requires composite index for multiple where clauses with orderBy
+  /// So we filter isHandled client-side to avoid index requirement
+  Stream<List<Conversation>> getAssignedConversationsStream(String userId) {
+    print('🔍 Querying assigned conversations for user: $userId');
+    return _firestore
+        .collection('conversations')
+        .where('assignedTo', isEqualTo: userId)
+        .snapshots()
+        .map((snapshot) {
+      print('📋 Found ${snapshot.docs.length} raw assigned docs');
+      final conversations = snapshot.docs
+          .map((doc) => Conversation.fromFirestore(doc))
+          .where((c) => !c.isHandled) // Filter client-side to avoid index
+          .toList();
+      conversations.sort((a, b) => b.lastMessageAt.compareTo(a.lastMessageAt));
+      print('📋 After isHandled filter: ${conversations.length} conversations');
+      return conversations;
+    });
+  }
+
   /// Get single conversation
   Future<Conversation?> getConversation(String conversationId) async {
     final doc = await _firestore.collection('conversations').doc(conversationId).get();

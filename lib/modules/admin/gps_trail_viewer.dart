@@ -29,13 +29,16 @@ class _GpsTrailViewerState extends State<GpsTrailViewer> {
   GoogleMapController? _mapController;
   final Set<Polyline> _polylines = {};
   final Set<Marker> _markers = {};
+  final Set<Circle> _circles = {};
   List<LatLng> _trailPoints = [];
+  List<Map<String, dynamic>> _rawTrailData = [];
   
   bool _isLoading = true;
   String? _error;
   
   // Stats
   double _totalDistanceKm = 0;
+  double _maxSpeedKmh = 0;
   DateTime? _startTime;
   DateTime? _endTime;
   int _pointCount = 0;
@@ -99,17 +102,24 @@ class _GpsTrailViewerState extends State<GpsTrailViewer> {
 
       // Process points
       final points = <LatLng>[];
+      final rawData = <Map<String, dynamic>>[];
       DateTime? firstTime;
       DateTime? lastTime;
+      double maxSpeed = 0;
 
       for (final doc in snapshot.docs) {
         final data = doc.data() as Map<String, dynamic>;
         final lat = data['latitude'] as double?;
         final lng = data['longitude'] as double?;
         final timestamp = data['timestamp'] as Timestamp?;
+        final speed = data['speed'] as double? ?? 0.0;
 
         if (lat != null && lng != null) {
           points.add(LatLng(lat, lng));
+          rawData.add(data);
+          
+          final speedKmh = speed * 3.6;
+          if (speedKmh > maxSpeed) maxSpeed = speedKmh;
           
           if (timestamp != null) {
             final time = timestamp.toDate();
@@ -130,7 +140,9 @@ class _GpsTrailViewerState extends State<GpsTrailViewer> {
 
       setState(() {
         _trailPoints = points;
+        _rawTrailData = rawData;
         _totalDistanceKm = totalDistance;
+        _maxSpeedKmh = maxSpeed;
         _startTime = firstTime;
         _endTime = lastTime;
         _pointCount = points.length;
@@ -154,6 +166,7 @@ class _GpsTrailViewerState extends State<GpsTrailViewer> {
     // Create gradient polyline by splitting into segments
     final polylines = <Polyline>{};
     final markers = <Marker>{};
+    final circles = <Circle>{};
 
     // Main trail polyline
     polylines.add(Polyline(
@@ -189,6 +202,33 @@ class _GpsTrailViewerState extends State<GpsTrailViewer> {
       ),
     ));
 
+    // Add tappable circle markers at intervals showing speed & time
+    final interval = (_rawTrailData.length / 40).ceil().clamp(1, 100);
+    for (int i = 0; i < _rawTrailData.length; i += interval) {
+      final point = _rawTrailData[i];
+      final lat = point['latitude'] as double;
+      final lng = point['longitude'] as double;
+      final speed = point['speed'] as double? ?? 0.0;
+      final timestamp = point['timestamp'] as Timestamp?;
+      final speedKmh = speed * 3.6;
+
+      circles.add(Circle(
+        circleId: CircleId('trail_circle_$i'),
+        center: LatLng(lat, lng),
+        radius: 25,
+        fillColor: _getSpeedColor(speedKmh).withOpacity(0.7),
+        strokeColor: _getSpeedColor(speedKmh),
+        strokeWidth: 1,
+        consumeTapEvents: true,
+        onTap: () => _showTrailPointInfo(
+          speedKmh: speedKmh,
+          timestamp: timestamp,
+          lat: lat,
+          lng: lng,
+        ),
+      ));
+    }
+
     // Add pickup location markers if provided
     if (widget.pickupLocations != null) {
       for (int i = 0; i < widget.pickupLocations!.length; i++) {
@@ -216,6 +256,8 @@ class _GpsTrailViewerState extends State<GpsTrailViewer> {
       _polylines.addAll(polylines);
       _markers.clear();
       _markers.addAll(markers);
+      _circles.clear();
+      _circles.addAll(circles);
     });
 
     // Fit map to trail
@@ -266,6 +308,133 @@ class _GpsTrailViewerState extends State<GpsTrailViewer> {
     final hours = duration.inHours;
     final minutes = duration.inMinutes % 60;
     return '${hours}h ${minutes}m';
+  }
+
+  /// Rainbow color gradient based on speed in km/h
+  Color _getSpeedColor(double speedKmh) {
+    if (speedKmh < 5) return Colors.blue;
+    if (speedKmh < 30) return Colors.cyan;
+    if (speedKmh < 50) return Colors.green;
+    if (speedKmh < 70) return Colors.lime;
+    if (speedKmh < 90) return Colors.yellow.shade700;
+    if (speedKmh < 110) return Colors.orange;
+    return Colors.red;
+  }
+
+  /// Show time & speed info when a trail circle marker is tapped
+  void _showTrailPointInfo({
+    required double speedKmh,
+    required Timestamp? timestamp,
+    required double lat,
+    required double lng,
+  }) {
+    final timeStr = timestamp != null
+        ? '${timestamp.toDate().hour.toString().padLeft(2, '0')}:${timestamp.toDate().minute.toString().padLeft(2, '0')}:${timestamp.toDate().second.toString().padLeft(2, '0')}'
+        : 'Unknown';
+    final dateStr = timestamp != null
+        ? '${timestamp.toDate().day}/${timestamp.toDate().month}/${timestamp.toDate().year}'
+        : '';
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        margin: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1E1E3A),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.route, color: Colors.white, size: 20),
+                const SizedBox(width: 8),
+                Text(
+                  widget.busName ?? 'Trail Point',
+                  style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildInfoTile(
+                    icon: Icons.speed,
+                    label: 'Speed',
+                    value: '${speedKmh.toStringAsFixed(1)} km/h',
+                    color: _getSpeedColor(speedKmh),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildInfoTile(
+                    icon: Icons.access_time,
+                    label: 'Time',
+                    value: timeStr,
+                    color: Colors.blue,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildInfoTile(
+                    icon: Icons.calendar_today,
+                    label: 'Date',
+                    value: dateStr,
+                    color: Colors.purple,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildInfoTile(
+                    icon: Icons.location_on,
+                    label: 'Position',
+                    value: '${lat.toStringAsFixed(4)}, ${lng.toStringAsFixed(4)}',
+                    color: Colors.teal,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInfoTile({
+    required IconData icon,
+    required String label,
+    required String value,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 14, color: color),
+              const SizedBox(width: 4),
+              Text(label, style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w600)),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(value, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+        ],
+      ),
+    );
   }
 
   @override
@@ -351,6 +520,7 @@ class _GpsTrailViewerState extends State<GpsTrailViewer> {
                       },
                       polylines: _polylines,
                       markers: _markers,
+                      circles: _circles,
                       mapType: MapType.normal,
                       myLocationEnabled: false,
                       zoomControlsEnabled: false,
@@ -383,6 +553,10 @@ class _GpsTrailViewerState extends State<GpsTrailViewer> {
                             _buildStatItem(
                               '⏱️ Duration',
                               _formatDuration(),
+                            ),
+                            _buildStatItem(
+                              '🏎️ Max Speed',
+                              '${_maxSpeedKmh.toStringAsFixed(0)} km/h',
                             ),
                             _buildStatItem(
                               '📍 Points',
@@ -440,7 +614,7 @@ class _GpsTrailViewerState extends State<GpsTrailViewer> {
                       ),
                     ),
 
-                    // Legend
+                    // Speed Legend
                     Positioned(
                       bottom: 80,
                       right: 16,
@@ -450,34 +624,44 @@ class _GpsTrailViewerState extends State<GpsTrailViewer> {
                           color: const Color(0xFF1A1A2E).withOpacity(0.95),
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: const Column(
+                        child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Row(
+                            const Text('Speed', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                            const SizedBox(height: 4),
+                            _buildSpeedLegendRow(Colors.blue, '0-5'),
+                            _buildSpeedLegendRow(Colors.cyan, '5-30'),
+                            _buildSpeedLegendRow(Colors.green, '30-50'),
+                            _buildSpeedLegendRow(Colors.lime, '50-70'),
+                            _buildSpeedLegendRow(Colors.yellow.shade700, '70-90'),
+                            _buildSpeedLegendRow(Colors.orange, '90-110'),
+                            _buildSpeedLegendRow(Colors.red, '110+'),
+                            const SizedBox(height: 6),
+                            const Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(Icons.location_on, color: Colors.green, size: 16),
+                                Icon(Icons.location_on, color: Colors.green, size: 14),
                                 SizedBox(width: 4),
-                                Text('Start', style: TextStyle(color: Colors.white, fontSize: 11)),
+                                Text('Start', style: TextStyle(color: Colors.white, fontSize: 10)),
                               ],
                             ),
-                            SizedBox(height: 4),
-                            Row(
+                            const SizedBox(height: 2),
+                            const Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(Icons.location_on, color: Colors.red, size: 16),
+                                Icon(Icons.location_on, color: Colors.red, size: 14),
                                 SizedBox(width: 4),
-                                Text('End', style: TextStyle(color: Colors.white, fontSize: 11)),
+                                Text('End', style: TextStyle(color: Colors.white, fontSize: 10)),
                               ],
                             ),
-                            SizedBox(height: 4),
-                            Row(
+                            const SizedBox(height: 2),
+                            const Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(Icons.location_on, color: Colors.blue, size: 16),
+                                Icon(Icons.location_on, color: Colors.blue, size: 14),
                                 SizedBox(width: 4),
-                                Text('Pickup', style: TextStyle(color: Colors.white, fontSize: 11)),
+                                Text('Pickup', style: TextStyle(color: Colors.white, fontSize: 10)),
                               ],
                             ),
                           ],
@@ -507,6 +691,24 @@ class _GpsTrailViewerState extends State<GpsTrailViewer> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildSpeedLegendRow(Color color, String range) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 1),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 10,
+            height: 10,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 4),
+          Text('$range km/h', style: const TextStyle(color: Colors.white70, fontSize: 9)),
+        ],
+      ),
     );
   }
 

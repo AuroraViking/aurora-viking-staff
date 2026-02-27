@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import '../../core/auth/auth_controller.dart';
 import '../../theme/colors.dart' as av;
 
@@ -14,6 +15,7 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   String _appVersion = '1.0.0';
   String _buildNumber = '1';
+  bool _testingNotification = false;
 
   @override
   void initState() {
@@ -71,6 +73,60 @@ class _SettingsScreenState extends State<SettingsScreen> {
               subtitle: _buildNumber,
               icon: Icons.build,
               onTap: null,
+            ),
+
+            const SizedBox(height: 32),
+
+            // Developer Tools Section
+            _buildSectionHeader('Developer Tools'),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: av.AVColors.slateElev,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: av.AVColors.outline),
+              ),
+              child: Column(
+                children: [
+                  const Text(
+                    'Test Push Notifications',
+                    style: TextStyle(
+                      color: av.AVColors.textHigh,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Send a test notification to all admin devices.',
+                    style: TextStyle(
+                      color: av.AVColors.textLow,
+                      fontSize: 12,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: _testingNotification ? null : _testNotification,
+                      icon: _testingNotification
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.notifications_active),
+                      label: Text(_testingNotification ? 'Sending...' : 'Test Notification'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: av.AVColors.primaryTeal,
+                        foregroundColor: Colors.white,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
 
             const SizedBox(height: 32),
@@ -172,6 +228,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
         onTap: onTap,
       ),
     );
+  }
+
+  Future<void> _testNotification() async {
+    setState(() => _testingNotification = true);
+    try {
+      final functions = FirebaseFunctions.instanceFor(region: 'us-central1');
+      final result = await functions.httpsCallable('testAdminNotification').call();
+      final data = result.data as Map<String, dynamic>;
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              data['success'] == true
+                  ? '✅ Notification sent to ${data['sent']} admin(s)'
+                  : '❌ Failed: ${data['message'] ?? 'Unknown error'}',
+            ),
+            backgroundColor: data['success'] == true ? Colors.green : Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ Error: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _testingNotification = false);
+      }
+    }
   }
 
   void _showDeleteAccountDialog() {
