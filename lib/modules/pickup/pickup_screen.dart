@@ -116,17 +116,80 @@ class _PickupScreenState extends State<PickupScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('My Pickup List'),
+        title: Consumer<PickupController>(
+          builder: (context, controller, _) {
+            final selectedDate = controller.selectedDate;
+            return Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.chevron_left, size: 20),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  onPressed: () {
+                    final prevDate = selectedDate.subtract(const Duration(days: 1));
+                    if (prevDate.isAfter(DateTime.now().subtract(const Duration(days: 31)))) {
+                      controller.changeDate(prevDate);
+                    }
+                  },
+                  tooltip: 'Previous day',
+                ),
+                const SizedBox(width: 4),
+                GestureDetector(
+                  onTap: _selectDate,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        _formatDate(selectedDate),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        _isToday(selectedDate)
+                            ? 'Today'
+                            : _isYesterday(selectedDate)
+                                ? 'Yesterday'
+                                : _getDayName(selectedDate),
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 10,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 4),
+                IconButton(
+                  icon: const Icon(Icons.chevron_right, size: 20),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  onPressed: () {
+                    final nextDate = selectedDate.add(const Duration(days: 1));
+                    if (nextDate.isBefore(DateTime.now().add(const Duration(days: 366)))) {
+                      controller.changeDate(nextDate);
+                    }
+                  },
+                  tooltip: 'Next day',
+                ),
+              ],
+            );
+          },
+        ),
         backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
+        centerTitle: true,
         actions: [
           IconButton(
-            icon: const Icon(Icons.calendar_today),
+            icon: const Icon(Icons.calendar_today, size: 20),
             onPressed: () => _selectDate(),
             tooltip: 'Select date',
           ),
           IconButton(
-            icon: const Icon(Icons.refresh),
+            icon: const Icon(Icons.refresh, size: 20),
             onPressed: _refreshData,
             tooltip: 'Refresh',
           ),
@@ -166,98 +229,15 @@ class _PickupScreenState extends State<PickupScreen> {
 
           return Column(
             children: [
-              // Date header with navigation
+              // Compact summary strip
               Container(
-                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppColors.primary.withOpacity(0.3)),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    // Previous day button
-                    IconButton(
-                      icon: const Icon(Icons.chevron_left),
-                      onPressed: () {
-                        final prevDate = selectedDate.subtract(const Duration(days: 1));
-                        if (prevDate.isAfter(DateTime.now().subtract(const Duration(days: 31)))) {
-                          controller.changeDate(prevDate);
-                        }
-                      },
-                      tooltip: 'Previous day',
-                    ),
-                    // Date display
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: _selectDate,
-                        child: Column(
-                          children: [
-                            Text(
-                              _formatDate(selectedDate),
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            if (_isToday(selectedDate))
-                              const Text(
-                                'Today',
-                                style: TextStyle(
-                                  color: AppColors.primary,
-                                  fontSize: 12,
-                                ),
-                              )
-                            else if (_isYesterday(selectedDate))
-                              const Text(
-                                'Yesterday',
-                                style: TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 12,
-                                ),
-                              )
-                            else
-                              Text(
-                                _getDayName(selectedDate),
-                                style: const TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 12,
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    // Next day button
-                    IconButton(
-                      icon: const Icon(Icons.chevron_right),
-                      onPressed: () {
-                        final nextDate = selectedDate.add(const Duration(days: 1));
-                        if (nextDate.isBefore(DateTime.now().add(const Duration(days: 366)))) {
-                          controller.changeDate(nextDate);
-                        }
-                      },
-                      tooltip: 'Next day',
-                    ),
-                  ],
-                ),
-              ),
-              
-              // Summary card
-              Container(
-                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                color: AppColors.primary.withOpacity(0.08),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceAround,
                   children: [
                     _buildStat('Pickups', '${bookings.length}'),
+                    Container(width: 1, height: 24, color: Colors.white24),
                     _buildStat('Picked Up', '$pickedUpGuests / $totalGuests'),
                   ],
                 ),
@@ -290,21 +270,22 @@ class _PickupScreenState extends State<PickupScreen> {
   }
 
   Widget _buildStat(String label, String value) {
-    return Column(
+    return Row(
+      mainAxisSize: MainAxisSize.min,
       children: [
         Text(
-          value,
+          '$label: ',
           style: const TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-            color: AppColors.primary,
+            fontSize: 12,
+            color: Colors.white54,
           ),
         ),
         Text(
-          label,
+          value,
           style: const TextStyle(
-            fontSize: 12,
-            color: Colors.grey,
+            fontSize: 13,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
           ),
         ),
       ],
@@ -635,140 +616,125 @@ class _PickupScreenState extends State<PickupScreen> {
     return Container(
       key: key,
       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      padding: const EdgeInsets.all(8),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       decoration: BoxDecoration(
         color: const Color(0xFF2D3748),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          // Pickup place and customer name in one row
+          // ROW 1: Pickup place + time + pax + payment badge | checkbox
           Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
+              // Pickup place name (bold)
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      booking.pickupPlaceName,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                        color: Colors.white,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            booking.customerFullName,
-                            style: TextStyle(
-                              fontSize: 13,
-                              decoration: booking.isNoShow ? TextDecoration.lineThrough : null,
-                              color: booking.isNoShow ? AppColors.error : Colors.white70,
-                            ),
-                          ),
-                        ),
-                        // Show pickup time
-                        const SizedBox(width: 8),
-                        Text(
-                          _formatPickupTime(booking.pickupTime),
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: Colors.white.withOpacity(0.5),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
+                child: Text(
+                  booking.pickupPlaceName,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
+                    color: Colors.white,
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
-              // Arrived checkbox (compact)
-              Checkbox(
-                value: booking.isArrived,
-                onChanged: (value) => _markAsArrived(booking.id, value ?? false),
-                activeColor: AppColors.success,
-                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                visualDensity: VisualDensity.compact,
+              // Pickup time
+              Text(
+                _formatPickupTime(booking.pickupTime),
+                style: TextStyle(fontSize: 13, color: Colors.white.withOpacity(0.45)),
               ),
-            ],
-          ),
-
-          const SizedBox(height: 4),
-
-          // Guest count and contact buttons in one row
-          Row(
-            children: [
-              const Icon(Icons.group, size: 14, color: Colors.white54),
-              const SizedBox(width: 4),
+              const SizedBox(width: 6),
+              // Pax count
+              const Icon(Icons.group, size: 15, color: Colors.white54),
+              const SizedBox(width: 2),
               Text(
                 '${booking.numberOfGuests}',
-                style: const TextStyle(color: Colors.white70, fontSize: 11),
+                style: const TextStyle(color: Colors.white70, fontSize: 13),
               ),
-              if (booking.isUnpaid && booking.amountToPayOnArrival != null) ...[
-                const SizedBox(width: 12),
-                _buildPaymentBadge(booking),
-              ] else if (booking.isUnpaid) ...[
-                const SizedBox(width: 12),
+              // Payment badge (if unpaid)
+              if (booking.isUnpaid) ...[
+                const SizedBox(width: 6),
                 _buildPaymentBadge(booking),
               ],
-              const Spacer(),
-              // Phone button
-              if (booking.phoneNumber.isNotEmpty)
-                IconButton(
-                  icon: const Icon(Icons.phone, size: 16),
-                  color: AppColors.success,
-                  onPressed: () => _makePhoneCall(booking.phoneNumber),
-                  tooltip: 'Call',
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
+              // Arrived checkbox
+              const SizedBox(width: 4),
+              SizedBox(
+                width: 24,
+                height: 24,
+                child: Checkbox(
+                  value: booking.isArrived,
+                  onChanged: (value) => _markAsArrived(booking.id, value ?? false),
+                  activeColor: AppColors.success,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   visualDensity: VisualDensity.compact,
                 ),
-              // Email button
-              if (booking.email.isNotEmpty)
-                IconButton(
-                  icon: const Icon(Icons.email, size: 16),
-                  color: AppColors.info,
-                  onPressed: () => _sendArrivalEmail(booking),
-                  tooltip: 'Email',
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                  visualDensity: VisualDensity.compact,
-                ),
+              ),
             ],
           ),
 
-          // No-show button (compact)
-          if (booking.isNoShow && _noShowTimeRemaining.containsKey(booking.id))
-            _buildNoShowTimer(booking)
-          else if (booking.isNoShow)
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: TextButton(
-                onPressed: () => _unmarkNoShow(booking.id),
-                style: TextButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  minimumSize: const Size(0, 24),
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          // ROW 2: Customer name | phone / email / no-show
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              // Customer name
+              Expanded(
+                child: Text(
+                  booking.customerFullName,
+                  style: TextStyle(
+                    fontSize: 14,
+                    decoration: booking.isNoShow ? TextDecoration.lineThrough : null,
+                    color: booking.isNoShow ? AppColors.error : Colors.white60,
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
-                child: const Text('Undo No-Show', style: TextStyle(color: Colors.orange, fontSize: 11)),
               ),
-            )
-          else
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: TextButton(
-                onPressed: () => _showNoShowDialog(booking),
-                style: TextButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  minimumSize: const Size(0, 24),
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              // Phone button
+              if (booking.phoneNumber.isNotEmpty)
+                InkWell(
+                  onTap: () => _makePhoneCall(booking.phoneNumber),
+                  borderRadius: BorderRadius.circular(4),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                    child: Icon(Icons.phone, size: 17, color: AppColors.success),
+                  ),
                 ),
-                child: const Text('No-Show', style: TextStyle(color: AppColors.error, fontSize: 11)),
-              ),
-            ),
+              // Email button
+              if (booking.email.isNotEmpty) ...[
+                const SizedBox(width: 4),
+                InkWell(
+                  onTap: () => _sendArrivalEmail(booking),
+                  borderRadius: BorderRadius.circular(4),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                    child: Icon(Icons.email, size: 17, color: AppColors.info),
+                  ),
+                ),
+              ],
+              const SizedBox(width: 4),
+              // No-show controls
+              if (booking.isNoShow && _noShowTimeRemaining.containsKey(booking.id))
+                _buildNoShowTimer(booking)
+              else if (booking.isNoShow)
+                GestureDetector(
+                  onTap: () => _unmarkNoShow(booking.id),
+                  child: const Text(
+                    'Undo',
+                    style: TextStyle(color: Colors.orange, fontSize: 13, fontWeight: FontWeight.w600),
+                  ),
+                )
+              else
+                GestureDetector(
+                  onTap: () => _showNoShowDialog(booking),
+                  child: const Text(
+                    'No-Show',
+                    style: TextStyle(color: AppColors.error, fontSize: 13),
+                  ),
+                ),
+            ],
+          ),
         ],
       ),
     );
