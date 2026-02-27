@@ -174,10 +174,10 @@ service cloud.firestore {
       allow read, write: if request.auth != null;
     }
     
-    // Tour Reports - readable by authenticated users, writable by Cloud Functions only
+    // Tour Reports - readable by authenticated users, writable by authenticated users (app snapshots) and Cloud Functions
     match /tour_reports/{reportId} {
       allow read: if request.auth != null;
-      allow write: if false;  // Cloud Functions bypass rules, so this is fine
+      allow write: if request.auth != null;
     }
     
     // End of shift reports
@@ -191,6 +191,11 @@ service cloud.firestore {
       allow read: if request.auth != null;
       allow create: if request.auth != null;
       allow update: if false;  // Only Cloud Functions can update (processed flag)
+    }
+    
+    // Pickup day notes - admin read/write
+    match /pickup_day_notes/{document} {
+      allow read, write: if request.auth != null;
     }
   }
 } 
