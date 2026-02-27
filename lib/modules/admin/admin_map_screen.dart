@@ -43,7 +43,6 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
   Map<String, Map<String, dynamic>> _busData = {};
   Set<Marker> _markers = {};
   Set<Polyline> _trails = {};
-  Set<Circle> _trailCircles = {};
   List<Map<String, dynamic>> _activeBuses = [];
   bool _isLoading = true;
   bool _hasApiKey = false;
@@ -370,13 +369,11 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
     if (!_showTrails) {
       setState(() {
         _trails = {};
-        _trailCircles = {};
       });
       return;
     }
 
     final trails = <Polyline>{};
-    final circles = <Circle>{};
 
     for (final entry in _busTrails.entries) {
       final busId = entry.key;
@@ -394,48 +391,62 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
             polylineId: PolylineId('trail_$busId'),
             points: latLngs,
             color: busInfo['trailColor'] as Color,
-            width: 3,
+            width: 4,
             geodesic: true,
           ));
-
-          // Add tappable circle markers at intervals
-          final interval = (trailPoints.length / 30).ceil().clamp(1, 100);
-          for (int i = 0; i < trailPoints.length; i += interval) {
-            final point = trailPoints[i];
-            final lat = point['latitude'] as double;
-            final lng = point['longitude'] as double;
-            final speed = point['speed'] as double? ?? 0.0;
-            final timestamp = point['timestamp'] as Timestamp?;
-            final speedKmh = (speed * 3.6);
-
-            // Rainbow color by speed
-            final circleColor = _getSpeedColor(speedKmh);
-
-            circles.add(Circle(
-              circleId: CircleId('trail_circle_${busId}_$i'),
-              center: LatLng(lat, lng),
-              radius: 25,
-              fillColor: circleColor.withOpacity(0.7),
-              strokeColor: circleColor,
-              strokeWidth: 1,
-              consumeTapEvents: true,
-              onTap: () => _showTrailPointInfo(
-                busName: busInfo['name'] as String,
-                speedKmh: speedKmh,
-                timestamp: timestamp,
-                lat: lat,
-                lng: lng,
-              ),
-            ));
-          }
         }
       }
     }
 
     setState(() {
       _trails = trails;
-      _trailCircles = circles;
     });
+  }
+
+  /// When the map is tapped, find the nearest trail point and show info
+  void _onMapTapped(LatLng position) {
+    if (_busTrails.isEmpty) return;
+
+    double minDist = double.infinity;
+    Map<String, dynamic>? nearestPoint;
+    String? nearestBusId;
+
+    // Search across all bus trails for the nearest point
+    for (final entry in _busTrails.entries) {
+      final busId = entry.key;
+      for (final point in entry.value) {
+        final lat = point['latitude'] as double;
+        final lng = point['longitude'] as double;
+        final dist = _quickDistance(position.latitude, position.longitude, lat, lng);
+        if (dist < minDist) {
+          minDist = dist;
+          nearestPoint = point;
+          nearestBusId = busId;
+        }
+      }
+    }
+
+    // Threshold: ~200m at Iceland's latitude (roughly 0.002 degrees)
+    if (nearestPoint != null && nearestBusId != null && minDist < 0.000004) {
+      final busInfo = _busData[nearestBusId];
+      if (busInfo == null) return;
+      final speed = nearestPoint['speed'] as double? ?? 0.0;
+      final speedKmh = speed * 3.6;
+      _showTrailPointInfo(
+        busName: busInfo['name'] as String,
+        speedKmh: speedKmh,
+        timestamp: nearestPoint['timestamp'] as Timestamp?,
+        lat: nearestPoint['latitude'] as double,
+        lng: nearestPoint['longitude'] as double,
+      );
+    }
+  }
+
+  /// Quick squared-distance for comparison (no need for full haversine)
+  double _quickDistance(double lat1, double lon1, double lat2, double lon2) {
+    final dLat = lat1 - lat2;
+    final dLon = (lon1 - lon2) * 0.55; // rough cos(64) for Iceland
+    return dLat * dLat + dLon * dLon;
   }
 
   /// Rainbow color gradient based on speed in km/h
@@ -818,10 +829,10 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
                       _fitMapToMarkers();
                     }
                   },
+                  onTap: _onMapTapped,
                   initialCameraPosition: _initialPosition,
                   markers: _markers,
                   polylines: _trails,
-                  circles: _trailCircles,
                   myLocationEnabled: false,
                   myLocationButtonEnabled: false,
                   zoomControlsEnabled: false,
@@ -1277,21 +1288,7 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
       if (!mounted) return;
 
       final controller = context.read<PickupController>();
-      
-      // First, check if the controller already has data for this guide (fast path)
-      final existingList = controller.getGuideList(guideId);
-      if (existingList != null) {
-        if (mounted) {
-          setState(() {
-            _guidePickupLists[guideId] = existingList;
-          });
-          _refreshMarkers();
-        }
-        return;
-      }
-      
-      // Only load from API if we don't have cached data (no forceRefresh!)
-      await controller.loadBookingsForDate(date);
+      await controller.loadBookingsForDate(date, forceRefresh: true);
 
       final guideList = controller.getGuideList(guideId);
       if (guideList != null && mounted) {

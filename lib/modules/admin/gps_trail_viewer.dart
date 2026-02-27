@@ -29,7 +29,6 @@ class _GpsTrailViewerState extends State<GpsTrailViewer> {
   GoogleMapController? _mapController;
   final Set<Polyline> _polylines = {};
   final Set<Marker> _markers = {};
-  final Set<Circle> _circles = {};
   List<LatLng> _trailPoints = [];
   List<Map<String, dynamic>> _rawTrailData = [];
   
@@ -163,10 +162,8 @@ class _GpsTrailViewerState extends State<GpsTrailViewer> {
   void _buildTrailVisualization() {
     if (_trailPoints.isEmpty) return;
 
-    // Create gradient polyline by splitting into segments
     final polylines = <Polyline>{};
     final markers = <Marker>{};
-    final circles = <Circle>{};
 
     // Main trail polyline
     polylines.add(Polyline(
@@ -202,33 +199,6 @@ class _GpsTrailViewerState extends State<GpsTrailViewer> {
       ),
     ));
 
-    // Add tappable circle markers at intervals showing speed & time
-    final interval = (_rawTrailData.length / 40).ceil().clamp(1, 100);
-    for (int i = 0; i < _rawTrailData.length; i += interval) {
-      final point = _rawTrailData[i];
-      final lat = point['latitude'] as double;
-      final lng = point['longitude'] as double;
-      final speed = point['speed'] as double? ?? 0.0;
-      final timestamp = point['timestamp'] as Timestamp?;
-      final speedKmh = speed * 3.6;
-
-      circles.add(Circle(
-        circleId: CircleId('trail_circle_$i'),
-        center: LatLng(lat, lng),
-        radius: 25,
-        fillColor: _getSpeedColor(speedKmh).withOpacity(0.7),
-        strokeColor: _getSpeedColor(speedKmh),
-        strokeWidth: 1,
-        consumeTapEvents: true,
-        onTap: () => _showTrailPointInfo(
-          speedKmh: speedKmh,
-          timestamp: timestamp,
-          lat: lat,
-          lng: lng,
-        ),
-      ));
-    }
-
     // Add pickup location markers if provided
     if (widget.pickupLocations != null) {
       for (int i = 0; i < widget.pickupLocations!.length; i++) {
@@ -256,8 +226,6 @@ class _GpsTrailViewerState extends State<GpsTrailViewer> {
       _polylines.addAll(polylines);
       _markers.clear();
       _markers.addAll(markers);
-      _circles.clear();
-      _circles.addAll(circles);
     });
 
     // Fit map to trail
@@ -308,6 +276,38 @@ class _GpsTrailViewerState extends State<GpsTrailViewer> {
     final hours = duration.inHours;
     final minutes = duration.inMinutes % 60;
     return '${hours}h ${minutes}m';
+  }
+
+  /// When the map is tapped, find nearest trail point and show info
+  void _onMapTapped(LatLng position) {
+    if (_rawTrailData.isEmpty) return;
+
+    double minDist = double.infinity;
+    Map<String, dynamic>? nearest;
+
+    for (final point in _rawTrailData) {
+      final lat = point['latitude'] as double;
+      final lng = point['longitude'] as double;
+      final dLat = position.latitude - lat;
+      final dLon = (position.longitude - lng) * 0.55;
+      final dist = dLat * dLat + dLon * dLon;
+      if (dist < minDist) {
+        minDist = dist;
+        nearest = point;
+      }
+    }
+
+    // Threshold: ~200m at Iceland's latitude
+    if (nearest != null && minDist < 0.000004) {
+      final speed = nearest['speed'] as double? ?? 0.0;
+      final speedKmh = speed * 3.6;
+      _showTrailPointInfo(
+        speedKmh: speedKmh,
+        timestamp: nearest['timestamp'] as Timestamp?,
+        lat: nearest['latitude'] as double,
+        lng: nearest['longitude'] as double,
+      );
+    }
   }
 
   /// Rainbow color gradient based on speed in km/h
@@ -518,9 +518,9 @@ class _GpsTrailViewerState extends State<GpsTrailViewer> {
                         _mapController = controller;
                         _fitMapToTrail();
                       },
+                      onTap: _onMapTapped,
                       polylines: _polylines,
                       markers: _markers,
-                      circles: _circles,
                       mapType: MapType.normal,
                       myLocationEnabled: false,
                       zoomControlsEnabled: false,
@@ -614,7 +614,7 @@ class _GpsTrailViewerState extends State<GpsTrailViewer> {
                       ),
                     ),
 
-                    // Speed Legend
+                    // Legend
                     Positioned(
                       bottom: 80,
                       right: 16,
@@ -624,21 +624,13 @@ class _GpsTrailViewerState extends State<GpsTrailViewer> {
                           color: const Color(0xFF1A1A2E).withOpacity(0.95),
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: Column(
+                        child: const Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Text('Speed', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
-                            const SizedBox(height: 4),
-                            _buildSpeedLegendRow(Colors.blue, '0-5'),
-                            _buildSpeedLegendRow(Colors.cyan, '5-30'),
-                            _buildSpeedLegendRow(Colors.green, '30-50'),
-                            _buildSpeedLegendRow(Colors.lime, '50-70'),
-                            _buildSpeedLegendRow(Colors.yellow.shade700, '70-90'),
-                            _buildSpeedLegendRow(Colors.orange, '90-110'),
-                            _buildSpeedLegendRow(Colors.red, '110+'),
-                            const SizedBox(height: 6),
-                            const Row(
+                            Text('Tap trail for speed/time', style: TextStyle(color: Colors.white70, fontSize: 10, fontStyle: FontStyle.italic)),
+                            SizedBox(height: 6),
+                            Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 Icon(Icons.location_on, color: Colors.green, size: 14),
@@ -646,8 +638,8 @@ class _GpsTrailViewerState extends State<GpsTrailViewer> {
                                 Text('Start', style: TextStyle(color: Colors.white, fontSize: 10)),
                               ],
                             ),
-                            const SizedBox(height: 2),
-                            const Row(
+                            SizedBox(height: 2),
+                            Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 Icon(Icons.location_on, color: Colors.red, size: 14),
@@ -655,8 +647,8 @@ class _GpsTrailViewerState extends State<GpsTrailViewer> {
                                 Text('End', style: TextStyle(color: Colors.white, fontSize: 10)),
                               ],
                             ),
-                            const SizedBox(height: 2),
-                            const Row(
+                            SizedBox(height: 2),
+                            Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 Icon(Icons.location_on, color: Colors.blue, size: 14),
