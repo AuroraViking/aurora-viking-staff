@@ -223,6 +223,58 @@ class FirebaseService {
     }
   }
 
+  // --- Pickup Day Notes ---
+
+  /// Save (or update) a note for a pickup date. [taggedBookingIds] is optional.
+  static Future<void> savePickupDayNote({
+    required String date,
+    required String note,
+    List<String> taggedBookingIds = const [],
+  }) async {
+    if (!_initialized || _firestore == null) return;
+    try {
+      await _firestore!
+          .collection('pickup_day_notes')
+          .doc(date)
+          .set({
+        'date': date,
+        'note': note,
+        'taggedBookingIds': taggedBookingIds,
+        'updatedAt': FieldValue.serverTimestamp(),
+        'updatedBy': currentUser?.uid,
+      });
+      print('✅ Pickup day note saved for $date');
+    } catch (e) {
+      print('❌ Failed to save pickup day note: $e');
+    }
+  }
+
+  /// Get note for a pickup date. Returns null if no note exists.
+  static Future<Map<String, dynamic>?> getPickupDayNote(String date) async {
+    if (!_initialized || _firestore == null) return null;
+    try {
+      final doc = await _firestore!
+          .collection('pickup_day_notes')
+          .doc(date)
+          .get();
+      return doc.exists ? doc.data() : null;
+    } catch (e) {
+      print('❌ Failed to get pickup day note: $e');
+      return null;
+    }
+  }
+
+  /// Delete note for a pickup date.
+  static Future<void> deletePickupDayNote(String date) async {
+    if (!_initialized || _firestore == null) return;
+    try {
+      await _firestore!.collection('pickup_day_notes').doc(date).delete();
+      print('✅ Pickup day note deleted for $date');
+    } catch (e) {
+      print('❌ Failed to delete pickup day note: $e');
+    }
+  }
+
   // Get booking status for a specific date
   static Future<Map<String, Map<String, dynamic>>> getBookingStatuses(String date) async {
     if (!_initialized || _firestore == null) {

@@ -30,6 +30,11 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
   // State to track bus assignments for each guide
   Map<String, Map<String, String>> _busAssignments = {}; // guideId -> {busId, busName}
   List<Map<String, dynamic>> _availableBuses = [];
+
+  // Day-level pickup notes
+  String _dayNote = '';
+  Set<String> _taggedBookingIds = {};
+  bool _hasNote = false; // true when a non-empty note exists for this date
   final BusManagementService _busService = BusManagementService();
 
   @override
@@ -43,6 +48,7 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
       await _loadGuides();
       await _loadBuses();
       await _loadBusAssignments(controller);
+      await _loadDayNote(controller);
       
       // Load reordered bookings from Firebase after data is loaded
       await _updateReorderedBookings(controller);
@@ -357,6 +363,212 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
     // Don't clear - let _updateReorderedBookings handle it
   }
 
+  // --- Notes helpers ---
+
+  String _getDateKey(DateTime date) =>
+      '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+
+  Future<void> _loadDayNote(PickupController controller) async {
+    final dateKey = _getDateKey(controller.selectedDate);
+    final data = await FirebaseService.getPickupDayNote(dateKey);
+    if (mounted) {
+      setState(() {
+        _dayNote = data?['note'] as String? ?? '';
+        _taggedBookingIds = Set<String>.from(
+            (data?['taggedBookingIds'] as List<dynamic>?)?.map((e) => e.toString()) ?? []);
+        _hasNote = _dayNote.trim().isNotEmpty;
+      });
+    }
+  }
+
+  Future<void> _showNoteDialog(PickupController controller) async {
+    final allBookings = controller.bookings;
+    final dateKey = _getDateKey(controller.selectedDate);
+    final noteController = TextEditingController(text: _dayNote);
+    // Local copy of tagged IDs for the dialog
+    final selected = Set<String>.from(_taggedBookingIds);
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF1A1A2E),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setModalState) {
+            return DraggableScrollableSheet(
+              initialChildSize: 0.75,
+              minChildSize: 0.4,
+              maxChildSize: 0.95,
+              expand: false,
+              builder: (_, scrollController) {
+                return Padding(
+                  padding: EdgeInsets.only(
+                    left: 16, right: 16, top: 16,
+                    bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Handle bar
+                      Center(
+                        child: Container(
+                          width: 40, height: 4,
+                          decoration: BoxDecoration(
+                            color: Colors.white30,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          const Icon(Icons.sticky_note_2, color: Colors.orange, size: 22),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Pickup Notes — ${controller.selectedDate.day}/${controller.selectedDate.month}/${controller.selectedDate.year}',
+                            style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      // Note text field
+                      TextField(
+                        controller: noteController,
+                        maxLines: 4,
+                        style: const TextStyle(color: Colors.white),
+                        decoration: InputDecoration(
+                          hintText: 'Add notes for this pickup day (e.g. "John picked up early at Hotel X")…',
+                          hintStyle: const TextStyle(color: Colors.white38),
+                          filled: true,
+                          fillColor: const Color(0xFF2A2A3E),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide.none,
+                          ),
+                          contentPadding: const EdgeInsets.all(12),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      // Tag bookings section
+                      if (allBookings.isNotEmpty) ...[
+                        Row(
+                          children: [
+                            const Icon(Icons.local_offer, color: Colors.orange, size: 16),
+                            const SizedBox(width: 6),
+                            const Text(
+                              'Tag bookings with special considerations:',
+                              style: TextStyle(color: Colors.white70, fontSize: 13),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Expanded(
+                          child: ListView(
+                            controller: scrollController,
+                            children: allBookings.map((booking) {
+                              final isSelected = selected.contains(booking.id);
+                              return CheckboxListTile(
+                                dense: true,
+                                contentPadding: EdgeInsets.zero,
+                                checkColor: Colors.black,
+                                activeColor: Colors.orange,
+                                value: isSelected,
+                                onChanged: (val) {
+                                  setModalState(() {
+                                    if (val == true) {
+                                      selected.add(booking.id);
+                                    } else {
+                                      selected.remove(booking.id);
+                                    }
+                                  });
+                                },
+                                title: Text(
+                                  booking.customerFullName,
+                                  style: const TextStyle(color: Colors.white, fontSize: 13),
+                                ),
+                                subtitle: Text(
+                                  booking.pickupPlaceName,
+                                  style: const TextStyle(color: Colors.white54, fontSize: 11),
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 12),
+                      // Actions
+                      Row(
+                        children: [
+                          if (_hasNote)
+                            TextButton.icon(
+                              onPressed: () async {
+                                final nav = Navigator.of(ctx);
+                                await FirebaseService.deletePickupDayNote(dateKey);
+                                if (mounted) {
+                                  setState(() {
+                                    _dayNote = '';
+                                    _taggedBookingIds = {};
+                                    _hasNote = false;
+                                  });
+                                }
+                                nav.pop();
+                              },
+                              icon: const Icon(Icons.delete, color: Colors.red, size: 16),
+                              label: const Text('Delete', style: TextStyle(color: Colors.red)),
+                            ),
+                          const Spacer(),
+                          TextButton(
+                            onPressed: () => Navigator.of(ctx).pop(),
+                            child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
+                          ),
+                          const SizedBox(width: 8),
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.orange,
+                              foregroundColor: Colors.black,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                            onPressed: () async {
+                              final nav = Navigator.of(ctx);
+                              final noteText = noteController.text.trim();
+                              if (noteText.isEmpty && selected.isEmpty) {
+                                await FirebaseService.deletePickupDayNote(dateKey);
+                                if (mounted) setState(() { _dayNote = ''; _taggedBookingIds = {}; _hasNote = false; });
+                              } else {
+                                await FirebaseService.savePickupDayNote(
+                                  date: dateKey,
+                                  note: noteText,
+                                  taggedBookingIds: selected.toList(),
+                                );
+                                if (mounted) {
+                                  setState(() {
+                                    _dayNote = noteText;
+                                    _taggedBookingIds = Set.from(selected);
+                                    _hasNote = noteText.isNotEmpty;
+                                  });
+                                }
+                              }
+                              nav.pop();
+                            },
+                            icon: const Icon(Icons.save, size: 16),
+                            label: const Text('Save'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                );
+              },
+            );
+          },
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -432,6 +644,65 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
               fontSize: 14,
               color: Colors.white,
             ),
+          ),
+          const SizedBox(width: 12),
+          // Note button with badge
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Tooltip(
+                message: _hasNote ? 'Edit pickup note' : 'Add pickup note',
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: () => _showNoteDialog(controller),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: _hasNote
+                          ? Colors.orange.withOpacity(0.2)
+                          : Colors.white.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: _hasNote ? Colors.orange : Colors.white30,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.sticky_note_2,
+                          size: 18,
+                          color: _hasNote ? Colors.orange : Colors.white54,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Notes',
+                          style: TextStyle(
+                            color: _hasNote ? Colors.orange : Colors.white54,
+                            fontSize: 13,
+                            fontWeight: _hasNote ? FontWeight.bold : FontWeight.normal,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              // Orange dot badge when note exists
+              if (_hasNote)
+                Positioned(
+                  top: -4,
+                  right: -4,
+                  child: Container(
+                    width: 10,
+                    height: 10,
+                    decoration: const BoxDecoration(
+                      color: Colors.orange,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ),
+            ],
           ),
         ],
       ),
@@ -816,17 +1087,36 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
       child: ListTile(
         dense: true,
         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        leading: CircleAvatar(
-          backgroundColor: AppColors.primary.withOpacity(0.2),
-          radius: 18,
-          child: Text(
-            booking.customerFullName.isNotEmpty ? booking.customerFullName[0].toUpperCase() : '?',
-            style: const TextStyle(
-              color: AppColors.primary,
-              fontWeight: FontWeight.bold,
-              fontSize: 14,
+        leading: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            CircleAvatar(
+              backgroundColor: AppColors.primary.withOpacity(0.2),
+              radius: 18,
+              child: Text(
+                booking.customerFullName.isNotEmpty ? booking.customerFullName[0].toUpperCase() : '?',
+                style: const TextStyle(
+                  color: AppColors.primary,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
+              ),
             ),
-          ),
+            // Tag indicator: shown when this booking is called out in the day note
+            if (_taggedBookingIds.contains(booking.id))
+              Positioned(
+                top: -4,
+                right: -4,
+                child: Container(
+                  padding: const EdgeInsets.all(2),
+                  decoration: const BoxDecoration(
+                    color: Colors.orange,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.sticky_note_2, size: 10, color: Colors.white),
+                ),
+              ),
+          ],
         ),
         title: Row(
           children: [
@@ -1850,13 +2140,18 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
         _resetReorderedBookings();
         // Clear bus assignments for old date
         _busAssignments.clear();
+        // Clear note state until reloaded
+        _dayNote = '';
+        _taggedBookingIds = {};
+        _hasNote = false;
       });
       // Change date and force refresh to get fresh data
       controller.changeDate(selectedDate);
       // Wait for bookings to load
       await Future.delayed(const Duration(milliseconds: 500));
-      // Reload bus assignments for the new date
+      // Reload bus assignments and notes for the new date
       await _loadBusAssignments(controller);
+      await _loadDayNote(controller);
       // Reload reordered bookings for the new date
       await _updateReorderedBookings(controller);
     }
