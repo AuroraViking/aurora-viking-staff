@@ -357,13 +357,16 @@ class _ForecastChartWidgetState extends State<ForecastChartWidget> with SingleTi
                         backgroundColor: Colors.transparent,
                         lineTouchData: LineTouchData(
                           touchTooltipData: LineTouchTooltipData(
+                            tooltipBgColor: const Color(0xFF0D1117),
                             tooltipBorder: BorderSide(
-                              color: Colors.tealAccent.withOpacity(0.3),
-                              width: 1,
+                              color: Colors.tealAccent.withOpacity(0.5),
+                              width: 1.5,
                             ),
                             tooltipRoundedRadius: 8,
                             tooltipPadding: const EdgeInsets.all(10),
                             tooltipMargin: 8,
+                            fitInsideVertically: true,
+                            fitInsideHorizontally: true,
                             getTooltipItems: (touchedSpots) => _buildTooltipItems(touchedSpots, bzValues, btValues, times, yLimit),
                           ),
                           handleBuiltInTouches: true,
@@ -414,6 +417,16 @@ class _ForecastChartWidgetState extends State<ForecastChartWidget> with SingleTi
                       trend: _getTrendIndicator(densityValues),
                     ),
                   ),
+
+                // Current Bz value badge (top center)
+                Positioned(
+                  top: 16,
+                  left: 0,
+                  right: 0,
+                  child: Center(
+                    child: _buildCurrentBzBadge(bzValues),
+                  ),
+                ),
               ],
             ),
           ),
@@ -734,6 +747,85 @@ class _ForecastChartWidgetState extends State<ForecastChartWidget> with SingleTi
     );
   }
 
+  Widget _buildCurrentBzBadge(List<double> bzValues) {
+    if (bzValues.isEmpty) return const SizedBox.shrink();
+
+    final currentBz = bzValues.last;
+    final Color color;
+    final String status;
+    if (currentBz < -2) {
+      color = _negativeColor;
+      status = 'South ✓';
+    } else if (currentBz < 0) {
+      color = const Color(0xFFFF8888);
+      status = 'South';
+    } else if (currentBz < 2) {
+      color = _neutralColor;
+      status = 'Near zero';
+    } else {
+      color = _positiveColor;
+      status = 'North';
+    }
+
+    final sign = currentBz >= 0 ? '+' : '';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.75),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withOpacity(0.7), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: color.withOpacity(0.25 + _pulseAnimation.value * 0.15),
+            blurRadius: 12,
+            spreadRadius: 1,
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            'Bz  ',
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.6),
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          Text(
+            '$sign${currentBz.toStringAsFixed(1)} nT',
+            style: TextStyle(
+              color: color,
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              shadows: [
+                Shadow(color: color.withOpacity(0.6), blurRadius: 8),
+              ],
+            ),
+          ),
+          const SizedBox(width: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Text(
+              status,
+              style: TextStyle(
+                color: color,
+                fontSize: 9,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildChartInfo(int? earthImpactIndex) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -780,49 +872,47 @@ class _ForecastChartWidgetState extends State<ForecastChartWidget> with SingleTi
       ) {
     if (touchedSpots.isEmpty) return [];
 
-    final spot = touchedSpots.first;
-    final index = spot.x.toInt();
-    if (index >= times.length) return [null];
+    // Use the X position of the first touched spot to look up the index.
+    // This is more reliable than matching by Y value across multiple segments.
+    final index = touchedSpots.first.x.toInt().clamp(0, bzValues.length - 1);
+    if (index >= times.length || bzValues.isEmpty) return [null];
 
-    // Check if this is a Bz value
-    final isBzValue = index < bzValues.length &&
-        (spot.y - bzValues[index]).abs() < 0.5;
+    final bzValue = bzValues[index];
+    final bzColor = _getColorForValue(bzValue, yLimit);
+    final isNegative = bzValue < 0;
+    final timeLabel = index < times.length ? times[index] : '';
 
-    // Check if this is a Bt value
-    final isBtPositive = index < btValues.length &&
-        (spot.y - btValues[index]).abs() < 0.5;
-    final isBtNegative = index < btValues.length &&
-        (spot.y - (-btValues[index])).abs() < 0.5;
+    // Build the primary Bz tooltip line
+    final StringBuffer sb = StringBuffer();
+    if (timeLabel.isNotEmpty) sb.writeln(timeLabel);
+    sb.write('Bz: ${bzValue.toStringAsFixed(1)} nT');
+    sb.write('\n${isNegative ? "✓ Good for Aurora" : "✗ Not favorable"}');
 
-    if (isBzValue) {
-      final bzValue = bzValues[index];
-      final color = _getColorForValue(bzValue, yLimit);
-      final isNegative = bzValue < 0;
-      return [
-        LineTooltipItem(
-          '${times[index]}\nBz: ${bzValue.toStringAsFixed(1)} nT\n${isNegative ? "✓ Good for Aurora" : "✗ Not favorable"}',
-          TextStyle(
-            color: color,
-            fontSize: 11,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-      ];
-    } else if (isBtPositive || isBtNegative) {
-      final btValue = btValues[index];
-      return [
-        LineTooltipItem(
-          '${times[index]}\nBt: ${btValue.toStringAsFixed(1)} nT',
-          const TextStyle(
-            color: _btColor,
-            fontSize: 11,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-      ];
+    // Optionally append Bt value
+    if (index < btValues.length) {
+      sb.write('\nBt: ${btValues[index].toStringAsFixed(1)} nT');
     }
 
-    return [null];
+    // Return one item per touched spot (hide extra spots by returning null)
+    return List.generate(touchedSpots.length, (i) {
+      if (i == 0) {
+        return LineTooltipItem(
+          sb.toString(),
+          TextStyle(
+            color: bzColor,
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
+            shadows: [
+              Shadow(
+                color: bzColor.withOpacity(0.4),
+                blurRadius: 6,
+              ),
+            ],
+          ),
+        );
+      }
+      return null;
+    });
   }
 
   /// Get trend indicator arrow based on recent values
