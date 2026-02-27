@@ -8,6 +8,7 @@ const { onDocumentWritten, onDocumentCreated } = require('firebase-functions/v2/
 const { google } = require('googleapis');
 const { db } = require('../utils/firebase');
 const { DRIVE_FOLDER_ID } = require('../config');
+const { sendNotificationToAdminsOnly } = require('../utils/notifications');
 const {
     getGoogleAuth,
     createSheetInFolder,
@@ -561,6 +562,159 @@ const generateTourReportManual = onCall(
     }
 );
 
+// ============================================
+// PICKUP STATUS NOTIFICATIONS
+// ============================================
+
+/**
+ * Trigger: Notify admins when ALL bookings for a guide are picked up (arrived).
+ * Watches booking_status/{date}_{bookingId} for isArrived changes.
+ */
+const onPickupCompleted = onDocumentWritten(
+    {
+        document: 'booking_status/{documentId}',
+        region: 'us-central1',
+    },
+    async (event) => {
+        const documentId = event.params.documentId;
+        console.log(`🔔 onPickupCompleted triggered for: ${documentId}`);
+
+        const beforeData = event.data.before.exists ? event.data.before.data() : {};
+        const afterData = event.data.after.exists ? event.data.after.data() : null;
+
+        if (!afterData) {
+            console.log('ℹ️ Document deleted, skipping');
+            return null;
+        }
+
+        const wasArrived = beforeData.isArrived === true;
+        const isNowArrived = afterData.isArrived === true;
+
+        // Only fire when this booking just flipped to arrived
+        if (wasArrived || !isNowArrived) {
+            console.log(`ℹ️ isArrived did not change from false→true (was: ${wasArrived}, now: ${isNowArrived}), skipping`);
+            return null;
+        }
+
+        // Parse date from document ID (format: YYYY-MM-DD_bookingId)
+        const parts = documentId.split('_');
+        if (parts.length < 2) {
+            console.log('⚠️ Document ID format unexpected:', documentId);
+            return null;
+        }
+        const date = parts[0]; // YYYY-MM-DD
+        const bookingId = parts.slice(1).join('_'); // rest is booking ID
+        const guideId = afterData.guideId || null;
+        const guideName = afterData.guideName || 'Unknown guide';
+        const customerName = afterData.customerName || bookingId;
+
+        console.log(`✅ Booking ${bookingId} (${customerName}) marked arrived for date ${date}, guide: ${guideName}`);
+
+        // Check if ALL bookings for this guide on this date are now arrived
+        if (guideId) {
+            try {
+                // Get all booking_status docs for this date that belong to this guide
+                const allStatusDocs = await db
+                    .collection('booking_status')
+                    .where('guideId', '==', guideId)
+                    .where('date', '==', date)
+                    .get();
+
+                if (!allStatusDocs.empty) {
+                    const totalForGuide = allStatusDocs.size;
+                    const arrivedForGuide = allStatusDocs.docs.filter(d => d.data().isArrived === true).length;
+
+                    console.log(`📊 Guide ${guideName}: ${arrivedForGuide}/${totalForGuide} bookings arrived`);
+
+                    if (arrivedForGuide === totalForGuide && totalForGuide > 0) {
+                        console.log(`🎉 All ${totalForGuide} pickups complete for ${guideName} on ${date}!`);
+                        await sendNotificationToAdminsOnly(
+                            '✅ All Pickups Complete',
+                            `${guideName} has picked up all ${totalForGuide} passenger group${totalForGuide > 1 ? 's' : ''} (${date})`,
+                            { type: 'pickup_complete', guideId, guideName, date }
+                        );
+                        return null;
+                    }
+                }
+            } catch (err) {
+                console.log('⚠️ Could not check guide completion (guideId field may not be stored):', err.message);
+            }
+        }
+
+        // Fallback: check if ALL bookings for the date (regardless of guide) are arrived
+        try {
+            const allDateDocs = await db
+                .collection('booking_status')
+                .where('date', '==', date)
+                .get();
+
+            if (!allDateDocs.empty) {
+                const total = allDateDocs.size;
+                const arrived = allDateDocs.docs.filter(d => d.data().isArrived === true).length;
+                const noShows = allDateDocs.docs.filter(d => d.data().isNoShow === true).length;
+                const accounted = arrived + noShows;
+
+                console.log(`📊 Date ${date}: ${arrived} arrived, ${noShows} no-shows, ${total} total`);
+
+                if (accounted >= total && total > 0) {
+                    console.log(`🎉 All ${total} bookings accounted for on ${date}!`);
+                    await sendNotificationToAdminsOnly(
+                        '✅ All Pickups Done',
+                        `All ${total} bookings for ${date} are accounted for (${arrived} arrived, ${noShows} no-show)`,
+                        { type: 'all_pickups_complete', date, arrived, noShows }
+                    );
+                }
+            }
+        } catch (err) {
+            console.error('❌ Error checking all pickups:', err);
+        }
+
+        return null;
+    }
+);
+
+/**
+ * Trigger: Notify admins immediately when a no-show is marked.
+ */
+const onNoShowMarked = onDocumentWritten(
+    {
+        document: 'booking_status/{documentId}',
+        region: 'us-central1',
+    },
+    async (event) => {
+        const documentId = event.params.documentId;
+
+        const beforeData = event.data.before.exists ? event.data.before.data() : {};
+        const afterData = event.data.after.exists ? event.data.after.data() : null;
+
+        if (!afterData) return null;
+
+        const wasNoShow = beforeData.isNoShow === true;
+        const isNowNoShow = afterData.isNoShow === true;
+
+        // Only fire when this booking just flipped to no-show
+        if (wasNoShow || !isNowNoShow) return null;
+
+        // Parse date from document ID
+        const parts = documentId.split('_');
+        const date = parts[0];
+        const customerName = afterData.customerName || documentId;
+        const guideName = afterData.guideName || 'Unknown guide';
+        const pickupPlace = afterData.pickupPlaceName || afterData.pickupPlace || 'Unknown location';
+
+        console.log(`🚫 No-show marked: ${customerName} at ${pickupPlace} (guide: ${guideName}, ${date})`);
+
+        await sendNotificationToAdminsOnly(
+            '🚫 No-Show Reported',
+            `${customerName} — ${pickupPlace} (guide: ${guideName})`,
+            { type: 'no_show', date, customerName, guideName, pickupPlace }
+        );
+
+        return null;
+    }
+);
+
+
 module.exports = {
     generateReport,
     onEndOfShiftSubmitted,
@@ -568,4 +722,6 @@ module.exports = {
     onBusAssignmentChanged,
     generateTourReport,
     generateTourReportManual,
+    onPickupCompleted,
+    onNoShowMarked,
 };

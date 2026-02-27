@@ -608,10 +608,15 @@ class PickupController extends ChangeNotifier {
 
         // Save to Firebase
         final dateStr = '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}';
+        final noShowBooking = _bookings.firstWhere((b) => b.id == bookingId, orElse: () => _currentUserBookings.firstWhere((b) => b.id == bookingId, orElse: () => _bookings.first));
         await FirebaseService.updateBookingStatus(
           bookingId: bookingId,
           date: dateStr,
           isNoShow: isNoShow,
+          customerName: noShowBooking.customerFullName,
+          guideName: noShowBooking.assignedGuideName,
+          guideId: noShowBooking.assignedGuideId,
+          pickupPlaceName: noShowBooking.pickupPlaceName,
         );
       }
       return success;
@@ -645,10 +650,15 @@ class PickupController extends ChangeNotifier {
       // Save to Firebase
       final dateStr = '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}';
       print('💾 Calling FirebaseService.updateBookingStatus for date: $dateStr');
+      final arrivedBooking = bookingIndex != -1 ? _bookings[bookingIndex] : null;
       FirebaseService.updateBookingStatus(
         bookingId: bookingId,
         date: dateStr,
         isArrived: arrived,
+        customerName: arrivedBooking?.customerFullName,
+        guideName: arrivedBooking?.assignedGuideName,
+        guideId: arrivedBooking?.assignedGuideId,
+        pickupPlaceName: arrivedBooking?.pickupPlaceName,
       );
       print('✅ markBookingAsArrived completed');
     } catch (e) {
@@ -678,10 +688,15 @@ class PickupController extends ChangeNotifier {
 
       // Save to Firebase
       final dateStr = '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}';
+      final paidBooking = bookingIndex != -1 ? _bookings[bookingIndex] : null;
       FirebaseService.updateBookingStatus(
         bookingId: bookingId,
         date: dateStr,
         paidOnArrival: paid,
+        customerName: paidBooking?.customerFullName,
+        guideName: paidBooking?.assignedGuideName,
+        guideId: paidBooking?.assignedGuideId,
+        pickupPlaceName: paidBooking?.pickupPlaceName,
       );
     } catch (e) {
       _error = 'Failed to mark booking as paid on arrival: $e';

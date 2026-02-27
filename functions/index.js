@@ -28,6 +28,8 @@ exports.onPickupAssignmentsChanged = reports.onPickupAssignmentsChanged;
 exports.onBusAssignmentChanged = reports.onBusAssignmentChanged;
 exports.generateTourReport = reports.generateTourReport;
 exports.generateTourReportManual = reports.generateTourReportManual;
+exports.onPickupCompleted = reports.onPickupCompleted;
+exports.onNoShowMarked = reports.onNoShowMarked;
 
 // ============================================
 // BOKUN PROXY MODULE
@@ -109,4 +111,37 @@ exports.getTourStatus = tourStatus.getTourStatus;
 exports.setTourStatus = tourStatus.setTourStatus;
 exports.getTourStatusHistory = tourStatus.getTourStatusHistory;
 exports.tourStatusReminder = tourStatus.tourStatusReminder;
+exports.sendTourStatusEmails = tourStatus.sendTourStatusEmails;
+
+// ============================================
+// TEST NOTIFICATION (for debugging)
+// ============================================
+const { onCall } = require('firebase-functions/v2/https');
+const { sendNotificationToAdminsOnly } = require('./utils/notifications');
+
+/**
+ * Test notification endpoint - callable function to verify FCM is working
+ */
+exports.testAdminNotification = onCall(
+  { region: 'us-central1' },
+  async (request) => {
+    if (!request.auth) {
+      throw new Error('You must be logged in to test notifications');
+    }
+
+    console.log('🧪 Testing admin notification...');
+
+    const result = await sendNotificationToAdminsOnly(
+      '🧪 Test Notification',
+      'If you see this, FCM notifications are working!',
+      {
+        type: 'test',
+        timestamp: new Date().toISOString(),
+      }
+    );
+
+    console.log('🧪 Test notification result:', result);
+    return result;
+  }
+);
 

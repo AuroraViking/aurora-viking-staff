@@ -187,6 +187,11 @@ class FirebaseService {
     bool? isArrived,
     bool? isNoShow,
     bool? paidOnArrival,
+    // Context fields for Cloud Function notification triggers
+    String? customerName,
+    String? guideName,
+    String? guideId,
+    String? pickupPlaceName,
   }) async {
     if (!_initialized || _firestore == null) {
       print('⚠️ Firebase not initialized - skipping booking status update');
@@ -209,6 +214,12 @@ class FirebaseService {
       if (paidOnArrival != null) updates['paidOnArrival'] = paidOnArrival;
       updates['updatedAt'] = FieldValue.serverTimestamp();
       updates['updatedBy'] = currentUser?.uid;
+      // Context fields — always written so triggers can use them
+      updates['date'] = date;
+      if (customerName != null) updates['customerName'] = customerName;
+      if (guideName != null) updates['guideName'] = guideName;
+      if (guideId != null) updates['guideId'] = guideId;
+      if (pickupPlaceName != null) updates['pickupPlaceName'] = pickupPlaceName;
 
       await _firestore!
           .collection('booking_status')
