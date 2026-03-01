@@ -76,7 +76,7 @@ const getBookings = onRequest(
 
                 // Prepare request body with pagination
                 const requestBody = {
-                    productConfirmationDateRange: {
+                    startDateRange: {
                         from: startDate,
                         to: endDate,
                     },

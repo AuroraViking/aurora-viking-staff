@@ -610,60 +610,96 @@ const onPickupCompleted = onDocumentWritten(
 
         console.log(`✅ Booking ${bookingId} (${customerName}) marked arrived for date ${date}, guide: ${guideName}`);
 
-        // Check if ALL bookings for this guide on this date are now arrived
+        // ── Guide-level check ──
+        // Cross-reference pickup_assignments to get the REAL total number of bookings for this guide
         if (guideId) {
             try {
-                // Get all booking_status docs for this date that belong to this guide
-                const allStatusDocs = await db
-                    .collection('booking_status')
+                // Get assignments for this guide on this date
+                const assignmentDocs = await db
+                    .collection('pickup_assignments')
                     .where('guideId', '==', guideId)
                     .where('date', '==', date)
                     .get();
 
-                if (!allStatusDocs.empty) {
-                    const totalForGuide = allStatusDocs.size;
-                    const arrivedForGuide = allStatusDocs.docs.filter(d => d.data().isArrived === true).length;
+                let expectedTotal = 0;
+                for (const doc of assignmentDocs.docs) {
+                    const data = doc.data();
+                    if (data.bookings && Array.isArray(data.bookings)) {
+                        // Bulk format: each doc has a "bookings" array
+                        expectedTotal += data.bookings.length;
+                    } else if (data.bookingId) {
+                        // Individual format: one doc per booking
+                        expectedTotal += 1;
+                    }
+                }
 
-                    console.log(`📊 Guide ${guideName}: ${arrivedForGuide}/${totalForGuide} bookings arrived`);
+                if (expectedTotal === 0) {
+                    console.log(`⚠️ No pickup_assignments found for guide ${guideName} on ${date}, skipping guide-level check`);
+                } else {
+                    // Now count how many of those bookings are arrived in booking_status
+                    const allStatusDocs = await db
+                        .collection('booking_status')
+                        .where('guideId', '==', guideId)
+                        .where('date', '==', date)
+                        .get();
 
-                    if (arrivedForGuide === totalForGuide && totalForGuide > 0) {
-                        console.log(`🎉 All ${totalForGuide} pickups complete for ${guideName} on ${date}!`);
+                    const arrivedCount = allStatusDocs.docs.filter(d => d.data().isArrived === true).length;
+                    const noShowCount = allStatusDocs.docs.filter(d => d.data().isNoShow === true).length;
+                    const accountedFor = arrivedCount + noShowCount;
+
+                    console.log(`📊 Guide ${guideName}: ${arrivedCount} arrived + ${noShowCount} no-shows = ${accountedFor} accounted / ${expectedTotal} assigned`);
+
+                    if (accountedFor >= expectedTotal && expectedTotal > 0) {
+                        console.log(`🎉 All ${expectedTotal} pickups complete for ${guideName} on ${date}!`);
                         await sendNotificationToAdminsOnly(
                             '✅ All Pickups Complete',
-                            `${guideName} has picked up all ${totalForGuide} passenger group${totalForGuide > 1 ? 's' : ''} (${date})`,
+                            `${guideName} has picked up all ${expectedTotal} passenger group${expectedTotal > 1 ? 's' : ''} (${date})`,
                             { type: 'pickup_complete', guideId, guideName, date }
                         );
                         return null;
                     }
                 }
             } catch (err) {
-                console.log('⚠️ Could not check guide completion (guideId field may not be stored):', err.message);
+                console.log('⚠️ Could not check guide completion:', err.message);
             }
         }
 
-        // Fallback: check if ALL bookings for the date (regardless of guide) are arrived
+        // ── Date-wide fallback ──
+        // Cross-reference cached_bookings to get the REAL total for the whole date
         try {
+            const cachedDoc = await db.collection('cached_bookings').doc(date).get();
+            if (!cachedDoc.exists) {
+                console.log(`ℹ️ No cached_bookings for ${date}, skipping date-wide check`);
+                return null;
+            }
+
+            const cachedData = cachedDoc.data();
+            const totalBookings = cachedData.bookings ? cachedData.bookings.length : 0;
+
+            if (totalBookings === 0) {
+                console.log(`ℹ️ cached_bookings for ${date} has no bookings, skipping`);
+                return null;
+            }
+
+            // Count arrived + no-show in booking_status
             const allDateDocs = await db
                 .collection('booking_status')
                 .where('date', '==', date)
                 .get();
 
-            if (!allDateDocs.empty) {
-                const total = allDateDocs.size;
-                const arrived = allDateDocs.docs.filter(d => d.data().isArrived === true).length;
-                const noShows = allDateDocs.docs.filter(d => d.data().isNoShow === true).length;
-                const accounted = arrived + noShows;
+            const arrived = allDateDocs.docs.filter(d => d.data().isArrived === true).length;
+            const noShows = allDateDocs.docs.filter(d => d.data().isNoShow === true).length;
+            const accounted = arrived + noShows;
 
-                console.log(`📊 Date ${date}: ${arrived} arrived, ${noShows} no-shows, ${total} total`);
+            console.log(`📊 Date ${date}: ${arrived} arrived, ${noShows} no-shows, ${accounted} accounted / ${totalBookings} total bookings`);
 
-                if (accounted >= total && total > 0) {
-                    console.log(`🎉 All ${total} bookings accounted for on ${date}!`);
-                    await sendNotificationToAdminsOnly(
-                        '✅ All Pickups Done',
-                        `All ${total} bookings for ${date} are accounted for (${arrived} arrived, ${noShows} no-show)`,
-                        { type: 'all_pickups_complete', date, arrived, noShows }
-                    );
-                }
+            if (accounted >= totalBookings && totalBookings > 0) {
+                console.log(`🎉 All ${totalBookings} bookings accounted for on ${date}!`);
+                await sendNotificationToAdminsOnly(
+                    '✅ All Pickups Done',
+                    `All ${totalBookings} bookings for ${date} are accounted for (${arrived} arrived, ${noShows} no-show)`,
+                    { type: 'all_pickups_complete', date, arrived, noShows }
+                );
             }
         } catch (err) {
             console.error('❌ Error checking all pickups:', err);
@@ -672,6 +708,7 @@ const onPickupCompleted = onDocumentWritten(
         return null;
     }
 );
+
 
 /**
  * Trigger: Notify admins immediately when a no-show is marked.

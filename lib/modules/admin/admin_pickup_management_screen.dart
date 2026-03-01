@@ -1408,6 +1408,8 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
     );
   }
 
+
+
   Widget _buildGuideListCard(GuidePickupList guideList, PickupController controller) {
     // Initialize reordered list if it doesn't exist for this guide
     if (!_reorderedBookings.containsKey(guideList.guideId)) {
