@@ -48,6 +48,8 @@ exports.checkRescheduleAvailability = bookingMgmt.checkRescheduleAvailability;
 exports.getPickupPlaces = bookingMgmt.getPickupPlaces;
 exports.updatePickupLocation = bookingMgmt.updatePickupLocation;
 exports.cancelBooking = bookingMgmt.cancelBooking;
+exports.onPickupUpdateRequest = bookingMgmt.onPickupUpdateRequest;
+exports.onCancelRequest = bookingMgmt.onCancelRequest;
 
 // ============================================
 // INBOX CORE MODULE

@@ -172,11 +172,31 @@ class _ConversationScreenState extends State<ConversationScreen> {
               // AI Draft suggestion panel (auto-generated on message receipt)
               // Hide when AI Assist panel is showing to avoid confusion
               if (!controller.hasAiAssistResult)
-                _buildAiDraftPanel(controller),
+                Flexible(
+                  flex: 0,
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxHeight: MediaQuery.of(context).size.height * 0.35,
+                    ),
+                    child: SingleChildScrollView(
+                      child: _buildAiDraftPanel(controller),
+                    ),
+                  ),
+                ),
 
               // AI Assist panel (on-demand when staff clicks AI button)
               if (controller.hasAiAssistResult)
-                _buildAiAssistPanel(controller),
+                Flexible(
+                  flex: 0,
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxHeight: MediaQuery.of(context).size.height * 0.45,
+                    ),
+                    child: SingleChildScrollView(
+                      child: _buildAiAssistPanel(controller),
+                    ),
+                  ),
+                ),
 
               // Message input
               _buildMessageInput(controller),

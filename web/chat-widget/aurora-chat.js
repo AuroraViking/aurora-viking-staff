@@ -14,13 +14,13 @@
   const API_KEY = config.apiKey || 'AIzaSyDdCYDwnVw2IuWPaco_QUzGBMEz8ef2Zj4';
   const POSITION = config.position || 'bottom-right';
   const PRIMARY_COLOR = config.primaryColor || '#00E5FF';
-  const GREETING = config.greeting || 'Hi! 👋 Ask us anything about Northern Lights tours!';
+  const GREETING = config.greeting || 'Hey there! ✨ Need to reschedule, change your pickup spot, or have questions about your tour? Just drop your booking number and we\'ll sort it out!';
   const OFFLINE_MESSAGE = config.offlineMessage || 'Leave a message and we\'ll get back to you soon!';
   const QUICK_REPLIES = config.quickReplies || [
-    'Tour availability?',
-    'What to wear?',
-    'Photo request',
-    'Rebooking'
+    'Reschedule my tour',
+    'Change pickup location',
+    'Cancel booking',
+    'Tour info'
   ];
 
   // Firebase configuration

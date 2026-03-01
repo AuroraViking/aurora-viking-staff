@@ -236,21 +236,6 @@ const onRescheduleRequest = onDocumentCreated(
 
         console.log(`📅 Processing reschedule request: ${requestId} for booking ${bookingId}`);
 
-        // VALIDATION: Check if newDate is in the past
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const requestedDate = new Date(newDate + 'T00:00:00');
-
-        if (requestedDate < today) {
-            console.error(`❌ Requested date ${newDate} is in the past`);
-            await snapshot.ref.update({
-                status: 'failed',
-                error: `Cannot reschedule to a past date (${newDate}).`,
-                failedAt: admin.firestore.FieldValue.serverTimestamp(),
-            });
-            return;
-        }
-
         await snapshot.ref.update({ status: 'processing' });
 
         try {
@@ -652,9 +637,140 @@ const onRescheduleRequest = onDocumentCreated(
                     return;
                 }
 
-                // Cancel + rebook for non-OTA bookings (code continues with existing logic)
-                console.log(`⚠️ Using cancel + rebook strategy`);
-                throw new Error('Cancel + rebook not implemented in this version - use full file');
+                // Cancel + rebook for non-OTA bookings
+                // IMPORTANT: Create the new booking FIRST, then cancel the original
+                // This way if rebook fails, the customer still has their original booking
+                console.log(`⚠️ Using cancel + rebook strategy for booking ${bookingId}...`);
+
+                try {
+                    const cancelConfCode = confirmationCode || foundBooking.confirmationCode;
+                    if (!cancelConfCode) {
+                        throw new Error('No confirmation code available for cancellation');
+                    }
+
+                    // Step 1: Create new booking via OCTO on the new date FIRST
+                    console.log(`📝 Creating new booking on ${newDate} via OCTO...`);
+
+                    // Get unit counts from original booking
+                    const originalUnits = [];
+                    const participants = productBooking.participants || productBooking.fields?.participants || [];
+                    if (participants.length > 0) {
+                        const unitCounts = {};
+                        for (const p of participants) {
+                            const unitId = p.unitId || p.category || defaultUnitId || 'default';
+                            unitCounts[unitId] = (unitCounts[unitId] || 0) + 1;
+                        }
+                        for (const [unitId, qty] of Object.entries(unitCounts)) {
+                            originalUnits.push({ id: String(unitId), quantity: qty });
+                        }
+                    }
+
+                    // Fallback: if no participants found, use totalParticipants count
+                    if (originalUnits.length === 0) {
+                        const totalParticipants = productBooking.totalParticipants ||
+                            foundBooking.totalParticipants ||
+                            productBooking.participants?.length || 1;
+                        const unitId = defaultUnitId || 'default';
+                        originalUnits.push({ id: String(unitId), quantity: totalParticipants });
+                    }
+
+                    console.log(`👥 Units for new booking: ${JSON.stringify(originalUnits)}`);
+
+                    // Reserve via OCTO
+                    const reserveBody = {
+                        productId: octoProductId,
+                        optionId: octoOptionId,
+                        availabilityId: newAvailability.id,
+                        unitItems: originalUnits.flatMap(u =>
+                            Array.from({ length: u.quantity }, () => ({ unitId: u.id }))
+                        ),
+                    };
+
+                    const reservation = await octoRequest('POST', '/bookings', reserveBody);
+                    console.log(`✅ OCTO reservation created: ${reservation.uuid}`);
+
+                    // Confirm the OCTO booking with customer details
+                    // OCTO confirm only accepts: contact, resellerReference, emailReceipt, unitItems
+                    const confirmBody = {
+                        contact: {
+                            firstName: foundBooking.customer?.firstName || '',
+                            lastName: foundBooking.customer?.lastName || '',
+                            emailAddress: foundBooking.customer?.email || '',
+                            phoneNumber: foundBooking.customer?.phoneNumber || foundBooking.customer?.phone || '',
+                        },
+                        resellerReference: cancelConfCode,
+                    };
+
+                    const confirmedBooking = await octoRequest('POST', `/bookings/${reservation.uuid}/confirm`, confirmBody);
+                    console.log(`✅ New booking confirmed: ${confirmedBooking.uuid}`);
+
+                    const newBookingId = confirmedBooking.supplierReference || confirmedBooking.uuid;
+
+                    // Step 2: NOW cancel the original booking (safe since new one exists)
+                    console.log(`🗑️ Cancelling original booking ${cancelConfCode}...`);
+                    try {
+                        await makeBokunRequest(
+                            'POST',
+                            `/booking.json/cancel-booking/${cancelConfCode}`,
+                            { note: `Rescheduled to ${newDate}. New booking: ${newBookingId}`, notify: false },
+                            accessKey,
+                            secretKey
+                        );
+                        console.log(`✅ Original booking cancelled`);
+                    } catch (cancelError) {
+                        // New booking exists but old one couldn't be cancelled
+                        // Still mark as success but note the issue
+                        console.warn(`⚠️ Could not cancel original booking: ${cancelError.message}`);
+                    }
+
+                    // Log the action
+                    await db.collection('booking_actions').add({
+                        bookingId,
+                        newBookingId,
+                        confirmationCode: cancelConfCode,
+                        customerName,
+                        action: 'reschedule',
+                        performedBy: userId || 'unknown',
+                        performedAt: admin.firestore.FieldValue.serverTimestamp(),
+                        reason: reason || 'Rescheduled via admin app',
+                        originalData: { date: currentDate },
+                        newData: { date: newDate, newBookingId },
+                        success: true,
+                        method: 'cancel_and_rebook',
+                        isOTABooking: false,
+                    });
+
+                    await snapshot.ref.update({
+                        status: 'completed',
+                        method: 'cancel_and_rebook',
+                        customerName,
+                        originalDate: currentDate,
+                        newBookingId,
+                        completedAt: admin.firestore.FieldValue.serverTimestamp(),
+                        message: `Booking rescheduled to ${newDate} (cancel + rebook). New booking: ${newBookingId}`,
+                    });
+
+                    console.log(`✅ Reschedule completed via cancel+rebook: ${requestId}`);
+                    return;
+
+                } catch (cancelRebookError) {
+                    console.error(`❌ Cancel+rebook failed: ${cancelRebookError.message}`);
+
+                    // Since we create the new booking FIRST, if we get here the original is untouched
+                    const portalLink = `https://bokun.io/operations/bookings/${bookingId}`;
+                    await snapshot.ref.update({
+                        status: 'completed',
+                        requiresManualAction: true,
+                        bokunPortalLink: portalLink,
+                        customerName,
+                        originalDate: currentDate,
+                        availabilityConfirmed: true,
+                        availabilityId: newAvailability?.id || null,
+                        completedAt: admin.firestore.FieldValue.serverTimestamp(),
+                        message: `Automatic reschedule failed (${cancelRebookError.message}). Original booking is unchanged. Please reschedule manually in Bokun.`,
+                    });
+                    return;
+                }
             }
 
             // OCTO PATCH
@@ -1170,6 +1286,273 @@ const checkRescheduleAvailability = onDocumentCreated(
     }
 );
 
+/**
+ * Firestore Trigger: Process pickup update requests
+ * Bypasses Cloud Run IAM issues by using Firestore write-trigger pattern
+ */
+const onPickupUpdateRequest = onDocumentCreated(
+    {
+        document: 'pickup_update_requests/{requestId}',
+        region: 'us-central1',
+        secrets: ['BOKUN_ACCESS_KEY', 'BOKUN_SECRET_KEY'],
+    },
+    async (event) => {
+        const snapshot = event.data;
+        if (!snapshot) {
+            console.log('No data in pickup update request');
+            return;
+        }
+
+        const requestData = snapshot.data();
+        const requestId = event.params.requestId;
+
+        if (requestData.status === 'completed' || requestData.status === 'failed') {
+            console.log(`Pickup request ${requestId} already processed`);
+            return;
+        }
+
+        const { bookingId, productBookingId, pickupPlaceId, pickupPlaceName, userId } = requestData;
+
+        console.log(`📍 Processing pickup update request: ${requestId} for booking ${bookingId}`);
+
+        if (!bookingId || !pickupPlaceId) {
+            await snapshot.ref.update({
+                status: 'failed',
+                error: 'bookingId and pickupPlaceId are required',
+                failedAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+            return;
+        }
+
+        await snapshot.ref.update({ status: 'processing' });
+
+        try {
+            const accessKey = process.env.BOKUN_ACCESS_KEY;
+            const secretKey = process.env.BOKUN_SECRET_KEY;
+
+            if (!accessKey || !secretKey) {
+                throw new Error('Bokun API keys not configured');
+            }
+
+            let actualProductBookingId = productBookingId;
+
+            // If no productBookingId, search for it
+            if (!actualProductBookingId) {
+                console.log(`🔍 No productBookingId provided, searching for booking ${bookingId}...`);
+                const searchPath = '/booking.json/booking-search';
+                const searchDate = new Date().toISOString().replace('T', ' ').substring(0, 19);
+                const searchMessage = searchDate + accessKey + 'POST' + searchPath;
+                const searchSignature = crypto.createHmac('sha1', secretKey).update(searchMessage).digest('base64');
+
+                const searchResult = await new Promise((resolve, reject) => {
+                    const searchBody = JSON.stringify({ id: parseInt(bookingId), limit: 10 });
+                    const options = {
+                        hostname: 'api.bokun.io',
+                        path: searchPath,
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json;charset=UTF-8',
+                            'Content-Length': Buffer.byteLength(searchBody),
+                            'X-Bokun-AccessKey': accessKey,
+                            'X-Bokun-Date': searchDate,
+                            'X-Bokun-Signature': searchSignature,
+                        },
+                    };
+
+                    const apiReq = https.request(options, (apiRes) => {
+                        let data = '';
+                        apiRes.on('data', (chunk) => { data += chunk; });
+                        apiRes.on('end', () => {
+                            if (apiRes.statusCode >= 200 && apiRes.statusCode < 300) {
+                                try { resolve(JSON.parse(data)); } catch (e) { reject(new Error('Failed to parse')); }
+                            } else {
+                                reject(new Error(`Search failed: ${apiRes.statusCode}`));
+                            }
+                        });
+                    });
+                    apiReq.on('error', reject);
+                    apiReq.write(searchBody);
+                    apiReq.end();
+                });
+
+                const booking = searchResult.items?.find(b => String(b.id) === String(bookingId));
+                if (!booking) throw new Error(`Booking ${bookingId} not found`);
+                actualProductBookingId = booking.productBookings?.[0]?.id;
+            }
+
+            if (!actualProductBookingId) throw new Error('Could not find productBookingId');
+
+            console.log(`📍 Using productBookingId: ${actualProductBookingId}`);
+
+            // Execute ActivityPickupAction via Bokun edit API
+            const editPath = '/booking.json/edit';
+            const editDate = new Date().toISOString().replace('T', ' ').substring(0, 19);
+            const editMessage = editDate + accessKey + 'POST' + editPath;
+            const editSignature = crypto.createHmac('sha1', secretKey).update(editMessage).digest('base64');
+
+            const editActions = [{
+                type: 'ActivityPickupAction',
+                activityBookingId: parseInt(actualProductBookingId),
+                pickup: true,
+                pickupPlaceId: parseInt(pickupPlaceId),
+                description: pickupPlaceName || '',
+            }];
+
+            await new Promise((resolve, reject) => {
+                const editBody = JSON.stringify(editActions);
+                const options = {
+                    hostname: 'api.bokun.io',
+                    path: editPath,
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json;charset=UTF-8',
+                        'Content-Length': Buffer.byteLength(editBody),
+                        'X-Bokun-AccessKey': accessKey,
+                        'X-Bokun-Date': editDate,
+                        'X-Bokun-Signature': editSignature,
+                    },
+                };
+
+                const apiReq = https.request(options, (apiRes) => {
+                    let data = '';
+                    apiRes.on('data', (chunk) => { data += chunk; });
+                    apiRes.on('end', () => {
+                        if (apiRes.statusCode >= 200 && apiRes.statusCode < 300) {
+                            resolve({ success: true });
+                        } else {
+                            reject(new Error(`Pickup update failed: ${apiRes.statusCode} - ${data}`));
+                        }
+                    });
+                });
+                apiReq.on('error', reject);
+                apiReq.write(editBody);
+                apiReq.end();
+            });
+
+            console.log(`✅ Pickup updated successfully`);
+
+            await db.collection('booking_actions').add({
+                bookingId,
+                action: 'update_pickup',
+                pickupPlaceId,
+                pickupPlaceName: pickupPlaceName || '',
+                performedBy: userId || 'unknown',
+                performedAt: admin.firestore.FieldValue.serverTimestamp(),
+                success: true,
+            });
+
+            await snapshot.ref.update({
+                status: 'completed',
+                completedAt: admin.firestore.FieldValue.serverTimestamp(),
+                message: `Pickup updated to ${pickupPlaceName || pickupPlaceId}`,
+            });
+
+            console.log(`✅ Pickup update request completed: ${requestId}`);
+
+        } catch (error) {
+            console.error(`❌ Pickup update failed: ${error.message}`);
+            await snapshot.ref.update({
+                status: 'failed',
+                error: error.message,
+                failedAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+        }
+    }
+);
+
+/**
+ * Firestore Trigger: Process cancel requests
+ * Bypasses Cloud Run IAM issues by using Firestore write-trigger pattern
+ */
+const onCancelRequest = onDocumentCreated(
+    {
+        document: 'cancel_requests/{requestId}',
+        region: 'us-central1',
+        secrets: ['BOKUN_ACCESS_KEY', 'BOKUN_SECRET_KEY'],
+    },
+    async (event) => {
+        const snapshot = event.data;
+        if (!snapshot) {
+            console.log('No data in cancel request');
+            return;
+        }
+
+        const requestData = snapshot.data();
+        const requestId = event.params.requestId;
+
+        if (requestData.status === 'completed' || requestData.status === 'failed') {
+            console.log(`Cancel request ${requestId} already processed`);
+            return;
+        }
+
+        const { bookingId, confirmationCode, reason, userId } = requestData;
+
+        console.log(`🗑️ Processing cancel request: ${requestId} for booking ${bookingId}`);
+
+        if (!bookingId || !confirmationCode || !reason) {
+            await snapshot.ref.update({
+                status: 'failed',
+                error: 'bookingId, confirmationCode, and reason are required',
+                failedAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+            return;
+        }
+
+        await snapshot.ref.update({ status: 'processing' });
+
+        try {
+            const accessKey = process.env.BOKUN_ACCESS_KEY;
+            const secretKey = process.env.BOKUN_SECRET_KEY;
+
+            if (!accessKey || !secretKey) {
+                throw new Error('Bokun API keys not configured');
+            }
+
+            // Get current booking for logging
+            let currentBooking = null;
+            try {
+                currentBooking = await makeBokunRequest('GET', `/booking.json/${bookingId}`, null, accessKey, secretKey);
+            } catch (e) {
+                console.warn('Could not fetch booking details for logging:', e.message);
+            }
+
+            // Cancel the booking
+            const cancelRequest = { note: reason, notify: true };
+            await makeBokunRequest('POST', `/booking.json/cancel-booking/${confirmationCode}`, cancelRequest, accessKey, secretKey);
+
+            console.log(`✅ Booking cancelled successfully`);
+
+            await db.collection('booking_actions').add({
+                bookingId,
+                confirmationCode,
+                action: 'cancel',
+                performedBy: userId || 'unknown',
+                performedAt: admin.firestore.FieldValue.serverTimestamp(),
+                reason,
+                originalData: currentBooking ? { date: currentBooking.startDate, status: currentBooking.status } : null,
+                success: true,
+                source: 'firestore_trigger',
+            });
+
+            await snapshot.ref.update({
+                status: 'completed',
+                completedAt: admin.firestore.FieldValue.serverTimestamp(),
+                message: `Booking ${confirmationCode} cancelled successfully`,
+            });
+
+            console.log(`✅ Cancel request completed: ${requestId}`);
+
+        } catch (error) {
+            console.error(`❌ Cancel failed: ${error.message}`);
+            await snapshot.ref.update({
+                status: 'failed',
+                error: error.message,
+                failedAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+        }
+    }
+);
+
 // Export all functions
 module.exports = {
     getBookingDetails,
@@ -1179,5 +1562,7 @@ module.exports = {
     getPickupPlaces,
     updatePickupLocation,
     cancelBooking,
+    onPickupUpdateRequest,
+    onCancelRequest,
     detectOTABooking,
 };

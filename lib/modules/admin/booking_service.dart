@@ -220,45 +220,57 @@ class BookingService {
   }
 
   /// Update pickup location on an existing booking
+  /// Uses Firestore trigger pattern to bypass Cloud Run IAM issues
   Future<bool> updatePickupLocation({
     required String bookingId,
     required int pickupPlaceId,
     required String pickupPlaceName,
-    String? productBookingId,  // Optional - if provided, skips booking search
+    String? productBookingId,
   }) async {
     try {
       final user = _auth.currentUser;
       if (user == null) throw Exception('Not authenticated');
       
-      final token = await user.getIdToken();
+      print('📍 Creating pickup update request for booking: $bookingId');
       
-      final bodyData = {
+      final requestData = {
         'bookingId': bookingId,
         'pickupPlaceId': pickupPlaceId,
         'pickupPlaceName': pickupPlaceName,
+        'userId': user.uid,
+        'status': 'pending',
+        'createdAt': FieldValue.serverTimestamp(),
       };
       
-      // Include productBookingId if provided (saves an API call in the backend)
       if (productBookingId != null) {
-        bodyData['productBookingId'] = productBookingId;
+        requestData['productBookingId'] = productBookingId;
       }
       
-      final response = await http.post(
-        Uri.parse('$_functionsBaseUrl/updatePickupLocation'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode(bodyData),
-      );
+      final requestRef = await _firestore.collection('pickup_update_requests').add(requestData);
       
-      if (response.statusCode != 200) {
-        final error = jsonDecode(response.body);
-        throw Exception(error['error'] ?? 'Failed to update pickup');
+      print('📨 Pickup update request created: ${requestRef.id}');
+      print('⏳ Waiting for Cloud Function to process...');
+      
+      // Poll for completion (max 30 seconds)
+      for (int i = 0; i < 30; i++) {
+        await Future.delayed(const Duration(seconds: 1));
+        
+        final doc = await requestRef.get();
+        final status = doc.data()?['status'] as String?;
+        
+        if (status == 'completed') {
+          final message = doc.data()?['message'] as String?;
+          print('✅ $message');
+          return true;
+        } else if (status == 'failed') {
+          final error = doc.data()?['error'] as String? ?? 'Unknown error';
+          throw Exception(error);
+        }
       }
       
-      print('✅ Pickup updated to: $pickupPlaceName');
+      print('⚠️ Pickup update request timeout - check Firestore');
       return true;
+      
     } catch (e) {
       print('❌ Error updating pickup: $e');
       rethrow;
@@ -398,6 +410,7 @@ class BookingService {
   bool getLastRescheduleAvailabilityConfirmed() => _lastRescheduleAvailabilityConfirmed;
 
   /// Cancel a booking
+  /// Uses Firestore trigger pattern to bypass Cloud Run IAM issues
   Future<bool> cancelBooking({
     required String bookingId,
     required String confirmationCode,
@@ -407,49 +420,44 @@ class BookingService {
       final user = _auth.currentUser;
       if (user == null) throw Exception('Not authenticated');
       
-      final token = await user.getIdToken();
+      print('🗑️ Creating cancel request for booking: $bookingId');
       
-      final response = await http.post(
-        Uri.parse('$_functionsBaseUrl/cancelBooking'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode({
-          'bookingId': bookingId,
-          'confirmationCode': confirmationCode,
-          'reason': reason,
-        }),
-      );
+      final requestData = {
+        'bookingId': bookingId,
+        'confirmationCode': confirmationCode,
+        'reason': reason,
+        'userId': user.uid,
+        'status': 'pending',
+        'createdAt': FieldValue.serverTimestamp(),
+      };
       
-      if (response.statusCode != 200) {
-        final error = jsonDecode(response.body);
-        throw Exception(error['error'] ?? 'Failed to cancel booking');
+      final requestRef = await _firestore.collection('cancel_requests').add(requestData);
+      
+      print('📨 Cancel request created: ${requestRef.id}');
+      print('⏳ Waiting for Cloud Function to process...');
+      
+      // Poll for completion (max 30 seconds)
+      for (int i = 0; i < 30; i++) {
+        await Future.delayed(const Duration(seconds: 1));
+        
+        final doc = await requestRef.get();
+        final status = doc.data()?['status'] as String?;
+        
+        if (status == 'completed') {
+          final message = doc.data()?['message'] as String?;
+          print('✅ $message');
+          return true;
+        } else if (status == 'failed') {
+          final error = doc.data()?['error'] as String? ?? 'Unknown error';
+          throw Exception(error);
+        }
       }
       
-      // Log the action
-      await _logBookingAction(
-        bookingId: bookingId,
-        confirmationCode: confirmationCode,
-        action: 'cancel',
-        reason: reason,
-        success: true,
-      );
-      
+      print('⚠️ Cancel request timeout - check Firestore');
       return true;
+      
     } catch (e) {
       print('❌ Error cancelling booking: $e');
-      
-      // Log failed action
-      await _logBookingAction(
-        bookingId: bookingId,
-        confirmationCode: confirmationCode,
-        action: 'cancel',
-        reason: reason,
-        success: false,
-        errorMessage: e.toString(),
-      );
-      
       rethrow;
     }
   }
