@@ -11,6 +11,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:provider/provider.dart';
 import 'dart:math';
 import 'dart:async';
+import 'dart:ui' as ui;
 import '../../core/theme/colors.dart';
 import '../../core/config/env_config.dart';
 import '../../core/services/bus_management_service.dart';
@@ -67,6 +68,9 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
   static Map<String, List<Map<String, dynamic>>> _trailCache = {};
   static DateTime? _trailCacheTimestamp;
   static const _trailCacheDuration = Duration(minutes: 5);
+
+  // Cache for custom labeled marker icons
+  final Map<String, BitmapDescriptor> _markerIconCache = {};
 
   @override
   void initState() {
@@ -164,30 +168,201 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
   // NEW: Progress-based marker colors
   // ============================================
 
-  /// Get marker color based on pickup progress
+  /// Get progress color based on pickup count
+  Color _getMarkerColor(int pickedUp, int total, bool isTracking) {
+    if (!isTracking) return Colors.grey;
+    if (total == 0) return Colors.blue;
+    final progress = pickedUp / total;
+    if (progress == 0) return Colors.red;
+    if (progress < 0.25) return Colors.orange;
+    if (progress < 0.75) return Colors.amber;
+    if (progress < 1.0) return Colors.lightGreen;
+    return Colors.green;
+  }
+
+  /// Create a custom labeled marker icon with bus name, guide name, and progress
+  Future<BitmapDescriptor> _createLabeledMarkerIcon({
+    required String busName,
+    String? guideName,
+    required Color busColor,
+    required int pickedUp,
+    required int totalPassengers,
+    required bool isTracking,
+  }) async {
+    // Build a cache key
+    final cacheKey = '${busName}_${guideName ?? ''}_${busColor.value}_${pickedUp}_${totalPassengers}_$isTracking';
+    if (_markerIconCache.containsKey(cacheKey)) {
+      return _markerIconCache[cacheKey]!;
+    }
+
+    final progressColor = _getMarkerColor(pickedUp, totalPassengers, isTracking);
+    final label = guideName != null && guideName.isNotEmpty
+        ? '$busName\n$guideName'
+        : busName;
+    final lines = label.split('\n');
+    final hasProgress = totalPassengers > 0;
+    final progressText = hasProgress ? '$pickedUp/$totalPassengers' : '';
+
+    // Sizing
+    final double fontSize = 13;
+    final double padding = 8;
+    final double lineHeight = fontSize + 4;
+    final double pinSize = 14;
+    final double pinStemHeight = 10;
+
+    // Measure text width
+    double maxTextWidth = 0;
+    for (final line in lines) {
+      final tp = TextPainter(
+        text: TextSpan(
+          text: line,
+          style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.bold),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      if (tp.width > maxTextWidth) maxTextWidth = tp.width;
+      tp.dispose();
+    }
+    if (hasProgress) {
+      final tp = TextPainter(
+        text: TextSpan(
+          text: progressText,
+          style: TextStyle(fontSize: fontSize - 1, fontWeight: FontWeight.bold),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      if (tp.width > maxTextWidth) maxTextWidth = tp.width;
+      tp.dispose();
+    }
+
+    final double boxWidth = maxTextWidth + padding * 2 + (hasProgress ? 30.0 : 0.0);
+    final double boxHeight = lines.length.toDouble() * lineHeight + padding * 2 + (hasProgress ? lineHeight : 0.0);
+    final double totalHeight = boxHeight + pinStemHeight + pinSize;
+    final double totalWidth = boxWidth < 60.0 ? 60.0 : boxWidth;
+
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder, Rect.fromLTWH(0, 0, totalWidth, totalHeight));
+
+    // Draw rounded rectangle background
+    final bgRect = RRect.fromRectAndRadius(
+      Rect.fromLTWH(0, 0, totalWidth, boxHeight),
+      const Radius.circular(8),
+    );
+    canvas.drawRRect(
+      bgRect,
+      Paint()..color = isTracking ? const Color(0xEE1A1A2E) : const Color(0xCC555555),
+    );
+    // Border with bus color
+    canvas.drawRRect(
+      bgRect,
+      Paint()
+        ..color = isTracking ? busColor : Colors.grey
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.5,
+    );
+
+    // Draw text lines
+    double yOffset = padding;
+    for (int i = 0; i < lines.length; i++) {
+      final tp = TextPainter(
+        text: TextSpan(
+          text: lines[i],
+          style: TextStyle(
+            color: i == 0 ? Colors.white : Colors.white70,
+            fontSize: i == 0 ? fontSize : fontSize - 1,
+            fontWeight: i == 0 ? FontWeight.bold : FontWeight.w500,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      tp.paint(canvas, Offset(padding, yOffset));
+      tp.dispose();
+      yOffset += lineHeight;
+    }
+
+    // Draw progress badge
+    if (hasProgress) {
+      final badgeWidth = 42.0;
+      final badgeHeight = lineHeight - 2;
+      final badgeRect = RRect.fromRectAndRadius(
+        Rect.fromLTWH(totalWidth - badgeWidth - padding, padding, badgeWidth, badgeHeight),
+        const Radius.circular(10),
+      );
+      canvas.drawRRect(badgeRect, Paint()..color = progressColor);
+      final tp = TextPainter(
+        text: TextSpan(
+          text: progressText,
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: fontSize - 2,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      tp.paint(
+        canvas,
+        Offset(
+          totalWidth - badgeWidth - padding + (badgeWidth - tp.width) / 2,
+          padding + (badgeHeight - tp.height) / 2,
+        ),
+      );
+      tp.dispose();
+    }
+
+    // Draw pin stem
+    final stemX = totalWidth / 2;
+    canvas.drawLine(
+      Offset(stemX, boxHeight),
+      Offset(stemX, boxHeight + pinStemHeight),
+      Paint()
+        ..color = isTracking ? busColor : Colors.grey
+        ..strokeWidth = 3,
+    );
+
+    // Draw pin circle
+    canvas.drawCircle(
+      Offset(stemX, boxHeight + pinStemHeight + pinSize / 2),
+      pinSize / 2,
+      Paint()..color = progressColor,
+    );
+    canvas.drawCircle(
+      Offset(stemX, boxHeight + pinStemHeight + pinSize / 2),
+      pinSize / 2,
+      Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2,
+    );
+
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(totalWidth.ceil(), totalHeight.ceil());
+    final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+    
+    if (bytes == null) {
+      return BitmapDescriptor.defaultMarker;
+    }
+
+    final descriptor = BitmapDescriptor.bytes(bytes.buffer.asUint8List());
+    _markerIconCache[cacheKey] = descriptor;
+    return descriptor;
+  }
+
+  /// Fallback: Get marker color based on pickup progress (for non-label use)
   BitmapDescriptor _getProgressMarkerIcon(int pickedUp, int total) {
     if (total == 0) {
       return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure);
     }
-
     final progress = pickedUp / total;
-
-    if (progress == 0) {
-      return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed);
-    } else if (progress < 0.25) {
-      return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange);
-    } else if (progress < 0.75) {
-      return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueYellow);
-    } else if (progress < 1.0) {
-      return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueCyan);
-    } else {
-      return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen);
-    }
+    if (progress == 0) return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed);
+    if (progress < 0.25) return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange);
+    if (progress < 0.75) return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueYellow);
+    if (progress < 1.0) return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueCyan);
+    return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen);
   }
 
   /// Get marker icon for inactive/non-tracking buses (grayed out)
   BitmapDescriptor _getInactiveMarkerIcon(int pickedUp, int total) {
-    // Use gray hue for inactive buses
     return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueViolet);
   }
 
@@ -574,9 +749,12 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
     );
   }
 
-  void _updateBusLocations(QuerySnapshot snapshot) {
+  void _updateBusLocations(QuerySnapshot snapshot) async {
     final buses = <Map<String, dynamic>>[];
     final markers = <Marker>{};
+
+    // Collect marker creation futures
+    final markerFutures = <Future<Marker>>[];
 
     for (final doc in snapshot.docs) {
       final data = doc.data() as Map<String, dynamic>;
@@ -608,32 +786,38 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
           totalPassengers = guidePickupList.totalPassengers;
         }
 
-        // Use different icon style for non-tracking buses (grayed out)
-        final icon = isTracking 
-            ? _getProgressMarkerIcon(pickedUpCount, totalPassengers)
-            : _getInactiveMarkerIcon(pickedUpCount, totalPassengers);
-
-        // Create marker - show last known position even if not tracking
-        markers.add(Marker(
-          markerId: MarkerId(busId),
-          position: LatLng(latitude, longitude),
-          icon: icon,
-          infoWindow: InfoWindow(
-            title: '${busInfo['name']} ${!isTracking ? '(Last Known)' : ''} ${totalPassengers > 0 ? '($pickedUpCount/$totalPassengers)' : ''}',
-            snippet: _getLocationSnippet(
-              speed,
-              heading,
-              timestamp ?? lastUpdated,
-              busName: busInfo['name'] as String,
-              guideName: guideName,
-              pickedUpCount: pickedUpCount,
-              totalPassengers: totalPassengers,
-              isTracking: isTracking,
+        // Create labeled marker icon asynchronously
+        final busName = busInfo['name'] as String;
+        final busColor = busInfo['color'] as Color;
+        markerFutures.add(
+          _createLabeledMarkerIcon(
+            busName: busName,
+            guideName: guideName,
+            busColor: busColor,
+            pickedUp: pickedUpCount,
+            totalPassengers: totalPassengers,
+            isTracking: isTracking,
+          ).then((icon) => Marker(
+            markerId: MarkerId(busId),
+            position: LatLng(latitude, longitude),
+            icon: icon,
+            anchor: const Offset(0.5, 1.0),
+            infoWindow: InfoWindow(
+              title: '$busName ${!isTracking ? '(Last Known)' : ''} ${totalPassengers > 0 ? '($pickedUpCount/$totalPassengers)' : ''}',
+              snippet: _getLocationSnippet(
+                speed,
+                heading,
+                timestamp ?? lastUpdated,
+                busName: busName,
+                guideName: guideName,
+                pickedUpCount: pickedUpCount,
+                totalPassengers: totalPassengers,
+                isTracking: isTracking,
+              ),
             ),
-          ),
-          rotation: isTracking ? heading : 0.0, // Don't rotate if not tracking
-          onTap: () => _onBusMarkerTapped(busId),
-        ));
+            onTap: () => _onBusMarkerTapped(busId),
+          )),
+        );
 
         buses.add({
           'busId': busId,
@@ -649,6 +833,10 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
         });
       }
     }
+
+    // Wait for all marker icons to be created
+    final createdMarkers = await Future.wait(markerFutures);
+    markers.addAll(createdMarkers);
 
     if (mounted) {
       setState(() {
