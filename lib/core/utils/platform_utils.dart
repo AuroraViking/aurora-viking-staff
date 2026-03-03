@@ -44,6 +44,9 @@ class PlatformFeatures {
   /// Admin map - needs Maps JavaScript API on web
   static bool get adminMap => true; // Google Maps supports web!
   
+  /// Voice radio - works on all platforms
+  static bool get radioFeature => true;
+  
   /// Get list of tab IDs that should be shown on current platform
   static List<String> get availableTabs {
     final tabs = <String>['forecast', 'shifts', 'pickup'];

@@ -225,6 +225,20 @@
           "order": "DESCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "radio_messages",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "channelId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "ASCENDING"
+        }
+      ]
     }
   ],
   "fieldOverrides": []

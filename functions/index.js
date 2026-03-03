@@ -147,3 +147,10 @@ exports.testAdminNotification = onCall(
   }
 );
 
+// ============================================
+// VOICE RADIO MODULE
+// ============================================
+const radio = require('./modules/radio');
+exports.onRadioMessageCreated = radio.onRadioMessageCreated;
+
+

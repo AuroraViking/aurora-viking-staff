@@ -83,6 +83,13 @@ dependencies:
   # QR code generation for review requests
   qr_flutter: ^4.1.0
 
+  # Voice radio / walkie-talkie
+  record: ^5.0.5
+  audioplayers: ^6.1.0
+
+dependency_overrides:
+  record_platform_interface: 1.2.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

@@ -14,6 +14,8 @@ import '../modules/admin/admin_dashboard.dart';
 import '../modules/admin/admin_controller.dart';
 import '../core/auth/auth_controller.dart';
 import '../core/utils/platform_utils.dart';
+import '../modules/radio/radio_screen.dart';
+import '../modules/radio/radio_controller.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -28,6 +30,15 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    // Initialize radio controller globally so autoplay works from any screen.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final auth = context.read<AuthController>();
+      final userId = auth.currentUser?.id ?? '';
+      final userName = auth.currentUser?.fullName ?? 'Unknown';
+      if (userId.isNotEmpty) {
+        context.read<RadioController>().init(userId, userName);
+      }
+    });
   }
 
   // Build screens list based on platform capabilities
@@ -224,6 +235,17 @@ class _HomeScreenState extends State<HomeScreen> {
           },
         ),
         actions: [
+          // Voice Radio button
+          IconButton(
+            icon: const Icon(Icons.cell_tower, color: Color(0xFF00E5FF)),
+            tooltip: 'Voice Radio',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const RadioScreen()),
+              );
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.notifications),
             onPressed: () {

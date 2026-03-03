@@ -197,5 +197,14 @@ service cloud.firestore {
     match /pickup_day_notes/{document} {
       allow read, write: if request.auth != null;
     }
+    
+    // Voice Radio - channels and messages
+    match /radio_channels/{channelId} {
+      allow read, write: if request.auth != null;
+    }
+    
+    match /radio_messages/{messageId} {
+      allow read, write: if request.auth != null;
+    }
   }
 } 

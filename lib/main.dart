@@ -7,6 +7,7 @@ import 'modules/admin/admin_controller.dart';
 import 'modules/pickup/pickup_controller.dart';
 import 'modules/photos/photo_controller.dart';
 import 'modules/inbox/inbox_controller.dart';
+import 'modules/radio/radio_controller.dart';
 import 'core/auth/auth_controller.dart';
 import 'core/services/firebase_service.dart';
 import 'core/services/notification_service.dart';
@@ -57,6 +58,7 @@ class AuroraVikingStaffApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => PhotoController()),
         ChangeNotifierProvider(create: (_) => AuthController()),
         ChangeNotifierProvider(create: (_) => InboxController()),
+        ChangeNotifierProvider(create: (_) => RadioController()),
       ],
       child: MaterialApp(
         title: 'Aurora Viking Staff',
