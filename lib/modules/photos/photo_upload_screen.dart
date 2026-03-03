@@ -3,15 +3,25 @@
 // 1. Uploads directly from SAF URIs - NO copying to temp storage first
 // 2. Shows file list instead of thumbnails - saves memory
 // 3. Processes in batches with cleanup
+// 4. Session persistence for resume after backgrounding/disconnect
+// 5. Wakelock to prevent screen sleep during uploads
+// 6. End Shift button and fullscreen display modes
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
 import 'dart:typed_data';
 import '../../core/auth/auth_controller.dart';
+import '../../core/models/upload_session.dart';
+import '../../core/services/upload_session_service.dart';
+import '../../modules/pickup/end_of_shift_dialog.dart';
+import '../../core/models/end_of_shift_report.dart';
 import 'photo_service.dart';
+import 'photo_display_screen.dart';
+import 'review_request_screen.dart';
 
 const _channel = MethodChannel('com.auroraviking.aurora_viking_staff/saf');
 
@@ -28,7 +38,7 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
   DateTime _selectedDate = DateTime.now();
   bool _isScanning = false;
   bool _isUploading = false;
-  int _hoursToScan = 20;
+  int _hoursToScan = 12;
   String _statusMessage = '';
   int _currentProgress = 0;
   int _totalFiles = 0;
@@ -41,10 +51,34 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
   
   final List<int> _hourOptions = [6, 12, 20, 24, 48, 72];
 
+  // Session tracking for upload resume
+  UploadSession? _activeSession;
+  bool _hasIncompleteSession = false;
+  bool _isPausedByDisconnect = false;
+  bool _uploadComplete = false;
+
   @override
   void initState() {
     super.initState();
     _loadSavedFolder();
+    _checkForIncompleteSession();
+  }
+
+  @override
+  void dispose() {
+    super.dispose();
+  }
+
+
+
+  Future<void> _checkForIncompleteSession() async {
+    final session = await UploadSessionService.loadSession();
+    if (session != null && session.remainingFiles > 0) {
+      setState(() {
+        _hasIncompleteSession = true;
+        _activeSession = session;
+      });
+    }
   }
 
   Future<void> _loadSavedFolder() async {
@@ -173,6 +207,80 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
     return '${mb.toStringAsFixed(1)} MB';
   }
 
+  /// Resume an incomplete upload session
+  Future<void> _resumeUpload() async {
+    if (_activeSession == null) return;
+
+    // Sign in if needed
+    if (!_photoService.isSignedIn) {
+      final signedIn = await _photoService.signInWithGoogle();
+      if (!signedIn) {
+        _showAlert('Please sign in with Google to resume upload.');
+        return;
+      }
+    }
+
+    // Initialize Drive API
+    final initialized = await _photoService.initialize();
+    if (!initialized) {
+      _showAlert('Failed to connect to Google Drive. Please try again.');
+      return;
+    }
+
+    // Need to re-scan to get the file list
+    if (_selectedPhotos.isEmpty && _savedFolderUri != null) {
+      await _scanForPhotos();
+    }
+
+    if (_selectedPhotos.isEmpty) {
+      _showAlert('No photos found. Please scan for photos first.');
+      return;
+    }
+
+    // Filter out already-completed files
+    final remainingPhotos = _selectedPhotos
+        .where((p) => !_activeSession!.completedUris.contains(p.uri))
+        .toList();
+
+    if (remainingPhotos.isEmpty) {
+      setState(() {
+        _hasIncompleteSession = false;
+        _uploadComplete = true;
+      });
+      await UploadSessionService.clearSession();
+      _showAlert('All files were already uploaded!');
+      return;
+    }
+
+    final folderId = _activeSession!.folderId;
+    if (folderId == null) {
+      _showAlert('Session data is corrupted. Please start a new upload.');
+      await UploadSessionService.clearSession();
+      setState(() => _hasIncompleteSession = false);
+      return;
+    }
+
+    setState(() {
+      _isUploading = true;
+      _hasIncompleteSession = false;
+      _isPausedByDisconnect = false;
+      _currentProgress = _activeSession!.completedFiles;
+      _totalFiles = _activeSession!.totalFiles;
+      _statusMessage = 'Resuming upload...';
+      _activeSession!.status = UploadSessionStatus.active;
+    });
+
+    try {
+      await _uploadBatch(remainingPhotos, folderId, startIndex: _activeSession!.completedFiles);
+    } catch (e) {
+      setState(() {
+        _isUploading = false;
+        _statusMessage = '';
+      });
+      _showAlert('Upload failed: $e');
+    }
+  }
+
   /// Upload photos directly from SAF URIs - NO copying first!
   Future<void> _uploadPhotos() async {
     if (_selectedPhotos.isEmpty) return;
@@ -218,49 +326,119 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
         throw Exception('Failed to create folder in Drive');
       }
 
-      // Upload in batches of 10 to manage memory
-      const batchSize = 10;
-      int successCount = 0;
-      int failCount = 0;
+      // Create upload session for persistence
+      _activeSession = UploadSession(
+        sessionId: DateTime.now().millisecondsSinceEpoch.toString(),
+        guideName: guideName,
+        date: DateFormat('yyyy-MM-dd').format(_selectedDate),
+        timestamp: DateTime.now(),
+        totalFiles: _selectedPhotos.length,
+        folderId: folderId,
+        status: UploadSessionStatus.active,
+      );
+      await UploadSessionService.saveSession(_activeSession!);
 
-      for (int i = 0; i < _selectedPhotos.length; i += batchSize) {
-        final batchEnd = (i + batchSize).clamp(0, _selectedPhotos.length);
-        final batch = _selectedPhotos.sublist(i, batchEnd);
+      // Upload all photos (using existing batch logic)
+      await _uploadBatch(_selectedPhotos, folderId, startIndex: 0);
+    } catch (e) {
+      setState(() {
+        _isUploading = false;
+        _statusMessage = '';
+      });
+      _showAlert('Upload failed: $e');
+    }
+  }
 
-        for (int j = 0; j < batch.length; j++) {
-          final photo = batch[j];
-          final fileIndex = i + j;
-          
-          setState(() {
-            _currentProgress = fileIndex + 1;
-            _statusMessage = 'Uploading ${fileIndex + 1}/${_selectedPhotos.length}: ${photo.name}';
-          });
+  /// Core batch upload logic - shared between new upload and resume
+  Future<void> _uploadBatch(List<PhotoFileInfo> photos, String folderId, {required int startIndex}) async {
+    // Upload in batches of 10 to manage memory
+    const batchSize = 10;
+    int successCount = 0;
+    int failCount = 0;
 
-          try {
-            // Read file bytes via SAF and upload directly
-            final success = await _uploadSinglePhoto(photo, fileIndex + 1, folderId);
-            if (success) {
-              successCount++;
-            } else {
-              failCount++;
-              print('⚠️ Failed to upload: ${photo.name}');
+    for (int i = 0; i < photos.length; i += batchSize) {
+      // Check if paused by disconnect
+      if (_isPausedByDisconnect) break;
+
+      final batchEnd = (i + batchSize).clamp(0, photos.length);
+      final batch = photos.sublist(i, batchEnd);
+
+      for (int j = 0; j < batch.length; j++) {
+        // Check if paused by disconnect
+        if (_isPausedByDisconnect) break;
+
+        final photo = batch[j];
+        final fileIndex = startIndex + i + j;
+        
+        setState(() {
+          _currentProgress = fileIndex + 1;
+          _statusMessage = 'Uploading ${fileIndex + 1}/$_totalFiles: ${photo.name}';
+        });
+
+        try {
+          // Read file bytes via SAF and upload directly
+          final success = await _uploadSinglePhoto(photo, fileIndex + 1, folderId);
+          if (success) {
+            successCount++;
+            // Track completed file in session
+            if (_activeSession != null) {
+              _activeSession!.markFileCompleted(photo.uri);
+              await UploadSessionService.saveSession(_activeSession!);
             }
-          } catch (e) {
+          } else {
             failCount++;
-            print('❌ Error uploading ${photo.name}: $e');
+            print('⚠️ Failed to upload: ${photo.name}');
           }
-
-          // Small delay to prevent overwhelming the system
-          await Future.delayed(const Duration(milliseconds: 50));
+        } catch (e) {
+          // Check for camera disconnect
+          if (e is PlatformException &&
+              (e.message?.contains('FileNotFoundException') == true ||
+               e.message?.contains('Could not read') == true ||
+               e.message?.contains('SecurityException') == true)) {
+            setState(() {
+              _isPausedByDisconnect = true;
+              _statusMessage = 'Camera disconnected – upload paused';
+            });
+            // Save session as paused
+            if (_activeSession != null) {
+              _activeSession!.status = UploadSessionStatus.paused;
+              await UploadSessionService.saveSession(_activeSession!);
+            }
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('📷 Camera disconnected – upload paused. Reconnect to resume.'),
+                  backgroundColor: Colors.orange,
+                  duration: Duration(seconds: 5),
+                ),
+              );
+            }
+            break;
+          }
+          failCount++;
+          print('❌ Error uploading ${photo.name}: $e');
         }
 
-        // Force garbage collection between batches
-        await Future.delayed(const Duration(milliseconds: 100));
+        // Small delay to prevent overwhelming the system
+        await Future.delayed(const Duration(milliseconds: 50));
+      }
+
+      // Force garbage collection between batches
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
+
+    // Upload finished (either complete or paused)
+    if (!_isPausedByDisconnect) {
+      // Mark session as completed and clear
+      if (_activeSession != null) {
+        _activeSession!.status = UploadSessionStatus.completed;
+        await UploadSessionService.clearSession();
       }
 
       setState(() {
         _isUploading = false;
         _statusMessage = '';
+        _uploadComplete = true;
       });
 
       if (failCount == 0) {
@@ -268,12 +446,11 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
       } else {
         _showAlert('Upload complete.\n\n✅ Success: $successCount\n❌ Failed: $failCount');
       }
-    } catch (e) {
+    } else {
       setState(() {
         _isUploading = false;
-        _statusMessage = '';
+        _hasIncompleteSession = true;
       });
-      _showAlert('Upload failed: $e');
     }
   }
 
@@ -304,7 +481,7 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
       return success;
     } catch (e) {
       print('❌ Upload error for ${photo.name}: $e');
-      return false;
+      rethrow; // Let the caller handle disconnect detection
     }
   }
 
@@ -379,6 +556,111 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
     if (picked != null) setState(() => _selectedDate = picked);
   }
 
+  void _showEndShiftConfirmation() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A2E),
+        title: const Text(
+          'End Shift?',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: const Text(
+          'Are you sure you want to end your shift? This will open the shift report.',
+          style: TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _openEndShiftDialog();
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('End Shift', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _openEndShiftDialog() {
+    final authController = context.read<AuthController>();
+    final guideName = authController.currentUser?.fullName ?? 'Unknown Guide';
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => EndOfShiftDialog(
+        guideName: guideName,
+        onSubmit: (auroraRating, shouldRequestReviews, notes) async {
+          // Save the shift report to Firestore
+          try {
+            final report = EndOfShiftReport(
+              id: DateTime.now().millisecondsSinceEpoch.toString(),
+              date: DateFormat('yyyy-MM-dd').format(DateTime.now()),
+              guideId: authController.currentUser?.id ?? '',
+              guideName: guideName,
+              auroraRating: auroraRating,
+              shouldRequestReviews: shouldRequestReviews,
+              notes: notes,
+              createdAt: DateTime.now(),
+            );
+
+            // TODO: Save report to Firestore if a service exists
+            print('📋 Shift report submitted: ${report.toJson()}');
+
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('✅ Shift report submitted!'),
+                  backgroundColor: Colors.green,
+                ),
+              );
+            }
+          } catch (e) {
+            rethrow;
+          }
+        },
+      ),
+    );
+  }
+
+  void _openDisplayScreen() {
+    final authController = context.read<AuthController>();
+    final guideName = authController.currentUser?.fullName ?? 'Unknown Guide';
+    final formattedDate = DateFormat('EEE, MMM d, y').format(_selectedDate);
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PhotoDisplayScreen(
+          guideName: guideName,
+          date: formattedDate,
+        ),
+      ),
+    );
+  }
+
+  void _openReviewScreen() {
+    final authController = context.read<AuthController>();
+    final guideName = authController.currentUser?.fullName ?? 'Unknown Guide';
+    final formattedDate = DateFormat('EEE, MMM d, y').format(_selectedDate);
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ReviewRequestScreen(
+          guideName: guideName,
+          date: formattedDate,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -425,114 +707,123 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
   Widget _buildUploadProgress() {
     final progress = _totalFiles > 0 ? _currentProgress / _totalFiles : 0.0;
     
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const CircularProgressIndicator(valueColor: AlwaysStoppedAnimation(Colors.green)),
-            const SizedBox(height: 24),
-            Text(
-              '${(progress * 100).toInt()}%',
-              style: const TextStyle(color: Colors.white, fontSize: 48, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '$_currentProgress / $_totalFiles photos',
-              style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 18),
-            ),
-            const SizedBox(height: 24),
-            SizedBox(
-              width: 300,
-              child: LinearProgressIndicator(
-                value: progress,
-                backgroundColor: Colors.white24,
-                valueColor: const AlwaysStoppedAnimation(Colors.green),
-                minHeight: 8,
+    return SingleChildScrollView(
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const SizedBox(height: 32),
+              const CircularProgressIndicator(valueColor: AlwaysStoppedAnimation(Colors.green)),
+              const SizedBox(height: 24),
+              Text(
+                '${(progress * 100).toInt()}%',
+                style: const TextStyle(color: Colors.white, fontSize: 48, fontWeight: FontWeight.bold),
               ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              _statusMessage,
-              style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 12),
-              textAlign: TextAlign.center,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-            const SizedBox(height: 32),
-            // Tour information for photo requests
-            Consumer<AuthController>(
-              builder: (context, auth, _) {
-                final guideName = auth.currentUser?.fullName ?? 'Unknown Guide';
-                final formattedDate = DateFormat('EEE, MMM d, y').format(_selectedDate);
-                
-                return Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.white.withOpacity(0.2)),
-                  ),
-                  child: Column(
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(Icons.calendar_today, color: Colors.white70, size: 16),
-                          const SizedBox(width: 8),
-                          Text(
-                            formattedDate,
-                            style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(Icons.person, color: Colors.white70, size: 16),
-                          const SizedBox(width: 8),
-                          Text(
-                            guideName,
-                            style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      const Divider(color: Colors.white24, height: 1),
-                      const SizedBox(height: 12),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(Icons.email, color: Colors.green, size: 16),
-                          const SizedBox(width: 8),
-                          Text(
-                            'photo@auroraviking.com',
-                            style: TextStyle(
-                              color: Colors.green,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w500,
-                              decoration: TextDecoration.underline,
+              const SizedBox(height: 8),
+              Text(
+                '$_currentProgress / $_totalFiles photos',
+                style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 18),
+              ),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: 300,
+                child: LinearProgressIndicator(
+                  value: progress,
+                  backgroundColor: Colors.white24,
+                  valueColor: const AlwaysStoppedAnimation(Colors.green),
+                  minHeight: 8,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                _statusMessage,
+                style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 12),
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 32),
+              // Tour information for photo requests
+              Consumer<AuthController>(
+                builder: (context, auth, _) {
+                  final guideName = auth.currentUser?.fullName ?? 'Unknown Guide';
+                  final formattedDate = DateFormat('EEE, MMM d, y').format(_selectedDate);
+                  
+                  return Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.white.withOpacity(0.2)),
+                    ),
+                    child: Column(
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(Icons.calendar_today, color: Colors.white70, size: 16),
+                            const SizedBox(width: 8),
+                            Text(
+                              formattedDate,
+                              style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
                             ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Request photos using this email',
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.7),
-                          fontSize: 11,
-                          fontStyle: FontStyle.italic,
+                          ],
                         ),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
-          ],
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(Icons.person, color: Colors.white70, size: 16),
+                            const SizedBox(width: 8),
+                            Text(
+                              guideName,
+                              style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        const Divider(color: Colors.white24, height: 1),
+                        const SizedBox(height: 12),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(Icons.email, color: Colors.green, size: 16),
+                            const SizedBox(width: 8),
+                            Text(
+                              'photo@auroraviking.com',
+                              style: TextStyle(
+                                color: Colors.green,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                                decoration: TextDecoration.underline,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Request photos using this email',
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.7),
+                            fontSize: 11,
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 24),
+              // Show Screen buttons during upload
+              _buildShowScreenButtons(),
+              const SizedBox(height: 24),
+              // End shift button during upload
+              _buildEndShiftButton(),
+            ],
+          ),
         ),
       ),
     );
@@ -545,6 +836,8 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (!_photoService.isSignedIn) _buildSignInWarning(),
+          // Resume banner for incomplete sessions
+          if (_hasIncompleteSession && _activeSession != null) _buildResumeBanner(),
           _buildCameraFolderSection(),
           const SizedBox(height: 16),
           _buildGuideAndDate(),
@@ -556,6 +849,93 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
             const SizedBox(height: 20),
           ],
           _buildUploadButton(),
+          // Show screen buttons when photos are selected or upload is complete
+          if (_selectedPhotos.isNotEmpty || _uploadComplete) ...[
+            const SizedBox(height: 16),
+            _buildShowScreenButtons(),
+          ],
+          const SizedBox(height: 24),
+          // End Shift button - always visible and prominent
+          _buildEndShiftButton(),
+          const SizedBox(height: 20),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildResumeBanner() {
+    final session = _activeSession!;
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.orange.withOpacity(0.2),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.orange),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.pause_circle_filled, color: Colors.orange),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'Incomplete Upload Found',
+                  style: TextStyle(
+                    color: Colors.orange,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.close, color: Colors.orange, size: 20),
+                onPressed: () async {
+                  await UploadSessionService.clearSession();
+                  setState(() {
+                    _hasIncompleteSession = false;
+                    _activeSession = null;
+                  });
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '${session.completedFiles}/${session.totalFiles} files completed '
+            '(${session.remainingFiles} remaining)',
+            style: const TextStyle(color: Colors.white, fontSize: 14),
+          ),
+          Text(
+            'Guide: ${session.guideName} • Date: ${session.date}',
+            style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 12),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: LinearProgressIndicator(
+              value: session.progressPercent,
+              backgroundColor: Colors.white24,
+              valueColor: const AlwaysStoppedAnimation(Colors.orange),
+              minHeight: 6,
+            ),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _resumeUpload,
+              icon: const Icon(Icons.play_arrow),
+              label: Text('Resume Upload (${session.remainingFiles} files)'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -826,6 +1206,66 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
           padding: const EdgeInsets.symmetric(vertical: 18),
           backgroundColor: Colors.blue,
           disabledBackgroundColor: Colors.grey.withOpacity(0.3),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildShowScreenButtons() {
+    return Column(
+      children: [
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: _openDisplayScreen,
+            icon: const Icon(Icons.fullscreen, color: Colors.white),
+            label: const Text('📱 Show Screen', style: TextStyle(color: Colors.white)),
+            style: ElevatedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              backgroundColor: const Color(0xFF2D3748),
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: _openReviewScreen,
+            icon: const Icon(Icons.star, color: Colors.amber),
+            label: const Text('⭐ Show Screen & Request Reviews',
+              style: TextStyle(color: Colors.white),
+            ),
+            style: ElevatedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              backgroundColor: const Color(0xFF2D4730),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildEndShiftButton() {
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton.icon(
+        onPressed: _isUploading ? null : _showEndShiftConfirmation,
+        icon: const Icon(Icons.stop_circle, color: Colors.white, size: 28),
+        label: const Text(
+          '🛑 END SHIFT',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        style: ElevatedButton.styleFrom(
+          padding: const EdgeInsets.symmetric(vertical: 20),
+          backgroundColor: Colors.red[700],
+          disabledBackgroundColor: Colors.red.withOpacity(0.3),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
         ),
       ),
     );

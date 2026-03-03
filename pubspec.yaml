@@ -76,6 +76,12 @@ dependencies:
   # Chart library for Bz chart
   fl_chart: ^0.66.2
   geocoding: ^4.0.0
+  
+  # Keep screen awake during uploads
+  wakelock_plus: ^1.2.8
+  
+  # QR code generation for review requests
+  qr_flutter: ^4.1.0
 
 dev_dependencies:
   flutter_test:

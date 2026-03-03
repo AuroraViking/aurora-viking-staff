@@ -12,10 +12,13 @@ import 'core/services/firebase_service.dart';
 import 'core/services/notification_service.dart';
 import 'theme/av_theme.dart';
 import 'widgets/common/logo_widget.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
+  // Keep screen on at all times while app is open
+  WakelockPlus.enable();
   // Load environment variables (optional - won't crash if .env doesn't exist)
   try {
     // Try to load .env file
