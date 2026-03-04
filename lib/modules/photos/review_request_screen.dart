@@ -43,35 +43,58 @@ class _ReviewRequestScreenState extends State<ReviewRequestScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // Email address
+              // Website URL - primary
               const Text(
-                'PHOTO@AURORAVIKING.COM',
+                'AURORAVIKING.COM/PHOTOS',
                 style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 32,
+                  color: Color(0xFFD4AF37),
+                  fontSize: 28,
                   fontWeight: FontWeight.bold,
                   letterSpacing: 2.0,
                 ),
                 textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 32),
+              const SizedBox(height: 8),
+              Text(
+                'Get your photos on our website',
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.4),
+                  fontSize: 14,
+                  fontStyle: FontStyle.italic,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 24),
+
+              // Email address - secondary
+              const Text(
+                'PHOTO@AURORAVIKING.COM',
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w500,
+                  letterSpacing: 1.5,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 24),
 
               // Guide name and date
               Text(
                 widget.guideName,
                 style: const TextStyle(
-                  color: Colors.white70,
-                  fontSize: 24,
+                  color: Colors.white54,
+                  fontSize: 20,
                   fontWeight: FontWeight.w500,
                 ),
                 textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 4),
               Text(
                 widget.date,
                 style: const TextStyle(
-                  color: Colors.white54,
-                  fontSize: 20,
+                  color: Colors.white38,
+                  fontSize: 16,
                   fontWeight: FontWeight.w400,
                 ),
                 textAlign: TextAlign.center,

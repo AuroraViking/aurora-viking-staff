@@ -96,9 +96,19 @@ OUTPUT FORMAT (JSON):
   "reasoning": "Brief explanation of why you suggest this action"
 }`;
 
+// Google Drive root folder name for tour photos
+const PHOTO_ROOT_FOLDER_NAME = 'Norðurljósamyndir';
+
+// Review URLs for photo delivery widget
+const TRIPADVISOR_REVIEW_URL = 'https://www.tripadvisor.com/UserReviewEdit-g189970-d25217481-Reykjavik_Northern_Lights_Tour_with_Pro_Aurora_Photos_Small_Group-Reykjavik_Capital_Region.html';
+const GOOGLE_MAPS_REVIEW_URL = 'https://www.google.com/maps/place/Aurora+Viking/@64.1260418,-22.0174242,24323m/data=!3m2!1e3!4b1!4m6!3m5!1s0x41d3fb89ceeed9cf:0xc804452a33763dde!8m2!3d64.1261349!4d-21.8526218!16s%2Fg%2F11sczxtfh0?entry=ttu&g_ep=EgoyMDI2MDIyNS4wIKXMDSoASAFQAw%3D%3D';
+
 module.exports = {
   DRIVE_FOLDER_ID,
   GMAIL_REDIRECT_URI,
   GMAIL_SCOPES,
   AI_SYSTEM_PROMPT,
+  PHOTO_ROOT_FOLDER_NAME,
+  TRIPADVISOR_REVIEW_URL,
+  GOOGLE_MAPS_REVIEW_URL,
 };

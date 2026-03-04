@@ -116,6 +116,12 @@ exports.tourStatusReminder = tourStatus.tourStatusReminder;
 exports.sendTourStatusEmails = tourStatus.sendTourStatusEmails;
 
 // ============================================
+// PHOTO DELIVERY MODULE
+// ============================================
+const photoDelivery = require('./modules/photo_delivery');
+exports.getPhotoLink = photoDelivery.getPhotoLink;
+
+// ============================================
 // TEST NOTIFICATION (for debugging)
 // ============================================
 const { onCall } = require('firebase-functions/v2/https');

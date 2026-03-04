@@ -629,9 +629,29 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
     );
   }
 
+  /// Transliterate Icelandic characters to English equivalents
+  String _transliterate(String name) {
+    const map = {
+      'Þ': 'Th', 'þ': 'th',
+      'Ð': 'D',  'ð': 'd',
+      'Æ': 'Ae', 'æ': 'ae',
+      'Ö': 'O',  'ö': 'o',
+      'Á': 'A',  'á': 'a',
+      'É': 'E',  'é': 'e',
+      'Í': 'I',  'í': 'i',
+      'Ó': 'O',  'ó': 'o',
+      'Ú': 'U',  'ú': 'u',
+      'Ý': 'Y',  'ý': 'y',
+    };
+    return name.replaceAllMapped(
+      RegExp('[ÞþÐðÆæÖöÁáÉéÍíÓóÚúÝý]'),
+      (m) => map[m.group(0)!] ?? m.group(0)!,
+    );
+  }
+
   void _openDisplayScreen() {
     final authController = context.read<AuthController>();
-    final guideName = authController.currentUser?.fullName ?? 'Unknown Guide';
+    final guideName = _transliterate(authController.currentUser?.fullName ?? 'Unknown Guide');
     final formattedDate = DateFormat('EEE, MMM d, y').format(_selectedDate);
 
     Navigator.push(
@@ -647,7 +667,7 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
 
   void _openReviewScreen() {
     final authController = context.read<AuthController>();
-    final guideName = authController.currentUser?.fullName ?? 'Unknown Guide';
+    final guideName = _transliterate(authController.currentUser?.fullName ?? 'Unknown Guide');
     final formattedDate = DateFormat('EEE, MMM d, y').format(_selectedDate);
 
     Navigator.push(
@@ -849,11 +869,8 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
             const SizedBox(height: 20),
           ],
           _buildUploadButton(),
-          // Show screen buttons when photos are selected or upload is complete
-          if (_selectedPhotos.isNotEmpty || _uploadComplete) ...[
-            const SizedBox(height: 16),
-            _buildShowScreenButtons(),
-          ],
+          const SizedBox(height: 16),
+          _buildShowScreenButtons(),
           const SizedBox(height: 24),
           // End Shift button - always visible and prominent
           _buildEndShiftButton(),

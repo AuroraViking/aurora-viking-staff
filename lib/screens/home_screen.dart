@@ -16,6 +16,7 @@ import '../core/auth/auth_controller.dart';
 import '../core/utils/platform_utils.dart';
 import '../modules/radio/radio_screen.dart';
 import '../modules/radio/radio_controller.dart';
+import '../modules/guide_map/guide_map_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -235,6 +236,17 @@ class _HomeScreenState extends State<HomeScreen> {
           },
         ),
         actions: [
+          // Guide Map button
+          IconButton(
+            icon: const Icon(Icons.map, color: Color(0xFF69F0AE)),
+            tooltip: 'Guide Map',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const GuideMapScreen()),
+              );
+            },
+          ),
           // Voice Radio button
           IconButton(
             icon: const Icon(Icons.cell_tower, color: Color(0xFF00E5FF)),

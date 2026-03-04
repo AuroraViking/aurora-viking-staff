@@ -1,5 +1,5 @@
 // Full screen display for guests to photograph the screen
-// Shows email, guide name, and date on a black background
+// Shows website, email, guide name, and date on a black background
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -42,18 +42,31 @@ class _PhotoDisplayScreenState extends State<PhotoDisplayScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // Email address - large and prominent
+              // Website URL - top priority
               const Text(
-                'PHOTO@AURORAVIKING.COM',
+                'AURORAVIKING.COM/PHOTOS',
                 style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 36,
+                  color: Color(0xFFD4AF37),
+                  fontSize: 34,
                   fontWeight: FontWeight.bold,
                   letterSpacing: 2.0,
                 ),
                 textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 48),
+              const SizedBox(height: 12),
+
+              // Subtitle
+              Text(
+                'Get your photos on our website',
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.5),
+                  fontSize: 16,
+                  fontStyle: FontStyle.italic,
+                ),
+                textAlign: TextAlign.center,
+              ),
+
+              const SizedBox(height: 40),
 
               // Divider line
               Container(
@@ -61,7 +74,38 @@ class _PhotoDisplayScreenState extends State<PhotoDisplayScreen> {
                 height: 2,
                 color: Colors.white24,
               ),
-              const SizedBox(height: 48),
+              const SizedBox(height: 40),
+
+              // Email address
+              const Text(
+                'PHOTO@AURORAVIKING.COM',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 28,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 2.0,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Or email us with your date & guide name',
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.4),
+                  fontSize: 14,
+                ),
+                textAlign: TextAlign.center,
+              ),
+
+              const SizedBox(height: 40),
+
+              // Divider line
+              Container(
+                width: 80,
+                height: 1,
+                color: Colors.white12,
+              ),
+              const SizedBox(height: 40),
 
               // Guide name
               Text(

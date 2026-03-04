@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aurora Viking — Get Your Tour Photos</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Georgia&family=Inter:wght@400;500;600;700&display=swap"
+        rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: transparent;
+            color: #e2e8f0;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            padding: 20px;
+        }
+
+        .widget-container {
+            width: 100%;
+            max-width: 480px;
+            background: linear-gradient(165deg, #0f1729 0%, #1a1f36 40%, #0d1321 100%);
+            border-radius: 20px;
+            padding: 36px 32px;
+            border: 1px solid rgba(212, 175, 55, 0.15);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 60px rgba(78, 154, 106, 0.04);
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* Subtle aurora glow behind the card */
+        .widget-container::before {
+            content: '';
+            position: absolute;
+            top: -40%;
+            left: -20%;
+            width: 140%;
+            height: 80%;
+            background: radial-gradient(ellipse, rgba(78, 154, 106, 0.06) 0%, transparent 70%);
+            pointer-events: none;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 28px;
+            position: relative;
+        }
+
+        .header-icon {
+            font-size: 36px;
+            margin-bottom: 8px;
+            animation: pulse-glow 3s ease-in-out infinite;
+        }
+
+        @keyframes pulse-glow {
+
+            0%,
+            100% {
+                opacity: 0.8;
+                transform: scale(1);
+            }
+
+            50% {
+                opacity: 1;
+                transform: scale(1.05);
+            }
+        }
+
+        .header h1 {
+            font-family: 'Georgia', serif;
+            font-size: 22px;
+            font-weight: 400;
+            color: #d4af37;
+            letter-spacing: 1.5px;
+            margin-bottom: 6px;
+        }
+
+        .header p {
+            font-size: 13px;
+            color: #8892a8;
+            font-weight: 400;
+        }
+
+        .divider {
+            width: 60px;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(212, 175, 55, 0.3), transparent);
+            margin: 24px auto;
+        }
+
+        /* Form fields */
+        .form-group {
+            margin-bottom: 18px;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+        }
+
+        .form-group input[type="date"],
+        .form-group input[type="text"] {
+            width: 100%;
+            padding: 14px 16px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 12px;
+            color: #e2e8f0;
+            font-size: 15px;
+            font-family: 'Inter', sans-serif;
+            outline: none;
+            transition: all 0.3s ease;
+        }
+
+        .form-group input:focus {
+            border-color: rgba(212, 175, 55, 0.4);
+            background: rgba(255, 255, 255, 0.06);
+            box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.08);
+        }
+
+        .form-group input::placeholder {
+            color: #4a5568;
+        }
+
+        /* Date input styling for webkit */
+        input[type="date"]::-webkit-calendar-picker-indicator {
+            filter: invert(0.7);
+            cursor: pointer;
+        }
+
+        .submit-btn {
+            width: 100%;
+            padding: 16px;
+            background: linear-gradient(135deg, #d4af37 0%, #b8941e 100%);
+            color: #0f1729;
+            font-size: 15px;
+            font-weight: 700;
+            font-family: 'Inter', sans-serif;
+            letter-spacing: 0.5px;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 6px;
+        }
+
+        .submit-btn:hover {
+            background: linear-gradient(135deg, #e0c04a 0%, #c9a426 100%);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 16px rgba(212, 175, 55, 0.25);
+        }
+
+        .submit-btn:active {
+            transform: translateY(0);
+        }
+
+        .submit-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        /* Loading state */
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 32px 0;
+        }
+
+        .loading.active {
+            display: block;
+        }
+
+        .loading-spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid rgba(212, 175, 55, 0.15);
+            border-top-color: #d4af37;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto 16px;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .loading p {
+            color: #8892a8;
+            font-size: 14px;
+        }
+
+        /* Results section */
+        .results {
+            display: none;
+        }
+
+        .results.active {
+            display: block;
+        }
+
+        .photo-card {
+            background: rgba(78, 154, 106, 0.06);
+            border: 1px solid rgba(78, 154, 106, 0.15);
+            border-radius: 16px;
+            padding: 24px;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .photo-card .guide-name {
+            font-family: 'Georgia', serif;
+            color: #d4af37;
+            font-size: 18px;
+            margin-bottom: 4px;
+        }
+
+        .photo-card .photo-count {
+            color: #8892a8;
+            font-size: 13px;
+            margin-bottom: 18px;
+        }
+
+        .photo-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 14px 28px;
+            background: linear-gradient(135deg, #4e9a6a 0%, #3d7d55 100%);
+            color: white;
+            font-size: 15px;
+            font-weight: 600;
+            font-family: 'Inter', sans-serif;
+            text-decoration: none;
+            border-radius: 12px;
+            transition: all 0.3s ease;
+        }
+
+        .photo-link:hover {
+            background: linear-gradient(135deg, #5aad78 0%, #478d60 100%);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 16px rgba(78, 154, 106, 0.3);
+        }
+
+        /* Review section */
+        .review-section {
+            display: none;
+            margin-top: 8px;
+        }
+
+        .review-section.active {
+            display: block;
+        }
+
+        .review-header {
+            text-align: center;
+            margin-bottom: 16px;
+        }
+
+        .review-header .stars {
+            font-size: 24px;
+            margin-bottom: 6px;
+        }
+
+        .review-header h3 {
+            font-family: 'Georgia', serif;
+            font-size: 17px;
+            font-weight: 400;
+            color: #e2e8f0;
+        }
+
+        .review-header p {
+            font-size: 13px;
+            color: #64748b;
+            margin-top: 4px;
+        }
+
+        .review-links {
+            display: flex;
+            gap: 10px;
+            margin-top: 14px;
+        }
+
+        .review-link {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            padding: 13px 14px;
+            border-radius: 12px;
+            text-decoration: none;
+            font-size: 13px;
+            font-weight: 600;
+            font-family: 'Inter', sans-serif;
+            transition: all 0.3s ease;
+        }
+
+        .review-link:hover {
+            transform: translateY(-1px);
+        }
+
+        .review-link.tripadvisor {
+            background: rgba(0, 175, 135, 0.1);
+            border: 1px solid rgba(0, 175, 135, 0.2);
+            color: #00af87;
+        }
+
+        .review-link.tripadvisor:hover {
+            background: rgba(0, 175, 135, 0.18);
+            box-shadow: 0 4px 12px rgba(0, 175, 135, 0.15);
+        }
+
+        .review-link.google {
+            background: rgba(66, 133, 244, 0.1);
+            border: 1px solid rgba(66, 133, 244, 0.2);
+            color: #4285f4;
+        }
+
+        .review-link.google:hover {
+            background: rgba(66, 133, 244, 0.18);
+            box-shadow: 0 4px 12px rgba(66, 133, 244, 0.15);
+        }
+
+        .review-link-icon {
+            font-size: 16px;
+        }
+
+        /* Error state */
+        .error-card {
+            display: none;
+            background: rgba(239, 68, 68, 0.06);
+            border: 1px solid rgba(239, 68, 68, 0.15);
+            border-radius: 16px;
+            padding: 24px;
+            text-align: center;
+        }
+
+        .error-card.active {
+            display: block;
+        }
+
+        .error-card .error-icon {
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+
+        .error-card .error-message {
+            color: #fca5a5;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .error-card .error-hint {
+            color: #64748b;
+            font-size: 12px;
+            margin-top: 8px;
+        }
+
+        .error-card .fallback-email {
+            display: inline-block;
+            margin-top: 14px;
+            color: #d4af37;
+            font-size: 13px;
+            font-weight: 600;
+            text-decoration: none;
+        }
+
+        .error-card .fallback-email:hover {
+            text-decoration: underline;
+        }
+
+        /* Try again button */
+        .try-again-btn {
+            display: inline-block;
+            margin-top: 16px;
+            padding: 10px 24px;
+            background: transparent;
+            border: 1px solid rgba(212, 175, 55, 0.3);
+            color: #d4af37;
+            font-size: 13px;
+            font-weight: 600;
+            font-family: 'Inter', sans-serif;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .try-again-btn:hover {
+            background: rgba(212, 175, 55, 0.08);
+            border-color: rgba(212, 175, 55, 0.5);
+        }
+
+        /* Footer */
+        .widget-footer {
+            text-align: center;
+            margin-top: 24px;
+            padding-top: 18px;
+            border-top: 1px solid rgba(255, 255, 255, 0.04);
+        }
+
+        .widget-footer p {
+            font-size: 11px;
+            color: #4a5568;
+        }
+
+        .widget-footer a {
+            color: #64748b;
+            text-decoration: none;
+        }
+
+        .widget-footer a:hover {
+            color: #d4af37;
+        }
+
+        /* Responsive */
+        @media (max-width: 520px) {
+            body {
+                padding: 10px;
+            }
+
+            .widget-container {
+                padding: 28px 22px;
+                border-radius: 16px;
+            }
+
+            .header h1 {
+                font-size: 19px;
+            }
+
+            .review-links {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="widget-container">
+        <!-- Header -->
+        <div class="header">
+            <div class="header-icon">📸</div>
+            <h1>Get Your Tour Photos</h1>
+            <p>Enter your tour date and guide name below</p>
+        </div>
+
+        <div class="divider"></div>
+
+        <!-- Form -->
+        <div id="form-section">
+            <div class="form-group">
+                <label for="tour-date">Tour Date</label>
+                <input type="date" id="tour-date" required>
+            </div>
+
+            <div class="form-group">
+                <label for="guide-name">Guide Name</label>
+                <input type="text" id="guide-name" placeholder="Enter your guide's full name" required
+                    autocomplete="off">
+            </div>
+
+            <button class="submit-btn" id="submit-btn" onclick="getPhotos()">
+                Get My Photos
+            </button>
+        </div>
+
+        <!-- Loading -->
+        <div class="loading" id="loading">
+            <div class="loading-spinner"></div>
+            <p>Finding your photos...</p>
+        </div>
+
+        <!-- Results -->
+        <div class="results" id="results">
+            <div class="photo-card" id="photo-card">
+                <div class="guide-name" id="result-guide-name"></div>
+                <div class="photo-count" id="result-photo-count"></div>
+                <a href="#" class="photo-link" id="photo-link-btn" target="_blank" rel="noopener">
+                    📂 Open Photos
+                </a>
+            </div>
+
+            <!-- Review section (conditionally shown) -->
+            <div class="review-section" id="review-section">
+                <div class="divider"></div>
+                <div class="review-header">
+                    <div class="stars">⭐⭐⭐⭐⭐</div>
+                    <h3>Enjoyed the tour?</h3>
+                    <p>Your feedback means the world to our guides</p>
+                </div>
+                <div class="review-links">
+                    <a href="#" class="review-link tripadvisor" id="tripadvisor-link" target="_blank" rel="noopener">
+                        <span class="review-link-icon">🦉</span>
+                        TripAdvisor
+                    </a>
+                    <a href="#" class="review-link google" id="google-link" target="_blank" rel="noopener">
+                        <span class="review-link-icon">📍</span>
+                        Google Maps
+                    </a>
+                </div>
+            </div>
+
+            <div style="text-align: center; margin-top: 18px;">
+                <button class="try-again-btn" onclick="resetForm()">← Different date</button>
+            </div>
+        </div>
+
+        <!-- Error -->
+        <div class="error-card" id="error-card">
+            <div class="error-icon">😕</div>
+            <div class="error-message" id="error-message"></div>
+            <div class="error-hint" id="error-hint"></div>
+            <a href="mailto:photo@auroraviking.com" class="fallback-email">📧 photo@auroraviking.com</a>
+            <br>
+            <button class="try-again-btn" onclick="resetForm()">← Try again</button>
+        </div>
+
+        <!-- Footer -->
+        <div class="widget-footer">
+            <p>Photos usually uploaded within 48 hours of tour</p>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'https://us-central1-aurora-viking-staff.cloudfunctions.net/getPhotoLink';
+
+        // Set default date to yesterday (tours run at night)
+        (function setDefaultDate() {
+            const dateInput = document.getElementById('tour-date');
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            const yyyy = yesterday.getFullYear();
+            const mm = String(yesterday.getMonth() + 1).padStart(2, '0');
+            const dd = String(yesterday.getDate()).padStart(2, '0');
+            dateInput.value = `${yyyy}-${mm}-${dd}`;
+
+            // Set max date to today
+            const today = new Date();
+            const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+            dateInput.max = todayStr;
+        })();
+
+        // Allow Enter key to submit
+        document.getElementById('guide-name').addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                getPhotos();
+            }
+        });
+
+        async function getPhotos() {
+            const date = document.getElementById('tour-date').value;
+            const guide = document.getElementById('guide-name').value.trim();
+
+            if (!date) {
+                shakeInput('tour-date');
+                return;
+            }
+            if (!guide) {
+                shakeInput('guide-name');
+                return;
+            }
+
+            // Show loading
+            showSection('loading');
+
+            try {
+                const url = `${API_BASE}?date=${encodeURIComponent(date)}&guide=${encodeURIComponent(guide)}`;
+                const response = await fetch(url);
+                const data = await response.json();
+
+                if (!data.success) {
+                    showError(data.error || 'Something went wrong.', data.hint || '');
+                    return;
+                }
+
+                // Show results
+                showResults(data);
+
+            } catch (error) {
+                console.error('Photo delivery error:', error);
+                showError('Unable to connect. Please try again or email photo@auroraviking.com.', '');
+            }
+        }
+
+        function showResults(data) {
+            const guide = data.guide;
+
+            document.getElementById('result-guide-name').textContent = `📷 Photos by ${guide.name}`;
+            document.getElementById('result-photo-count').textContent =
+                guide.photoCount > 0 ? `${guide.photoCount} photo${guide.photoCount !== 1 ? 's' : ''} available` : 'Photos available';
+            document.getElementById('photo-link-btn').href = guide.photoUrl;
+
+            // Review links
+            if (guide.showReviews && data.reviewLinks) {
+                document.getElementById('tripadvisor-link').href = data.reviewLinks.tripAdvisor;
+                document.getElementById('google-link').href = data.reviewLinks.googleMaps;
+                document.getElementById('review-section').classList.add('active');
+            } else {
+                document.getElementById('review-section').classList.remove('active');
+            }
+
+            showSection('results');
+        }
+
+        function showError(message, hint) {
+            document.getElementById('error-message').textContent = message;
+            document.getElementById('error-hint').textContent = hint || '';
+            showSection('error');
+        }
+
+        function showSection(section) {
+            document.getElementById('form-section').style.display = section === 'form' ? 'block' : 'none';
+            document.getElementById('loading').classList.toggle('active', section === 'loading');
+            document.getElementById('results').classList.toggle('active', section === 'results');
+            document.getElementById('error-card').classList.toggle('active', section === 'error');
+        }
+
+        function resetForm() {
+            document.getElementById('guide-name').value = '';
+            showSection('form');
+        }
+
+        function shakeInput(id) {
+            const el = document.getElementById(id);
+            el.style.borderColor = 'rgba(239, 68, 68, 0.5)';
+            el.style.animation = 'shake 0.4s ease';
+            el.focus();
+            setTimeout(() => {
+                el.style.borderColor = '';
+                el.style.animation = '';
+            }, 600);
+        }
+
+        // Add shake keyframes dynamically
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes shake {
+                0%, 100% { transform: translateX(0); }
+                25% { transform: translateX(-6px); }
+                50% { transform: translateX(6px); }
+                75% { transform: translateX(-4px); }
+            }
+        `;
+        document.head.appendChild(style);
+    </script>
+</body>
+
+</html>
