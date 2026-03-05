@@ -726,6 +726,26 @@ const portalRescheduleBooking = onRequest(
 
                     console.log(`✅ Reschedule succeeded via ActivityChangeDateAction!`);
 
+                    // Record in reschedule_requests so getBookingManifest picks it up
+                    const originalDate = parseBokunDate(productBooking?.startDate || booking.startDate);
+                    await db.collection('reschedule_requests').add({
+                        bookingId: String(booking.id),
+                        confirmationCode: booking.confirmationCode,
+                        newDate,
+                        originalDate,
+                        reason: 'Customer self-service reschedule via portal',
+                        userId: 'customer_portal',
+                        source: 'customer_portal',
+                        customerName,
+                        customerEmail: email,
+                        status: 'completed',
+                        method: 'activity_change_date_action',
+                        isOTABooking: otaInfo.isOTA,
+                        otaName: otaInfo.otaName || null,
+                        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                        completedAt: admin.firestore.FieldValue.serverTimestamp(),
+                    });
+
                     // Log the action
                     await db.collection('booking_actions').add({
                         bookingId: String(booking.id),
@@ -735,7 +755,7 @@ const portalRescheduleBooking = onRequest(
                         performedBy: 'customer_portal',
                         performedAt: admin.firestore.FieldValue.serverTimestamp(),
                         reason: 'Customer self-service reschedule via portal',
-                        originalData: { date: parseBokunDate(productBooking?.startDate || booking.startDate) },
+                        originalData: { date: originalDate },
                         newData: { date: newDate },
                         success: true,
                         method: 'activity_change_date_action',
