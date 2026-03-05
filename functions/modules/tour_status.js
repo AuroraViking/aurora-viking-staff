@@ -45,48 +45,91 @@ async function getGmailClient(email, clientId, clientSecret) {
     return google.gmail({ version: 'v1', auth: oauth2Client });
 }
 
-// Default email templates
-const EMAIL_TEMPLATES = {
-    OFF: {
-        subject: 'Aurora Viking Tour Update - Tonight\'s Tour Cancelled',
-        body: `Dear Northern Lights Hunter,
+// Forecast URL for cancellation emails
+const FORECAST_URL = 'https://www.weatherandradar.com/weather-map/reykjavik/14773115?layer=wr&center=64.1355,-21.8954&placemark=64.1355,-21.8954';
 
-Unfortunately, we have made the difficult decision to cancel tonight's aurora tour due to unfavorable weather conditions.
+// Build HTML OFF (cancellation) email
+function buildOffEmailHtml(firstName, confirmationCode, email, fullName) {
+    let portalUrl = 'https://www.auroraviking.com/bookings';
+    const params = [];
+    if (confirmationCode) params.push(`code=${encodeURIComponent(confirmationCode)}`);
+    if (email) params.push(`email=${encodeURIComponent(email)}`);
+    if (fullName) params.push(`name=${encodeURIComponent(fullName)}`);
+    if (params.length > 0) portalUrl += '?' + params.join('&');
 
-We understand this may be disappointing, but the safety and experience quality of our guests is our top priority. These conditions would significantly reduce our chances of aurora sightings.
+    return `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#1a1a2e;font-family:Arial,Helvetica,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#1a1a2e;padding:20px 0;">
+<tr><td align="center">
+<table width="600" cellpadding="0" cellspacing="0" style="background:#16213e;border-radius:12px;overflow:hidden;max-width:100%;">
+  <tr><td style="background:linear-gradient(135deg,#0f3460,#533483);padding:30px;text-align:center;">
+    <h1 style="color:#e94560;margin:0;font-size:22px;letter-spacing:1px;">AURORA VIKING</h1>
+    <p style="color:#ccc;margin:8px 0 0;font-size:13px;">Tour Status Update</p>
+  </td></tr>
+  <tr><td style="padding:30px;color:#e0e0e0;font-size:15px;line-height:1.7;">
+    <p>Hello ${firstName || 'everyone'}!</p>
+    <p><strong style="color:#e94560;font-size:17px;">The Northern Lights tour tonight is cancelled.</strong></p>
+    <p>Unfortunately the cloud cover forecast is not favorable tonight giving us slim chances of being able to find clear skies to observe the Northern Lights. Of course the forecast could be wrong but we usually don't bet against the forecast.</p>
+    <p>You can see the forecast by clicking this link: <a href="${FORECAST_URL}" style="color:#4fc3f7;text-decoration:underline;font-weight:bold;">THE FORECAST</a><br>
+    <span style="color:#aaa;font-size:13px;">The white color represents clouds while blue represents rain and pink snow.</span></p>
+    <p>Please let us know what you want to do, if you want to reschedule or otherwise, we need to hear from you so we don't have to worry that you didn't receive this message and will be waiting for us to show up tonight when we aren't going to be.</p>
+    <p>If you booked with us directly on our website then you can click on the button below to reschedule or cancel. If you booked through some other means it might not be possible so in that case please email us at <a href="mailto:info@auroraviking.com" style="color:#4fc3f7;">info@auroraviking.com</a> with your decision asap.</p>
+    <div style="text-align:center;margin:25px 0;">
+      <a href="${portalUrl}" style="display:inline-block;background:linear-gradient(135deg,#00b894,#00cec9);color:#fff;text-decoration:none;padding:14px 32px;border-radius:8px;font-weight:bold;font-size:16px;letter-spacing:0.5px;">Go to Booking Portal</a>
+    </div>
+    <p>All the best and fingers crossed for better conditions.<br>
+    <strong>Kobe and Emil.</strong></p>
+  </td></tr>
+  <tr><td style="background:#0f3460;padding:20px;text-align:center;color:#888;font-size:12px;">
+    Aurora Viking &bull; <a href="mailto:info@auroraviking.com" style="color:#4fc3f7;">info@auroraviking.com</a> &bull; +354 784 4000
+  </td></tr>
+</table>
+</td></tr></table>
+</body></html>`;
+}
 
-Your Options:
-1. RESCHEDULE: We can move your booking to another night during your stay
-2. FULL REFUND: If rescheduling isn't possible, we'll provide a complete refund
-
-Please reply to this email or contact us to let us know your preference.
-
-Thank you for your understanding.
-
-Clear skies,
-Aurora Viking Team
-📧 info@auroraviking.is
-📱 +354 XXX XXXX`
-    },
-    ON: {
-        subject: 'Aurora Viking Tour Update - Tonight\'s Tour is ON! 🌌',
-        body: `Dear Northern Lights Hunter,
-
-Great news! Tonight's aurora tour is CONFIRMED and running as scheduled!
-
-Important Reminders:
-• Be at your pickup location 10 minutes before the scheduled time
-• Dress warmly in layers (thermals, warm jacket, hat, gloves)
-• Bring a camera if you'd like to capture the magic
-
-We're excited to take you on this adventure!
-
-Clear skies,
-Aurora Viking Team
-📧 info@auroraviking.is
-📱 +354 XXX XXXX`
-    }
-};
+// Build HTML ON (confirmation) email with pickup info
+function buildOnEmailHtml(firstName, pickupLocation, startTime) {
+    return `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#1a1a2e;font-family:Arial,Helvetica,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#1a1a2e;padding:20px 0;">
+<tr><td align="center">
+<table width="600" cellpadding="0" cellspacing="0" style="background:#16213e;border-radius:12px;overflow:hidden;max-width:100%;">
+  <tr><td style="background:linear-gradient(135deg,#0f3460,#1b4332);padding:30px;text-align:center;">
+    <h1 style="color:#00b894;margin:0;font-size:22px;letter-spacing:1px;">AURORA VIKING</h1>
+    <p style="color:#ccc;margin:8px 0 0;font-size:13px;">Tour Confirmation</p>
+  </td></tr>
+  <tr><td style="padding:30px;color:#e0e0e0;font-size:15px;line-height:1.7;">
+    <p>Hi ${firstName || 'there'},</p>
+    <p><strong style="color:#00b894;font-size:18px;">THE TOUR IS ON TONIGHT! 🌌</strong></p>
+    ${pickupLocation ? `
+    <div style="background:#1a1a2e;border-left:4px solid #00b894;padding:15px 20px;margin:15px 0;border-radius:0 8px 8px 0;">
+      <p style="margin:0 0 5px;color:#00b894;font-weight:bold;font-size:13px;">YOUR PICKUP DETAILS</p>
+      <p style="margin:0;font-size:15px;">📍 <strong>${pickupLocation}</strong></p>
+      ${startTime ? `<p style="margin:5px 0 0;font-size:15px;">🕐 Be ready at <strong>${startTime}</strong></p>` : ''}
+    </div>` : ''}
+    <p>The pickup can last up to half an hour and it starts at ${startTime || 'the scheduled time'}. That means you have to be ready at your pickup${pickupLocation ? ` (${pickupLocation})` : ''} at ${startTime || 'the scheduled time'} but if you are not the first pickup you might have to wait a few minutes.</p>
+    <p>So if the bus isn't there at ${startTime || 'the scheduled time'} <strong>don't panic</strong> :) Most likely you are not the first pickup and you might have to wait a few minutes for it to arrive.</p>
+    <p><strong style="color:#e94560;">DRESS WELL.</strong> If you get cold waiting outside for a few minutes you might not be dressed to stand outside looking at the northern lights. You have travelled to ICE-land so yes it can get really cold.</p>
+    <p>Our minibuses are white with a black <strong>"AURORA VIKING"</strong> logo on the side. We sometimes lease other buses so just listen for your name being called.</p>
+    <p>If your guide does not spot you at the pick up location he might jump out of the minibus and bellow your name, like a true Viking, usually causing fear and dismay amongst the people waiting for their pick ups. <em>Do not be alarmed.</em></p>
+    <p>If we can't find you at your pick up location we will call and send an email, if you don't reply or answer within 3 minutes we will be assuming that you can't make it on the tour and continue with the pick up.</p>
+    <p><strong>Make sure you use the bathroom before you head to the pick up location.</strong> Access to toilets can be limited during the tour.</p>
+    <p style="color:#aaa;font-size:13px;">You can find your pickup location on Google Maps (for example write "Bus stop 1" for that pickup etc) but note that if your pickup is at Bus stop 8 you can write "Hallgrimstorg" for the exact location. If your pickup location is at Bus stop 15 or Bus stop 17 then if you look up "Maritime Museum" on Google Maps you'll find it.</p>
+  </td></tr>
+  <tr><td style="background:#0f3460;padding:20px;text-align:center;color:#888;font-size:12px;line-height:1.6;">
+    <strong style="color:#e0e0e0;">Having problems with your pickup?</strong><br>
+    Email: <a href="mailto:info@auroraviking.com" style="color:#4fc3f7;">info@auroraviking.com</a> (we reply promptly around pickup time)<br>
+    Call: <strong style="color:#e0e0e0;">+354 784 4000</strong>
+  </td></tr>
+</table>
+</td></tr></table>
+</body></html>`;
+}
 
 // Fetch bookings for a specific date from Bokun
 async function fetchBookingsForDate(dateString, accessKey, secretKey) {
@@ -154,23 +197,41 @@ async function fetchBookingsForDate(dateString, accessKey, secretKey) {
     });
 }
 
-// Extract unique customer emails from bookings
-function extractCustomerEmails(bookings) {
+// Extract customer data from cached bookings (supports both cached and Bokun formats)
+function extractCustomerData(bookings) {
     const emails = new Set();
     const customerData = [];
 
     for (const booking of bookings) {
-        const customer = booking.customer || booking.contact || {};
-        const email = customer.email || customer.emailAddress;
+        // Support cached_bookings fields (flat) and Bokun API fields (nested)
+        const email = booking.email ||
+            booking.customer?.email ||
+            booking.customer?.emailAddress ||
+            booking.contact?.email;
 
-        if (email && !emails.has(email.toLowerCase())) {
-            emails.add(email.toLowerCase());
-            customerData.push({
-                email: email.toLowerCase(),
-                name: customer.firstName || customer.name || 'Valued Customer',
-                bookingId: booking.id || booking.confirmationCode,
-            });
-        }
+        if (!email || emails.has(email.toLowerCase())) continue;
+        emails.add(email.toLowerCase());
+
+        // Extract first name
+        const fullName = booking.customerFullName ||
+            ((booking.customer?.firstName || '') + ' ' + (booking.customer?.lastName || '')).trim() ||
+            'Valued Customer';
+        const firstName = fullName.split(' ')[0] || 'there';
+
+        // Extract pickup info (from cached_bookings)
+        const pickupLocation = booking.pickupPlaceName || '';
+        const departureTime = booking.departureTime || '';
+        const confirmationCode = booking.confirmationCode || '';
+
+        customerData.push({
+            email: email.toLowerCase(),
+            firstName,
+            fullName,
+            pickupLocation,
+            departureTime,
+            confirmationCode,
+            bookingId: booking.bookingId || booking.id || confirmationCode,
+        });
     }
 
     return customerData;
@@ -276,20 +337,13 @@ const getTourStatus = onRequest(
 
 /**
  * Internal function to send tour status emails
- * Called by both setTourStatus (auto) and sendTourStatusEmails (manual)
+ * Now uses cached_bookings (same as pickup menu) and sends individual personalized HTML emails
  */
 async function sendTourStatusEmailsInternal(dateString, status, sentByUid) {
     console.log(`📧 [Internal] Sending ${status} emails for ${dateString}...`);
 
-    const accessKey = process.env.BOKUN_ACCESS_KEY;
-    const secretKey = process.env.BOKUN_SECRET_KEY;
     const clientId = process.env.GMAIL_CLIENT_ID;
     const clientSecret = process.env.GMAIL_CLIENT_SECRET;
-
-    if (!accessKey || !secretKey) {
-        console.log('⚠️ Bokun keys not available - skipping email send');
-        return { success: false, emailsSent: 0, error: 'Bokun keys not configured' };
-    }
 
     if (!clientId || !clientSecret) {
         console.log('⚠️ Gmail keys not available - skipping email send');
@@ -297,53 +351,66 @@ async function sendTourStatusEmailsInternal(dateString, status, sentByUid) {
     }
 
     try {
-        // Fetch bookings from Bokun
-        console.log('📋 Fetching bookings for date...');
-        const bookings = await fetchBookingsForDate(dateString, accessKey, secretKey);
+        // Fetch bookings from cached_bookings (same source as pickup menu)
+        console.log('📋 Fetching cached bookings for date...');
+        let bookings = [];
+        const cachedDoc = await db.collection('cached_bookings').doc(dateString).get();
+        if (cachedDoc.exists) {
+            const data = cachedDoc.data();
+            bookings = data.bookings || [];
+        }
+
+        // Also merge manual bookings
+        const manualSnap = await db.collection('manual_bookings')
+            .where('date', '==', dateString)
+            .get();
+        manualSnap.docs.forEach(doc => {
+            const manual = doc.data().booking;
+            if (manual) bookings.push(manual);
+        });
+
         console.log(`📋 Found ${bookings.length} bookings`);
 
         if (bookings.length === 0) {
             return { success: true, emailsSent: 0, message: 'No bookings found' };
         }
 
-        // Extract unique customer emails
-        const customers = extractCustomerEmails(bookings);
-        console.log(`👥 Found ${customers.length} unique customers`);
+        // Extract customer data with pickup info
+        const customers = extractCustomerData(bookings);
+        console.log(`👥 Found ${customers.length} unique customers with emails`);
 
         if (customers.length === 0) {
             return { success: true, emailsSent: 0, message: 'No customer emails found' };
         }
 
-        // Get email template
-        const template = EMAIL_TEMPLATES[status];
-        const templateDoc = await db.collection('email_templates').doc(`tour_${status.toLowerCase()}`).get();
-        const customTemplate = templateDoc.exists ? templateDoc.data() : null;
-
-        const emailSubject = customTemplate?.subject || template.subject;
-        const emailBody = customTemplate?.body || template.body;
-
         // Setup Gmail client
-        const fromEmail = 'info@auroraviking.is';
+        const fromEmail = 'info@auroraviking.com';
         const gmail = await getGmailClient(fromEmail, clientId, clientSecret);
 
-        // Send emails - use BCC for efficiency
+        // Email subject lines
+        const subject = status === 'OFF'
+            ? 'Aurora Viking - Tonight\'s Tour Cancelled'
+            : 'Aurora Viking - Tonight\'s Tour is ON! 🌌';
+
+        // Send individual personalized emails
         let emailsSent = 0;
-        const batchSize = 50;
+        const failedEmails = [];
 
-        for (let i = 0; i < customers.length; i += batchSize) {
-            const batch = customers.slice(i, i + batchSize);
-            const bccEmails = batch.map(c => c.email);
+        for (const customer of customers) {
+            // Build personalized HTML body
+            const htmlBody = status === 'OFF'
+                ? buildOffEmailHtml(customer.firstName, customer.confirmationCode, customer.email, customer.fullName)
+                : buildOnEmailHtml(customer.firstName, customer.pickupLocation, customer.departureTime);
 
-            console.log(`📤 Sending batch ${Math.floor(i / batchSize) + 1} (${bccEmails.length} recipients)`);
-
+            // Build MIME email
             const emailLines = [
                 `From: Aurora Viking <${fromEmail}>`,
-                `To: ${fromEmail}`,
-                `Bcc: ${bccEmails.join(', ')}`,
-                `Subject: ${emailSubject}`,
-                'Content-Type: text/plain; charset=utf-8',
+                `To: ${customer.email}`,
+                `Subject: ${subject}`,
+                'MIME-Version: 1.0',
+                'Content-Type: text/html; charset=utf-8',
                 '',
-                emailBody,
+                htmlBody,
             ];
 
             const rawMessage = Buffer.from(emailLines.join('\r\n'))
@@ -357,10 +424,16 @@ async function sendTourStatusEmailsInternal(dateString, status, sentByUid) {
                     userId: 'me',
                     requestBody: { raw: rawMessage },
                 });
-                emailsSent += bccEmails.length;
-                console.log(`✅ Batch sent successfully`);
+                emailsSent++;
+                console.log(`✅ Sent to ${customer.firstName} (${customer.email})`);
             } catch (sendError) {
-                console.error(`❌ Failed to send batch: ${sendError.message}`);
+                console.error(`❌ Failed to send to ${customer.email}: ${sendError.message}`);
+                failedEmails.push(customer.email);
+            }
+
+            // Small delay to avoid Gmail rate limits
+            if (customers.length > 5) {
+                await new Promise(resolve => setTimeout(resolve, 500));
             }
         }
 
@@ -371,6 +444,7 @@ async function sendTourStatusEmailsInternal(dateString, status, sentByUid) {
             totalBookings: bookings.length,
             uniqueCustomers: customers.length,
             emailsSent,
+            failedEmails,
             sentAt: admin.firestore.FieldValue.serverTimestamp(),
             sentBy: sentByUid || 'system',
             triggeredBy: 'auto',
@@ -383,6 +457,7 @@ async function sendTourStatusEmailsInternal(dateString, status, sentByUid) {
             emailsSent,
             bookingsFound: bookings.length,
             uniqueCustomers: customers.length,
+            failedCount: failedEmails.length,
         };
 
     } catch (error) {
@@ -397,7 +472,7 @@ async function sendTourStatusEmailsInternal(dateString, status, sentByUid) {
 const setTourStatus = onCall(
     {
         region: 'us-central1',
-        secrets: ['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET', 'BOKUN_ACCESS_KEY', 'BOKUN_SECRET_KEY'],
+        secrets: ['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET'],
         timeoutSeconds: 300,
     },
     async (request) => {
@@ -547,11 +622,12 @@ const tourStatusReminder = onSchedule(
 
 /**
  * Send tour status emails to all customers with bookings for a specific date
+ * Now delegates to sendTourStatusEmailsInternal which uses cached_bookings
  */
 const sendTourStatusEmails = onCall(
     {
         region: 'us-central1',
-        secrets: ['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET', 'BOKUN_ACCESS_KEY', 'BOKUN_SECRET_KEY'],
+        secrets: ['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET'],
         timeoutSeconds: 300,
     },
     async (request) => {
@@ -571,112 +647,17 @@ const sendTourStatusEmails = onCall(
         console.log(`📅 Processing emails for: ${dateString}, Status: ${status}`);
 
         try {
-            // Fetch bookings from Bokun
-            const accessKey = process.env.BOKUN_ACCESS_KEY;
-            const secretKey = process.env.BOKUN_SECRET_KEY;
+            const result = await sendTourStatusEmailsInternal(dateString, status, request.auth.uid);
 
-            console.log('📋 Fetching bookings for date...');
-            const bookings = await fetchBookingsForDate(dateString, accessKey, secretKey);
-            console.log(`📋 Found ${bookings.length} bookings for ${dateString}`);
-
-            if (bookings.length === 0) {
-                return {
-                    success: true,
-                    message: 'No bookings found for this date',
-                    emailsSent: 0,
-                };
+            if (!result.success) {
+                throw new Error(result.error || 'Failed to send emails');
             }
-
-            // Extract unique customer emails
-            const customers = extractCustomerEmails(bookings);
-            console.log(`👥 Found ${customers.length} unique customers`);
-
-            if (customers.length === 0) {
-                return {
-                    success: true,
-                    message: 'No customer emails found',
-                    emailsSent: 0,
-                };
-            }
-
-            // Get email template
-            const template = EMAIL_TEMPLATES[status];
-
-            // Check for custom template in Firestore
-            const templateDoc = await db.collection('email_templates').doc(`tour_${status.toLowerCase()}`).get();
-            const customTemplate = templateDoc.exists ? templateDoc.data() : null;
-
-            const emailSubject = customTemplate?.subject || template.subject;
-            const emailBody = customTemplate?.body || template.body;
-
-            // Setup Gmail client
-            const clientId = process.env.GMAIL_CLIENT_ID;
-            const clientSecret = process.env.GMAIL_CLIENT_SECRET;
-            const fromEmail = 'info@auroraviking.is';
-
-            const gmail = await getGmailClient(fromEmail, clientId, clientSecret);
-
-            // Send emails - use BCC for efficiency
-            let emailsSent = 0;
-            const batchSize = 50; // Gmail BCC limit per email
-
-            for (let i = 0; i < customers.length; i += batchSize) {
-                const batch = customers.slice(i, i + batchSize);
-                const bccEmails = batch.map(c => c.email);
-
-                console.log(`📤 Sending batch ${Math.floor(i / batchSize) + 1} (${bccEmails.length} recipients)`);
-
-                // Build email with BCC
-                const emailLines = [
-                    `From: Aurora Viking <${fromEmail}>`,
-                    `To: ${fromEmail}`, // Send to ourselves, BCC the customers
-                    `Bcc: ${bccEmails.join(', ')}`,
-                    `Subject: ${emailSubject}`,
-                    'Content-Type: text/plain; charset=utf-8',
-                    '',
-                    emailBody,
-                ];
-
-                const rawMessage = Buffer.from(emailLines.join('\r\n'))
-                    .toString('base64')
-                    .replace(/\+/g, '-')
-                    .replace(/\//g, '_')
-                    .replace(/=+$/, '');
-
-                try {
-                    await gmail.users.messages.send({
-                        userId: 'me',
-                        requestBody: {
-                            raw: rawMessage,
-                        },
-                    });
-                    emailsSent += bccEmails.length;
-                    console.log(`✅ Batch sent successfully`);
-                } catch (sendError) {
-                    console.error(`❌ Failed to send batch: ${sendError.message}`);
-                }
-            }
-
-            // Log the email send action
-            await db.collection('tour_status_emails').add({
-                date: dateString,
-                status,
-                totalBookings: bookings.length,
-                uniqueCustomers: customers.length,
-                emailsSent,
-                sentAt: admin.firestore.FieldValue.serverTimestamp(),
-                sentBy: request.auth.uid,
-            });
-
-            console.log(`✅ Tour status emails complete: ${emailsSent}/${customers.length} sent`);
 
             return {
                 success: true,
                 date: dateString,
                 status,
-                bookingsFound: bookings.length,
-                uniqueCustomers: customers.length,
-                emailsSent,
+                ...result,
             };
 
         } catch (error) {

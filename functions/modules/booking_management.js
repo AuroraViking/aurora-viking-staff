@@ -607,37 +607,11 @@ const onRescheduleRequest = onDocumentCreated(
 
                     } catch (changeDateError) {
                         console.log(`⚠️ ActivityChangeDateAction failed: ${changeDateError.message}`);
-
-                        if (otaInfo.isOTA && changeDateError.message.includes('401')) {
-                            const otaErrorMessage = `OTA booking from ${otaInfo.otaName} cannot be rescheduled via API. Use: ${otaInfo.otaPortalUrl}`;
-                            await snapshot.ref.update({
-                                status: 'failed',
-                                error: otaErrorMessage,
-                                isOTABooking: true,
-                                otaName: otaInfo.otaName,
-                                otaPortalUrl: otaInfo.otaPortalUrl,
-                                failedAt: admin.firestore.FieldValue.serverTimestamp(),
-                            });
-                            return;
-                        }
+                        // Fall through to cancel+rebook regardless of OTA status
                     }
                 }
 
-                // Skip cancel+rebook for OTA bookings
-                if (otaInfo.isOTA) {
-                    const otaErrorMessage = `OTA booking from ${otaInfo.otaName} requires manual reschedule. Portal: ${otaInfo.otaPortalUrl}`;
-                    await snapshot.ref.update({
-                        status: 'failed',
-                        error: otaErrorMessage,
-                        isOTABooking: true,
-                        otaName: otaInfo.otaName,
-                        otaPortalUrl: otaInfo.otaPortalUrl,
-                        failedAt: admin.firestore.FieldValue.serverTimestamp(),
-                    });
-                    return;
-                }
-
-                // Cancel + rebook for non-OTA bookings
+                // Cancel + rebook for any booking (including OTA) as last resort
                 // IMPORTANT: Create the new booking FIRST, then cancel the original
                 // This way if rebook fails, the customer still has their original booking
                 console.log(`⚠️ Using cancel + rebook strategy for booking ${bookingId}...`);

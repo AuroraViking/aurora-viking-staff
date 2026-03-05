@@ -1,0 +1,1224 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aurora Viking — Manage Your Booking</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Georgia&family=Inter:wght@400;500;600;700&display=swap"
+        rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: transparent;
+            color: #e2e8f0;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            padding: 20px;
+        }
+
+        .widget-container {
+            width: 100%;
+            max-width: 520px;
+            background: linear-gradient(165deg, #0f1729 0%, #1a1f36 40%, #0d1321 100%);
+            border-radius: 20px;
+            padding: 36px 32px;
+            border: 1px solid rgba(212, 175, 55, 0.15);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 60px rgba(78, 154, 106, 0.04);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .widget-container::before {
+            content: '';
+            position: absolute;
+            top: -40%;
+            left: -20%;
+            width: 140%;
+            height: 80%;
+            background: radial-gradient(ellipse, rgba(78, 154, 106, 0.06) 0%, transparent 70%);
+            pointer-events: none;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 28px;
+            position: relative;
+        }
+
+        .header-icon {
+            font-size: 36px;
+            margin-bottom: 8px;
+            animation: pulse-glow 3s ease-in-out infinite;
+        }
+
+        @keyframes pulse-glow {
+
+            0%,
+            100% {
+                opacity: 0.8;
+                transform: scale(1);
+            }
+
+            50% {
+                opacity: 1;
+                transform: scale(1.05);
+            }
+        }
+
+        .header h1 {
+            font-family: 'Georgia', serif;
+            font-size: 22px;
+            font-weight: 400;
+            color: #d4af37;
+            letter-spacing: 1.5px;
+            margin-bottom: 6px;
+        }
+
+        .header p {
+            font-size: 13px;
+            color: #8892a8;
+            font-weight: 400;
+        }
+
+        .divider {
+            width: 60px;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(212, 175, 55, 0.3), transparent);
+            margin: 24px auto;
+        }
+
+        /* ── Form fields ────────────────────────────── */
+        .form-group {
+            margin-bottom: 18px;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+        }
+
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            padding: 14px 16px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 12px;
+            color: #e2e8f0;
+            font-size: 15px;
+            font-family: 'Inter', sans-serif;
+            outline: none;
+            transition: all 0.3s ease;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus,
+        .form-group textarea:focus {
+            border-color: rgba(212, 175, 55, 0.4);
+            background: rgba(255, 255, 255, 0.06);
+            box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.08);
+        }
+
+        .form-group input::placeholder,
+        .form-group textarea::placeholder {
+            color: #4a5568;
+        }
+
+        .form-group select {
+            cursor: pointer;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2394a3b8' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 16px center;
+            padding-right: 40px;
+        }
+
+        .form-group select option {
+            background: #1a1f36;
+            color: #e2e8f0;
+        }
+
+        input[type="date"]::-webkit-calendar-picker-indicator {
+            filter: invert(0.7);
+            cursor: pointer;
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 60px;
+        }
+
+        /* ── Buttons ────────────────────────────────── */
+        .btn-primary {
+            width: 100%;
+            padding: 16px;
+            background: linear-gradient(135deg, #d4af37 0%, #b8941e 100%);
+            color: #0f1729;
+            font-size: 15px;
+            font-weight: 700;
+            font-family: 'Inter', sans-serif;
+            letter-spacing: 0.5px;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 6px;
+        }
+
+        .btn-primary:hover {
+            background: linear-gradient(135deg, #e0c04a 0%, #c9a426 100%);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 16px rgba(212, 175, 55, 0.25);
+        }
+
+        .btn-primary:active {
+            transform: translateY(0);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-action {
+            width: 100%;
+            padding: 15px;
+            border: none;
+            border-radius: 12px;
+            font-size: 14px;
+            font-weight: 600;
+            font-family: 'Inter', sans-serif;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+
+        .btn-action:hover {
+            transform: translateY(-1px);
+        }
+
+        .btn-reschedule {
+            background: rgba(78, 154, 106, 0.12);
+            border: 1px solid rgba(78, 154, 106, 0.25) !important;
+            color: #5aad78;
+        }
+
+        .btn-reschedule:hover {
+            background: rgba(78, 154, 106, 0.2);
+            box-shadow: 0 4px 12px rgba(78, 154, 106, 0.15);
+        }
+
+        .btn-pickup {
+            background: rgba(96, 165, 250, 0.12);
+            border: 1px solid rgba(96, 165, 250, 0.25) !important;
+            color: #60a5fa;
+        }
+
+        .btn-pickup:hover {
+            background: rgba(96, 165, 250, 0.2);
+            box-shadow: 0 4px 12px rgba(96, 165, 250, 0.15);
+        }
+
+        .btn-cancel-booking {
+            background: rgba(239, 68, 68, 0.08);
+            border: 1px solid rgba(239, 68, 68, 0.2) !important;
+            color: #f87171;
+        }
+
+        .btn-cancel-booking:hover {
+            background: rgba(239, 68, 68, 0.15);
+            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.12);
+        }
+
+        .btn-confirm-cancel {
+            width: 100%;
+            padding: 16px;
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+            color: white;
+            font-size: 15px;
+            font-weight: 700;
+            font-family: 'Inter', sans-serif;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .btn-confirm-cancel:hover {
+            background: linear-gradient(135deg, #f87171, #ef4444);
+            transform: translateY(-1px);
+        }
+
+        .btn-confirm-cancel:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-back {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            background: transparent;
+            border: 1px solid rgba(212, 175, 55, 0.2);
+            color: #d4af37;
+            font-size: 13px;
+            font-weight: 600;
+            font-family: 'Inter', sans-serif;
+            padding: 10px 20px;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 16px;
+        }
+
+        .btn-back:hover {
+            background: rgba(212, 175, 55, 0.08);
+            border-color: rgba(212, 175, 55, 0.4);
+        }
+
+        /* ── Sections / Steps ───────────────────────── */
+        .step {
+            display: none;
+            animation: fadeIn 0.35s ease;
+        }
+
+        .step.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(8px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* ── Loading spinner ────────────────────────── */
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 32px 0;
+        }
+
+        .loading.active {
+            display: block;
+        }
+
+        .loading-spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid rgba(212, 175, 55, 0.15);
+            border-top-color: #d4af37;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto 16px;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .loading p {
+            color: #8892a8;
+            font-size: 14px;
+        }
+
+        /* ── Booking details card ───────────────────── */
+        .booking-card {
+            background: rgba(78, 154, 106, 0.06);
+            border: 1px solid rgba(78, 154, 106, 0.15);
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+
+        .booking-card .tour-name {
+            font-family: 'Georgia', serif;
+            color: #d4af37;
+            font-size: 18px;
+            margin-bottom: 4px;
+        }
+
+        .booking-card .booking-ref {
+            color: #64748b;
+            font-size: 12px;
+            margin-bottom: 16px;
+        }
+
+        .booking-detail-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+        }
+
+        .booking-detail-row:last-child {
+            border-bottom: none;
+        }
+
+        .booking-detail-label {
+            font-size: 13px;
+            color: #64748b;
+            font-weight: 500;
+        }
+
+        .booking-detail-value {
+            font-size: 14px;
+            color: #e2e8f0;
+            font-weight: 600;
+            text-align: right;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .status-confirmed {
+            background: rgba(78, 154, 106, 0.2);
+            color: #4ade80;
+        }
+
+        .status-cancelled {
+            background: rgba(239, 68, 68, 0.2);
+            color: #f87171;
+        }
+
+        .status-other {
+            background: rgba(212, 175, 55, 0.2);
+            color: #d4af37;
+        }
+
+        /* ── OTA info banner ────────────────────────── */
+        .ota-banner {
+            background: rgba(251, 191, 36, 0.08);
+            border: 1px solid rgba(251, 191, 36, 0.2);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 18px;
+            font-size: 13px;
+            color: #fbbf24;
+            line-height: 1.5;
+            text-align: center;
+        }
+
+        /* ── Success / Error cards ──────────────────── */
+        .success-card {
+            background: rgba(78, 154, 106, 0.08);
+            border: 1px solid rgba(78, 154, 106, 0.2);
+            border-radius: 16px;
+            padding: 28px;
+            text-align: center;
+        }
+
+        .success-card .icon {
+            font-size: 40px;
+            margin-bottom: 12px;
+        }
+
+        .success-card h3 {
+            font-family: 'Georgia', serif;
+            color: #4ade80;
+            font-size: 18px;
+            font-weight: 400;
+            margin-bottom: 8px;
+        }
+
+        .success-card p {
+            color: #94a3b8;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .error-card {
+            background: rgba(239, 68, 68, 0.06);
+            border: 1px solid rgba(239, 68, 68, 0.15);
+            border-radius: 16px;
+            padding: 24px;
+            text-align: center;
+        }
+
+        .error-card .icon {
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+
+        .error-card .error-message {
+            color: #fca5a5;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .error-card .fallback-email {
+            display: inline-block;
+            margin-top: 12px;
+            color: #d4af37;
+            font-size: 13px;
+            font-weight: 600;
+            text-decoration: none;
+        }
+
+        .error-card .fallback-email:hover {
+            text-decoration: underline;
+        }
+
+        /* ── Warning box (cancel confirmation) ──────── */
+        .warning-box {
+            background: rgba(239, 68, 68, 0.06);
+            border: 1px solid rgba(239, 68, 68, 0.15);
+            border-radius: 12px;
+            padding: 18px;
+            margin-bottom: 18px;
+            text-align: center;
+        }
+
+        .warning-box .icon {
+            font-size: 28px;
+            margin-bottom: 8px;
+        }
+
+        .warning-box p {
+            color: #fca5a5;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        /* ── Footer ─────────────────────────────────── */
+        .widget-footer {
+            text-align: center;
+            margin-top: 24px;
+            padding-top: 18px;
+            border-top: 1px solid rgba(255, 255, 255, 0.04);
+        }
+
+        .widget-footer p {
+            font-size: 11px;
+            color: #4a5568;
+        }
+
+        .widget-footer a {
+            color: #64748b;
+            text-decoration: none;
+        }
+
+        .widget-footer a:hover {
+            color: #d4af37;
+        }
+
+        /* ── Responsive ─────────────────────────────── */
+        @media (max-width: 560px) {
+            body {
+                padding: 10px;
+            }
+
+            .widget-container {
+                padding: 28px 22px;
+                border-radius: 16px;
+            }
+
+            .header h1 {
+                font-size: 19px;
+            }
+        }
+
+        /* ── Shake animation ────────────────────────── */
+        @keyframes shake {
+
+            0%,
+            100% {
+                transform: translateX(0);
+            }
+
+            25% {
+                transform: translateX(-6px);
+            }
+
+            50% {
+                transform: translateX(6px);
+            }
+
+            75% {
+                transform: translateX(-4px);
+            }
+        }
+
+        /* ── Availability indicator ─────────────────── */
+        .availability-ok {
+            color: #4ade80;
+            font-size: 13px;
+            font-weight: 600;
+            margin-top: 8px;
+            display: none;
+        }
+
+        .availability-ok.active {
+            display: block;
+        }
+
+        .availability-fail {
+            color: #f87171;
+            font-size: 13px;
+            font-weight: 600;
+            margin-top: 8px;
+            display: none;
+        }
+
+        .availability-fail.active {
+            display: block;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="widget-container">
+        <!-- Header -->
+        <div class="header">
+            <div class="header-icon">🗓️</div>
+            <h1>Manage Your Booking</h1>
+            <p>View, reschedule, or cancel your tour booking</p>
+        </div>
+
+        <div class="divider"></div>
+
+        <!-- ═══ STEP 1: Lookup Form ═══ -->
+        <div id="step-lookup" class="step active">
+            <div class="form-group">
+                <label for="input-ref">Booking Reference *</label>
+                <input type="text" id="input-ref" placeholder="e.g. AV-12345" required autocomplete="off">
+            </div>
+            <div class="form-group">
+                <label for="input-name">Full Name <span
+                        style="color:#64748b;font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></label>
+                <input type="text" id="input-name" placeholder="As shown on your booking" autocomplete="name">
+            </div>
+            <div class="form-group">
+                <label for="input-email">Email Address <span
+                        style="color:#64748b;font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></label>
+                <input type="email" id="input-email" placeholder="Email used for booking" autocomplete="email">
+            </div>
+            <button class="btn-primary" id="btn-lookup" onclick="lookupBooking()">
+                Find My Booking
+            </button>
+        </div>
+
+        <!-- ═══ LOADING ═══ -->
+        <div class="loading" id="loading">
+            <div class="loading-spinner"></div>
+            <p id="loading-text">Finding your booking...</p>
+        </div>
+
+        <!-- ═══ STEP 2: Booking Details + Actions ═══ -->
+        <div id="step-details" class="step">
+            <div class="booking-card" id="booking-card">
+                <div class="tour-name" id="detail-tour-name"></div>
+                <div class="booking-ref" id="detail-ref"></div>
+                <div class="booking-detail-row">
+                    <span class="booking-detail-label">Booked by</span>
+                    <span class="booking-detail-value" id="detail-name"></span>
+                </div>
+                <div class="booking-detail-row">
+                    <span class="booking-detail-label">Date</span>
+                    <span class="booking-detail-value" id="detail-date"></span>
+                </div>
+                <div class="booking-detail-row">
+                    <span class="booking-detail-label">Guests</span>
+                    <span class="booking-detail-value" id="detail-guests"></span>
+                </div>
+                <div class="booking-detail-row">
+                    <span class="booking-detail-label">Pickup</span>
+                    <span class="booking-detail-value" id="detail-pickup"></span>
+                </div>
+                <div class="booking-detail-row">
+                    <span class="booking-detail-label">Status</span>
+                    <span class="booking-detail-value" id="detail-status"></span>
+                </div>
+            </div>
+
+            <!-- OTA banner (shown only for OTA bookings) -->
+            <div class="ota-banner" id="ota-banner" style="display:none"></div>
+
+            <!-- 24h restriction banner -->
+            <div class="ota-banner" id="within24h-banner"
+                style="display:none; border-color: rgba(239, 68, 68, 0.3); color: #fca5a5; background: rgba(239, 68, 68, 0.08);">
+            </div>
+
+            <!-- Action buttons -->
+            <div id="action-buttons">
+                <button class="btn-action btn-reschedule" id="btn-go-reschedule" onclick="showStep('step-reschedule')">
+                    📅 Reschedule Tour
+                </button>
+                <button class="btn-action btn-pickup" id="btn-go-pickup" onclick="loadPickupPlaces()">
+                    📍 Change Pickup Location
+                </button>
+                <button class="btn-action btn-cancel-booking" id="btn-go-cancel" onclick="showCancelStep()">
+                    ✕ Cancel Booking
+                </button>
+            </div>
+
+            <div style="text-align:center">
+                <button class="btn-back" onclick="resetToLookup()">← Different booking</button>
+            </div>
+        </div>
+
+        <!-- ═══ STEP 3a: Reschedule ═══ -->
+        <div id="step-reschedule" class="step">
+            <div class="header" style="margin-bottom:20px">
+                <h1 style="font-size:18px">📅 Reschedule Your Tour</h1>
+                <p>Select a new date below</p>
+            </div>
+
+            <div class="form-group">
+                <label for="input-new-date">New Date</label>
+                <input type="date" id="input-new-date" onchange="checkAvailability()">
+            </div>
+
+            <div class="availability-ok" id="avail-ok">✅ This date is available!</div>
+            <div class="availability-fail" id="avail-fail">❌ This date is fully booked — try another.</div>
+
+            <button class="btn-primary" id="btn-confirm-reschedule" onclick="confirmReschedule()" disabled
+                style="margin-top:16px">
+                Confirm Reschedule
+            </button>
+
+            <div style="text-align:center">
+                <button class="btn-back" onclick="showStep('step-details')">← Back to booking</button>
+            </div>
+        </div>
+
+        <!-- ═══ STEP 3b: Change Pickup ═══ -->
+        <div id="step-pickup" class="step">
+            <div class="header" style="margin-bottom:20px">
+                <h1 style="font-size:18px">📍 Change Pickup Location</h1>
+                <p>Select your new pickup point</p>
+            </div>
+
+            <div class="form-group">
+                <label for="input-pickup">Pickup Location</label>
+                <select id="input-pickup">
+                    <option value="">Loading pickup locations...</option>
+                </select>
+            </div>
+
+            <button class="btn-primary" id="btn-confirm-pickup" onclick="confirmPickupChange()">
+                Confirm New Pickup
+            </button>
+
+            <div style="text-align:center">
+                <button class="btn-back" onclick="showStep('step-details')">← Back to booking</button>
+            </div>
+        </div>
+
+        <!-- ═══ STEP 3c: Cancel ═══ -->
+        <div id="step-cancel" class="step">
+            <div class="warning-box" id="cancel-warning-box">
+                <div class="icon">⚠️</div>
+                <p id="cancel-warning-text"><strong>Are you sure you want to cancel?</strong><br>
+                    This action cannot be undone.</p>
+            </div>
+
+            <div class="form-group">
+                <label for="input-cancel-reason">Reason for cancellation (optional)</label>
+                <textarea id="input-cancel-reason" placeholder="Let us know why you're cancelling..."></textarea>
+            </div>
+
+            <button class="btn-confirm-cancel" id="btn-confirm-cancel" onclick="confirmCancel()">
+                Yes, Cancel My Booking
+            </button>
+
+            <div style="text-align:center">
+                <button class="btn-back" onclick="showStep('step-details')">← Back to booking</button>
+            </div>
+        </div>
+
+        <!-- ═══ STEP SUCCESS ═══ -->
+        <div id="step-success" class="step">
+            <div class="success-card">
+                <div class="icon" id="success-icon">✅</div>
+                <h3 id="success-title">Done!</h3>
+                <p id="success-message"></p>
+            </div>
+            <div style="text-align:center">
+                <button class="btn-back" onclick="returnToBooking()" style="margin-right:8px">← View Updated
+                    Booking</button>
+                <button class="btn-back" onclick="resetToLookup()">← Different booking</button>
+            </div>
+        </div>
+
+        <!-- ═══ STEP ERROR ═══ -->
+        <div id="step-error" class="step">
+            <div class="error-card">
+                <div class="icon">😕</div>
+                <div class="error-message" id="error-message"></div>
+                <a href="mailto:info@auroraviking.com" class="fallback-email">📧 info@auroraviking.com</a>
+            </div>
+            <div style="text-align:center">
+                <button class="btn-back" onclick="resetToLookup()">← Try again</button>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="widget-footer">
+            <p>Need help? <a href="mailto:info@auroraviking.com">info@auroraviking.com</a></p>
+        </div>
+    </div>
+
+    <script>
+        // ─── Configuration ────────────────────────────────────────────
+        const API_BASE = 'https://us-central1-aurora-viking-staff.cloudfunctions.net';
+
+        // ─── State ────────────────────────────────────────────────────
+        let currentBooking = null;
+        let lookupCredentials = {};
+        let availabilityConfirmed = false;
+
+        // ─── Allow Enter key on each field ────────────────────────────
+        document.querySelectorAll('#step-lookup input').forEach(input => {
+            input.addEventListener('keydown', e => {
+                if (e.key === 'Enter') { e.preventDefault(); lookupBooking(); }
+            });
+        });
+
+        // ─── Pre-fill from URL params (from email links) ────────────────
+        (function prefillFromUrl() {
+            const params = new URLSearchParams(window.location.search);
+            const code = params.get('code');
+            const email = params.get('email');
+            const name = params.get('name');
+
+            if (code) document.getElementById('input-ref').value = code;
+            if (email) document.getElementById('input-email').value = email;
+            if (name) document.getElementById('input-name').value = name;
+
+            // Auto-submit if we have a code from the email link
+            if (code) {
+                setTimeout(() => lookupBooking(), 300);
+            }
+        })();
+
+        // ─── Set min date for reschedule (today) ─────────────────────
+        (function setMinDate() {
+            const today = new Date();
+            const yyyy = today.getFullYear();
+            const mm = String(today.getMonth() + 1).padStart(2, '0');
+            const dd = String(today.getDate()).padStart(2, '0');
+            document.getElementById('input-new-date').min = `${yyyy}-${mm}-${dd}`;
+
+            // Max: 90 days out
+            const maxDate = new Date();
+            maxDate.setDate(maxDate.getDate() + 90);
+            document.getElementById('input-new-date').max =
+                `${maxDate.getFullYear()}-${String(maxDate.getMonth() + 1).padStart(2, '0')}-${String(maxDate.getDate()).padStart(2, '0')}`;
+        })();
+
+        // ═══════════════════════════════════════════════════════════════
+        // STEP 1: Lookup
+        // ═══════════════════════════════════════════════════════════════
+        async function lookupBooking() {
+            const name = document.getElementById('input-name').value.trim();
+            const email = document.getElementById('input-email').value.trim();
+            const ref = document.getElementById('input-ref').value.trim();
+
+            // Only booking reference is required
+            if (!ref) { shakeInput('input-ref'); return; }
+
+            // Build credentials — name and email are optional
+            lookupCredentials = { confirmationCode: ref };
+            if (name) lookupCredentials.name = name;
+            if (email) lookupCredentials.email = email;
+            showLoading('Finding your booking...');
+
+            try {
+                const res = await fetch(`${API_BASE}/portalLookupBooking`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(lookupCredentials),
+                });
+
+                const data = await res.json();
+
+                if (!res.ok || !data.success) {
+                    showError(data.error || 'Booking not found. Please check your details and try again.');
+                    return;
+                }
+
+                currentBooking = data;
+                displayBookingDetails(data);
+
+            } catch (err) {
+                console.error('Lookup error:', err);
+                showError('Unable to connect. Please try again or email info@auroraviking.com.');
+            }
+        }
+
+        function displayBookingDetails(data) {
+            const b = data.booking;
+
+            document.getElementById('detail-tour-name').textContent = `🌌 ${b.tourName}`;
+            document.getElementById('detail-ref').textContent = `Ref: ${b.confirmationCode}`;
+            document.getElementById('detail-name').textContent = b.customerName || 'Guest';
+
+            // Format date nicely
+            const dateObj = new Date(b.tourDate + 'T00:00:00');
+            const dateStr = dateObj.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+            document.getElementById('detail-date').textContent = dateStr;
+
+            document.getElementById('detail-guests').textContent = `${b.totalGuests} guest${b.totalGuests !== 1 ? 's' : ''}`;
+            document.getElementById('detail-pickup').textContent = b.currentPickup?.name || 'Not assigned';
+
+            // Status badge
+            const statusEl = document.getElementById('detail-status');
+            const status = b.status || 'UNKNOWN';
+            const statusClass = status === 'CONFIRMED' || status === 'AMENDED' ? 'status-confirmed'
+                : status === 'CANCELLED' ? 'status-cancelled' : 'status-other';
+            statusEl.innerHTML = `<span class="status-badge ${statusClass}">${status}</span>`;
+
+            // OTA banner
+            const otaBanner = document.getElementById('ota-banner');
+            if (data.isOTA && data.otaMessage) {
+                otaBanner.textContent = data.otaMessage;
+                otaBanner.style.display = 'block';
+            } else {
+                otaBanner.style.display = 'none';
+            }
+
+            // 24h restriction banner
+            const within24hBanner = document.getElementById('within24h-banner');
+            if (data.isWithin24h && !data.tourCancelledByWeather) {
+                within24hBanner.textContent = 'Your tour is less than 24 hours away. Non-refundable resources have been allocated. Please email info@auroraviking.com for changes.';
+                within24hBanner.style.display = 'block';
+            } else if (data.isWithin24h && data.tourCancelledByWeather) {
+                within24hBanner.textContent = '⚠️ Tonight\'s tour has been cancelled due to weather. You may reschedule to a different date free of charge.';
+                within24hBanner.style.display = 'block';
+                within24hBanner.style.borderColor = 'rgba(251, 191, 36, 0.3)';
+                within24hBanner.style.color = '#fbbf24';
+                within24hBanner.style.background = 'rgba(251, 191, 36, 0.08)';
+            } else {
+                within24hBanner.style.display = 'none';
+            }
+
+            // Action button visibility
+            const actions = document.getElementById('action-buttons');
+            if (data.isCancelled || data.isPastBooking) {
+                actions.style.display = 'none';
+            } else {
+                actions.style.display = 'block';
+                document.getElementById('btn-go-reschedule').style.display = data.canModify ? 'flex' : 'none';
+                document.getElementById('btn-go-pickup').style.display = (data.canChangePickup !== undefined ? data.canChangePickup : data.canModify) ? 'flex' : 'none';
+                document.getElementById('btn-go-cancel').style.display = data.canCancel ? 'flex' : 'none';
+            }
+
+            showStep('step-details');
+        }
+
+        function showCancelStep() {
+            const warningText = document.getElementById('cancel-warning-text');
+            const warningBox = document.getElementById('cancel-warning-box');
+            const policy = currentBooking?.cancelPolicy || 'normal';
+
+            if (policy === 'non_refundable') {
+                warningBox.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+                warningBox.style.background = 'rgba(239, 68, 68, 0.08)';
+                warningText.innerHTML = '<strong>⚠️ Cancelling within 24 hours of departure</strong><br><br>' +
+                    'Non-refundable resources have already been allocated for your booking. ' +
+                    'By proceeding, you acknowledge that <strong>you are not entitled to a refund</strong>.<br><br>' +
+                    'For any questions or special cases, please contact us at ' +
+                    '<a href="mailto:info@auroraviking.com" style="color:#d4af37">info@auroraviking.com</a>';
+            } else if (policy === 'weather_cancelled') {
+                warningBox.style.borderColor = 'rgba(251, 191, 36, 0.3)';
+                warningBox.style.background = 'rgba(251, 191, 36, 0.08)';
+                warningText.innerHTML = '<strong>⚠️ Tonight\u2019s tour has been cancelled due to weather</strong><br><br>' +
+                    'If this is a <strong>courtesy reschedule</strong> (you were already rescheduled due to a previous weather cancellation), ' +
+                    'you are <strong>not entitled to a refund</strong>.<br><br>' +
+                    'If this is your <strong>original scheduled tour</strong>, you may be eligible for a refund. ' +
+                    'Please email <a href="mailto:info@auroraviking.com" style="color:#d4af37">info@auroraviking.com</a> to request one.<br><br>' +
+                    'We recommend <strong>rescheduling</strong> instead if you have available dates during your stay.';
+            } else {
+                warningBox.style.borderColor = 'rgba(239, 68, 68, 0.15)';
+                warningBox.style.background = 'rgba(239, 68, 68, 0.06)';
+                warningText.innerHTML = '<strong>Are you sure you want to cancel?</strong><br>' +
+                    'This action cannot be undone.';
+            }
+
+            showStep('step-cancel');
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // STEP 3a: Reschedule
+        // ═══════════════════════════════════════════════════════════════
+        async function checkAvailability() {
+            const newDate = document.getElementById('input-new-date').value;
+            if (!newDate) return;
+
+            availabilityConfirmed = false;
+            document.getElementById('btn-confirm-reschedule').disabled = true;
+            document.getElementById('avail-ok').classList.remove('active');
+            document.getElementById('avail-fail').classList.remove('active');
+
+            try {
+                const res = await fetch(`${API_BASE}/portalCheckAvailability`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ...lookupCredentials, targetDate: newDate }),
+                });
+                const data = await res.json();
+
+                if (data.available) {
+                    availabilityConfirmed = true;
+                    document.getElementById('avail-ok').classList.add('active');
+                    document.getElementById('btn-confirm-reschedule').disabled = false;
+                } else {
+                    document.getElementById('avail-fail').classList.add('active');
+                }
+            } catch (err) {
+                document.getElementById('avail-fail').textContent = '⚠️ Could not check availability. Please try again.';
+                document.getElementById('avail-fail').classList.add('active');
+            }
+        }
+
+        async function confirmReschedule() {
+            if (!availabilityConfirmed) return;
+
+            const newDate = document.getElementById('input-new-date').value;
+            const btn = document.getElementById('btn-confirm-reschedule');
+            btn.disabled = true;
+            btn.textContent = 'Processing...';
+
+            try {
+                const res = await fetch(`${API_BASE}/portalRescheduleBooking`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ...lookupCredentials, newDate }),
+                });
+                const data = await res.json();
+
+                if (res.ok && data.success) {
+                    showSuccess('Booking Rescheduled! 📅', data.message);
+                } else {
+                    showError(data.error || 'Unable to reschedule. Please try again.');
+                }
+            } catch (err) {
+                showError('Unable to process. Please try again or contact us.');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Confirm Reschedule';
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // STEP 3b: Change Pickup
+        // ═══════════════════════════════════════════════════════════════
+        async function loadPickupPlaces() {
+            showLoading('Loading pickup locations...');
+
+            try {
+                const productId = currentBooking?.booking?.productId;
+                if (!productId) {
+                    showError('Unable to load pickup locations for this booking.');
+                    return;
+                }
+
+                const res = await fetch(`${API_BASE}/portalGetPickupPlaces`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ...lookupCredentials, productId: String(productId) }),
+                });
+                const data = await res.json();
+
+                if (!res.ok || !data.success) {
+                    showError(data.error || 'Unable to load pickup locations.');
+                    return;
+                }
+
+                const select = document.getElementById('input-pickup');
+                select.innerHTML = '<option value="">Select a pickup location</option>';
+                for (const place of data.pickupPlaces) {
+                    const opt = document.createElement('option');
+                    opt.value = place.id;
+                    opt.textContent = place.title + (place.address ? ` — ${place.address}` : '');
+                    opt.dataset.name = place.title;
+                    select.appendChild(opt);
+                }
+
+                showStep('step-pickup');
+
+            } catch (err) {
+                console.error('Pickup error:', err);
+                showError('Unable to load pickup locations. Please try again.');
+            }
+        }
+
+        async function confirmPickupChange() {
+            const select = document.getElementById('input-pickup');
+            const pickupPlaceId = select.value;
+            if (!pickupPlaceId) { shakeInput('input-pickup'); return; }
+
+            const pickupPlaceName = select.options[select.selectedIndex].dataset.name || '';
+            const btn = document.getElementById('btn-confirm-pickup');
+            btn.disabled = true;
+            btn.textContent = 'Updating...';
+
+            try {
+                const res = await fetch(`${API_BASE}/portalUpdatePickup`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ...lookupCredentials, pickupPlaceId, pickupPlaceName }),
+                });
+                const data = await res.json();
+
+                if (res.ok && data.success) {
+                    showSuccess('Pickup Updated! 📍', data.message);
+                } else {
+                    showError(data.error || 'Unable to update pickup. Please try again.');
+                }
+            } catch (err) {
+                showError('Unable to process. Please try again or contact us.');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Confirm New Pickup';
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // STEP 3c: Cancel
+        // ═══════════════════════════════════════════════════════════════
+        async function confirmCancel() {
+            const reason = document.getElementById('input-cancel-reason').value.trim();
+            const btn = document.getElementById('btn-confirm-cancel');
+            btn.disabled = true;
+            btn.textContent = 'Cancelling...';
+
+            try {
+                const res = await fetch(`${API_BASE}/portalCancelBooking`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ...lookupCredentials, reason: reason || 'No reason provided' }),
+                });
+                const data = await res.json();
+
+                if (res.ok && data.success) {
+                    showSuccess('Booking Cancelled', data.message);
+                } else {
+                    showError(data.error || 'Unable to cancel. Please try again.');
+                }
+            } catch (err) {
+                showError('Unable to process. Please try again or contact us.');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Yes, Cancel My Booking';
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // UI Helpers
+        // ═══════════════════════════════════════════════════════════════
+        function showStep(stepId) {
+            document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+            document.getElementById('loading').classList.remove('active');
+            document.getElementById(stepId).classList.add('active');
+        }
+
+        function showLoading(text) {
+            document.getElementById('loading-text').textContent = text || 'Loading...';
+            document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+            document.getElementById('loading').classList.add('active');
+        }
+
+        function showSuccess(title, message) {
+            document.getElementById('success-title').textContent = title;
+            document.getElementById('success-message').textContent = message;
+            showStep('step-success');
+        }
+
+        function showError(message) {
+            document.getElementById('error-message').textContent = message;
+            showStep('step-error');
+        }
+
+        function resetToLookup() {
+            currentBooking = null;
+            lookupCredentials = {};
+            availabilityConfirmed = false;
+            document.getElementById('input-name').value = '';
+            document.getElementById('input-email').value = '';
+            document.getElementById('input-ref').value = '';
+            document.getElementById('input-new-date').value = '';
+            document.getElementById('input-cancel-reason').value = '';
+            document.getElementById('avail-ok').classList.remove('active');
+            document.getElementById('avail-fail').classList.remove('active');
+            document.getElementById('btn-confirm-reschedule').disabled = true;
+            showStep('step-lookup');
+        }
+
+        async function returnToBooking() {
+            if (!lookupCredentials.name || !lookupCredentials.email || !lookupCredentials.confirmationCode) {
+                resetToLookup();
+                return;
+            }
+            showLoading('Refreshing your booking...');
+            try {
+                const res = await fetch(`${API_BASE}/portalLookupBooking`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(lookupCredentials),
+                });
+                const data = await res.json();
+                if (!res.ok || !data.success) {
+                    showStep('step-details');
+                    return;
+                }
+                currentBooking = data;
+                displayBookingDetails(data);
+            } catch (err) {
+                showStep('step-details');
+            }
+        }
+
+        function shakeInput(id) {
+            const el = document.getElementById(id);
+            el.style.borderColor = 'rgba(239, 68, 68, 0.5)';
+            el.style.animation = 'shake 0.4s ease';
+            el.focus();
+            setTimeout(() => {
+                el.style.borderColor = '';
+                el.style.animation = '';
+            }, 600);
+        }
+    </script>
+</body>
+
+</html>

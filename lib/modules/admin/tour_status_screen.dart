@@ -91,8 +91,8 @@ class _TourStatusScreenState extends State<TourStatusScreen> {
         ),
         content: Text(
           status == 'ON' 
-            ? 'This will set the tour to ON and send pickup information emails to all customers booked for today.'
-            : 'This will set the tour to OFF and send cancellation emails to all customers booked for today.',
+            ? 'Set the tour status to ON for today?'
+            : 'Set the tour status to OFF for today?',
           style: TextStyle(color: Colors.grey[300]),
         ),
         actions: [
@@ -105,7 +105,7 @@ class _TourStatusScreenState extends State<TourStatusScreen> {
             style: ElevatedButton.styleFrom(
               backgroundColor: status == 'ON' ? Colors.green : Colors.orange,
             ),
-            child: Text('Set ${status} & Send Emails'),
+            child: Text('Set $status'),
           ),
         ],
       ),
@@ -116,37 +116,67 @@ class _TourStatusScreenState extends State<TourStatusScreen> {
     setState(() => _isSaving = true);
     
     try {
+      // Set status WITHOUT sending emails
       final result = await _functions.httpsCallable('setTourStatus').call({
         'status': status,
         'message': status == 'OFF' ? 'Tour canceled' : 'Tour is running',
+        'sendEmail': false,
       });
       
       if (result.data['success'] == true) {
-        // Update status immediately from response
-        final emailsSent = result.data['emailsSent'] as int? ?? 0;
-        final emailError = result.data['emailError'] as String?;
-        
         setState(() {
           _currentStatus = result.data['status'] as String?;
           _lastUpdatedBy = result.data['updatedByName'] as String?;
-          _lastEmailCount = emailsSent;
         });
-        
-        // Show success message with email info
-        String message = 'Tour status set to $status';
-        if (emailsSent > 0) {
-          message += ' • $emailsSent emails sent';
-        } else if (emailError != null) {
-          message += ' (emails failed: $emailError)';
-        }
         
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(message),
+            content: Text('Tour status set to $status'),
             backgroundColor: status == 'ON' ? Colors.green : Colors.orange,
-            duration: const Duration(seconds: 4),
+            duration: const Duration(seconds: 2),
           ),
         );
+        
+        // Now ask if they want to send emails
+        if (mounted) {
+          final sendEmails = await showDialog<bool>(
+            context: context,
+            builder: (context) => AlertDialog(
+              backgroundColor: const Color(0xFF1E293B),
+              title: Row(
+                children: [
+                  Icon(Icons.email_outlined, color: status == 'ON' ? Colors.green : Colors.orange),
+                  const SizedBox(width: 8),
+                  const Text('Send Emails?', style: TextStyle(color: Colors.white)),
+                ],
+              ),
+              content: Text(
+                status == 'ON'
+                  ? 'Send personalized pickup info emails to all customers booked for today?'
+                  : 'Send cancellation emails with booking portal link to all customers booked for today?',
+                style: TextStyle(color: Colors.grey[300]),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(false),
+                  child: const Text('Not Now'),
+                ),
+                ElevatedButton.icon(
+                  onPressed: () => Navigator.of(context).pop(true),
+                  icon: const Icon(Icons.send, size: 18),
+                  label: const Text('Send Emails'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: status == 'ON' ? Colors.green : Colors.orange,
+                  ),
+                ),
+              ],
+            ),
+          );
+          
+          if (sendEmails == true) {
+            _sendEmails();
+          }
+        }
         
         // Reload history in background
         _loadStatus();
@@ -458,8 +488,10 @@ class _TourStatusScreenState extends State<TourStatusScreen> {
     setState(() => _isSendingEmails = true);
     
     try {
+      final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
       final result = await _functions.httpsCallable('sendTourStatusEmails').call({
         'status': _currentStatus,
+        'date': today,
       });
       
       final emailsSent = result.data['emailsSent'] as int? ?? 0;

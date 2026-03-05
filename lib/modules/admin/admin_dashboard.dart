@@ -15,6 +15,7 @@ import 'booking_management_screen.dart';
 import 'tour_status_screen.dart';
 import '../inbox/unified_inbox_screen.dart';
 import '../inbox/inbox_controller.dart';
+import 'portal_activity_screen.dart';
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
@@ -398,6 +399,15 @@ class _AdminDashboardState extends State<AdminDashboard> {
                     AppColors.primary,
                     () => Navigator.push(context, MaterialPageRoute(
                       builder: (context) => const BookingManagementScreen(),
+                    )),
+                  ),
+                  // Portal Activity
+                  _buildGridCard(
+                    'Portal Activity',
+                    Icons.swap_horiz,
+                    Colors.cyan,
+                    () => Navigator.push(context, MaterialPageRoute(
+                      builder: (context) => const PortalActivityScreen(),
                     )),
                   ),
                 ],

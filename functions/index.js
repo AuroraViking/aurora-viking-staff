@@ -52,6 +52,18 @@ exports.onPickupUpdateRequest = bookingMgmt.onPickupUpdateRequest;
 exports.onCancelRequest = bookingMgmt.onCancelRequest;
 
 // ============================================
+// BOOKING PORTAL MODULE (Customer Self-Service)
+// ============================================
+const bookingPortal = require('./modules/booking_portal');
+exports.portalLookupBooking = bookingPortal.portalLookupBooking;
+exports.portalCheckAvailability = bookingPortal.portalCheckAvailability;
+exports.portalRescheduleBooking = bookingPortal.portalRescheduleBooking;
+exports.portalCancelBooking = bookingPortal.portalCancelBooking;
+exports.portalGetPickupPlaces = bookingPortal.portalGetPickupPlaces;
+exports.portalUpdatePickup = bookingPortal.portalUpdatePickup;
+exports.getBookingManifest = bookingPortal.getBookingManifest;
+
+// ============================================
 // INBOX CORE MODULE
 // ============================================
 const inboxCore = require('./modules/inbox_core');

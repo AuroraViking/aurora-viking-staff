@@ -99,6 +99,11 @@ service cloud.firestore {
       allow read: if isStaff();
     }
     
+    // Portal Cancellations: Staff can read/write (for refund processing)
+    match /portal_cancellations/{docId} {
+      allow read, write: if isStaff();
+    }
+    
     // ============================================
     // Existing Collections
     // ============================================
