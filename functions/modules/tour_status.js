@@ -41,7 +41,12 @@ async function getGmailClient(email, clientId, clientSecret) {
         throw new Error(`No Gmail tokens found for ${email}`);
     }
     const oauth2Client = getGmailOAuth2Client(clientId, clientSecret);
-    oauth2Client.setCredentials(tokens);
+    // Firestore stores camelCase, OAuth expects snake_case
+    oauth2Client.setCredentials({
+        access_token: tokens.accessToken || tokens.access_token,
+        refresh_token: tokens.refreshToken || tokens.refresh_token,
+        expiry_date: tokens.expiryDate || tokens.expiry_date,
+    });
     return google.gmail({ version: 'v1', auth: oauth2Client });
 }
 
@@ -75,9 +80,10 @@ function buildOffEmailHtml(firstName, confirmationCode, email, fullName) {
     <p>You can see the forecast by clicking this link: <a href="${FORECAST_URL}" style="color:#4fc3f7;text-decoration:underline;font-weight:bold;">THE FORECAST</a><br>
     <span style="color:#aaa;font-size:13px;">The white color represents clouds while blue represents rain and pink snow.</span></p>
     <p>Please let us know what you want to do, if you want to reschedule or otherwise, we need to hear from you so we don't have to worry that you didn't receive this message and will be waiting for us to show up tonight when we aren't going to be.</p>
-    <p>If you booked with us directly on our website then you can click on the button below to reschedule or cancel. If you booked through some other means it might not be possible so in that case please email us at <a href="mailto:info@auroraviking.com" style="color:#4fc3f7;">info@auroraviking.com</a> with your decision asap.</p>
+    <p>Click the button below to reschedule or cancel your booking. If you have any issues, email us at <a href="mailto:info@auroraviking.com" style="color:#4fc3f7;">info@auroraviking.com</a> with your decision asap.</p>
     <div style="text-align:center;margin:25px 0;">
       <a href="${portalUrl}" style="display:inline-block;background:linear-gradient(135deg,#00b894,#00cec9);color:#fff;text-decoration:none;padding:14px 32px;border-radius:8px;font-weight:bold;font-size:16px;letter-spacing:0.5px;">Go to Booking Portal</a>
+      <p style="color:#aaa;font-size:13px;margin-top:12px;">Your booking reference is: <strong style="color:#e0e0e0;font-size:14px;">${confirmationCode || 'N/A'}</strong><br>Enter it in the Booking Portal if prompted.</p>
     </div>
     <p>All the best and fingers crossed for better conditions.<br>
     <strong>Kobe and Emil.</strong></p>

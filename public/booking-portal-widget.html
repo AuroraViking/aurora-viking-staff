@@ -814,8 +814,27 @@
         });
 
         // ─── Pre-fill from URL params (from email links) ────────────────
+        // Wix embeds this widget in an iframe, so we need to check the
+        // parent page URL for params, not just the iframe URL
         (function prefillFromUrl() {
-            const params = new URLSearchParams(window.location.search);
+            let searchStr = window.location.search;
+
+            // Try reading parent page URL (works if same-origin or Wix allows it)
+            try {
+                if (window.top !== window && window.top.location.search) {
+                    searchStr = window.top.location.search;
+                }
+            } catch (e) {
+                // Cross-origin blocked — try document.referrer as fallback
+                try {
+                    const referrerUrl = new URL(document.referrer);
+                    if (referrerUrl.search) {
+                        searchStr = referrerUrl.search;
+                    }
+                } catch (e2) { /* no referrer */ }
+            }
+
+            const params = new URLSearchParams(searchStr);
             const code = params.get('code');
             const email = params.get('email');
             const name = params.get('name');
