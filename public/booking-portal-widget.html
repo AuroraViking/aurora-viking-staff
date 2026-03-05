@@ -814,39 +814,42 @@
         });
 
         // ─── Pre-fill from URL params (from email links) ────────────────
-        // Wix embeds this widget in an iframe, so we need to check the
-        // parent page URL for params, not just the iframe URL
+        // Wix embeds this widget in a cross-origin iframe, so we use two strategies:
+        // 1. Direct URL params (works when not in iframe)
+        // 2. postMessage from parent Wix page (works in iframe)
         (function prefillFromUrl() {
+            // Strategy 1: Direct URL params (non-iframe or same-origin)
             let searchStr = window.location.search;
-
-            // Try reading parent page URL (works if same-origin or Wix allows it)
             try {
                 if (window.top !== window && window.top.location.search) {
                     searchStr = window.top.location.search;
                 }
-            } catch (e) {
-                // Cross-origin blocked — try document.referrer as fallback
-                try {
-                    const referrerUrl = new URL(document.referrer);
-                    if (referrerUrl.search) {
-                        searchStr = referrerUrl.search;
-                    }
-                } catch (e2) { /* no referrer */ }
-            }
+            } catch (e) { /* cross-origin, handled by Strategy 2 */ }
 
             const params = new URLSearchParams(searchStr);
             const code = params.get('code');
-            const email = params.get('email');
-            const name = params.get('name');
-
-            if (code) document.getElementById('input-ref').value = code;
-            if (email) document.getElementById('input-email').value = email;
-            if (name) document.getElementById('input-name').value = name;
-
-            // Auto-submit if we have a code from the email link
             if (code) {
+                document.getElementById('input-ref').value = code;
+                const email = params.get('email');
+                const name = params.get('name');
+                if (email) document.getElementById('input-email').value = email;
+                if (name) document.getElementById('input-name').value = name;
                 setTimeout(() => lookupBooking(), 300);
+                return; // Done, no need for postMessage
             }
+
+            // Strategy 2: Listen for postMessage from Wix parent page
+            window.addEventListener('message', function handler(event) {
+                if (event.data && event.data.type === 'prefill-booking') {
+                    if (event.data.code) document.getElementById('input-ref').value = event.data.code;
+                    if (event.data.email) document.getElementById('input-email').value = event.data.email;
+                    if (event.data.name) document.getElementById('input-name').value = event.data.name;
+                    if (event.data.code) {
+                        setTimeout(() => lookupBooking(), 300);
+                    }
+                    window.removeEventListener('message', handler);
+                }
+            });
         })();
 
         // ─── Set min date for reschedule (today) ─────────────────────
