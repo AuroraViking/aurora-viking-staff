@@ -21,6 +21,7 @@ class _TourStatusScreenState extends State<TourStatusScreen> {
   List<Map<String, dynamic>> _history = [];
   bool _isSaving = false;
   bool _isSendingEmails = false;
+  bool _isSendingSms = false;
   int? _lastEmailCount;
   bool _isDisruptingDeparture = false;
 
@@ -596,6 +597,7 @@ class _TourStatusScreenState extends State<TourStatusScreen> {
     // Local state for checkboxes (all checked by default)
     bool doSetStatus = true;
     bool doSendEmails = true;
+    bool doSendSms = true;
     bool doDisruptDeparture = true;
 
     showModalBottomSheet(
@@ -685,7 +687,19 @@ class _TourStatusScreenState extends State<TourStatusScreen> {
 
                   const SizedBox(height: 12),
 
-                  // Checkbox 3: Disrupt Departure
+                  // Checkbox 3: Send SMS
+                  _buildActionCheckbox(
+                    value: doSendSms,
+                    onChanged: (v) => setSheetState(() => doSendSms = v ?? true),
+                    icon: Icons.sms_outlined,
+                    iconColor: Colors.purple,
+                    title: 'Send cancellation SMS',
+                    subtitle: 'Text all customers with portal link',
+                  ),
+
+                  const SizedBox(height: 12),
+
+                  // Checkbox 4: Disrupt Departure
                   _buildActionCheckbox(
                     value: doDisruptDeparture,
                     onChanged: (v) => setSheetState(() => doDisruptDeparture = v ?? true),
@@ -702,19 +716,20 @@ class _TourStatusScreenState extends State<TourStatusScreen> {
                     width: double.infinity,
                     height: 52,
                     child: ElevatedButton.icon(
-                      onPressed: (!doSetStatus && !doSendEmails && !doDisruptDeparture)
+                      onPressed: (!doSetStatus && !doSendEmails && !doSendSms && !doDisruptDeparture)
                           ? null
                           : () {
                               Navigator.of(context).pop();
                               _executeCancellationActions(
                                 setStatus: doSetStatus,
                                 sendEmails: doSendEmails,
+                                sendSms: doSendSms,
                                 disruptDeparture: doDisruptDeparture,
                               );
                             },
                       icon: const Icon(Icons.rocket_launch, size: 20),
                       label: Text(
-                        _getExecuteButtonLabel(doSetStatus, doSendEmails, doDisruptDeparture),
+                        _getExecuteButtonLabel(doSetStatus, doSendEmails, doSendSms, doDisruptDeparture),
                         style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
@@ -803,16 +818,17 @@ class _TourStatusScreenState extends State<TourStatusScreen> {
     );
   }
 
-  String _getExecuteButtonLabel(bool status, bool emails, bool disrupt) {
-    final count = [status, emails, disrupt].where((v) => v).length;
+  String _getExecuteButtonLabel(bool status, bool emails, bool sms, bool disrupt) {
+    final count = [status, emails, sms, disrupt].where((v) => v).length;
     if (count == 0) return 'Select at least one action';
-    if (count == 3) return 'Execute All Actions';
+    if (count == 4) return 'Execute All Actions';
     return 'Execute $count Action${count > 1 ? 's' : ''}';
   }
 
   Future<void> _executeCancellationActions({
     required bool setStatus,
     required bool sendEmails,
+    required bool sendSms,
     required bool disruptDeparture,
   }) async {
     setState(() => _isSaving = true);
@@ -844,27 +860,36 @@ class _TourStatusScreenState extends State<TourStatusScreen> {
         }
       }
 
-      // Step 2: Send cancellation emails
-      if (sendEmails) {
+      // Step 2: Send cancellation emails (and SMS if checked)
+      if (sendEmails || sendSms) {
         try {
-          setState(() => _isSendingEmails = true);
+          setState(() {
+            if (sendEmails) _isSendingEmails = true;
+            if (sendSms) _isSendingSms = true;
+          });
 
           final result = await _functions.httpsCallable('sendTourStatusEmails').call({
             'status': 'OFF',
+            'sendSms': sendSms,
           });
 
           final emailsSent = result.data['emailsSent'] as int? ?? 0;
-          final uniqueCustomers = result.data['uniqueCustomers'] as int? ?? 0;
+          final smsSent = result.data['smsSent'] as int? ?? 0;
 
           setState(() {
             _lastEmailCount = emailsSent;
             _isSendingEmails = false;
+            _isSendingSms = false;
           });
-          actions.add('$emailsSent emails sent');
+          if (sendEmails) actions.add('$emailsSent emails sent');
+          if (sendSms) actions.add('$smsSent SMS sent');
         } catch (e) {
-          print('Error sending emails: $e');
-          setState(() => _isSendingEmails = false);
-          errors.add('Emails: $e');
+          print('Error sending emails/SMS: $e');
+          setState(() {
+            _isSendingEmails = false;
+            _isSendingSms = false;
+          });
+          errors.add('Emails/SMS: $e');
         }
       }
 

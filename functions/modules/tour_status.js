@@ -10,6 +10,7 @@ const crypto = require('crypto');
 const { admin, db } = require('../utils/firebase');
 const { sendNotificationToAdminsOnly } = require('../utils/notifications');
 const { disruptDeparture } = require('./departure_disruption');
+const { sendCancellationSmsInternal } = require('./sms');
 
 // Gmail OAuth2 client setup
 function getGmailOAuth2Client(clientId, clientSecret) {
@@ -81,7 +82,7 @@ function buildOffEmailHtml(firstName, confirmationCode, email, fullName) {
     <p>You can see the forecast by clicking this link: <a href="${FORECAST_URL}" style="color:#4fc3f7;text-decoration:underline;font-weight:bold;">THE FORECAST</a><br>
     <span style="color:#aaa;font-size:13px;">The white color represents clouds while blue represents rain and pink snow.</span></p>
     <p>Please let us know what you want to do, if you want to reschedule or otherwise, we need to hear from you so we don't have to worry that you didn't receive this message and will be waiting for us to show up tonight when we aren't going to be.</p>
-    <p>Click the button below to reschedule or cancel your booking.</p>
+    <p>Get <strong style="color:#00b894;">instant confirmation</strong> of a reschedule or cancellation by using our Booking Management Portal below. Email correspondence may take some time to process.</p>
     <div style="text-align:center;margin:25px 0;">
       <a href="${portalUrl}" style="display:inline-block;background:linear-gradient(135deg,#00b894,#00cec9);color:#fff;text-decoration:none;padding:14px 32px;border-radius:8px;font-weight:bold;font-size:16px;letter-spacing:0.5px;">Go to Booking Portal</a>
       <p style="color:#aaa;font-size:13px;margin-top:12px;">Your booking reference is: <strong style="color:#e0e0e0;font-size:14px;">${confirmationCode || 'N/A'}</strong><br>Enter it in the Booking Portal if prompted.</p>
@@ -479,7 +480,7 @@ async function sendTourStatusEmailsInternal(dateString, status, sentByUid) {
 const setTourStatus = onCall(
     {
         region: 'us-central1',
-        secrets: ['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET'],
+        secrets: ['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET', 'TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_MESSAGING_SERVICE_SID'],
         timeoutSeconds: 300,
     },
     async (request) => {
@@ -490,7 +491,7 @@ const setTourStatus = onCall(
         }
 
         const uid = request.auth.uid;
-        const { date, status, message, sendEmail = true } = request.data;
+        const { date, status, message, sendEmail = true, sendSms = true } = request.data;
 
         if (!status || !['ON', 'OFF'].includes(status)) {
             throw new Error('Status must be "ON" or "OFF"');
@@ -537,6 +538,14 @@ const setTourStatus = onCall(
             console.log(`📧 Email result: ${emailResult.emailsSent} sent`);
         }
 
+        // AUTO-SEND SMS when status is OFF
+        let smsResult = { smsSent: 0 };
+        if (sendSms && status === 'OFF') {
+            console.log(`📱 Auto-sending cancellation SMS to customers...`);
+            smsResult = await sendCancellationSmsInternal(dateString);
+            console.log(`📱 SMS result: ${smsResult.smsSent} sent`);
+        }
+
         return {
             success: true,
             date: dateString,
@@ -546,6 +555,8 @@ const setTourStatus = onCall(
             updatedByName: userName,
             emailsSent: emailResult.emailsSent || 0,
             emailError: emailResult.error || null,
+            smsSent: smsResult.smsSent || 0,
+            smsError: smsResult.error || null,
         };
     }
 );
@@ -634,7 +645,7 @@ const tourStatusReminder = onSchedule(
 const sendTourStatusEmails = onCall(
     {
         region: 'us-central1',
-        secrets: ['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET'],
+        secrets: ['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET', 'TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_MESSAGING_SERVICE_SID'],
         timeoutSeconds: 300,
     },
     async (request) => {
@@ -644,7 +655,7 @@ const sendTourStatusEmails = onCall(
             throw new Error('You must be logged in to send tour status emails');
         }
 
-        const { date, status } = request.data;
+        const { date, status, sendSms = true } = request.data;
 
         if (!status || !['ON', 'OFF'].includes(status)) {
             throw new Error('Status must be "ON" or "OFF"');
@@ -660,11 +671,20 @@ const sendTourStatusEmails = onCall(
                 throw new Error(result.error || 'Failed to send emails');
             }
 
+            // Also send SMS when status is OFF
+            let smsResult = { smsSent: 0 };
+            if (sendSms && status === 'OFF') {
+                console.log(`📱 Sending cancellation SMS alongside emails...`);
+                smsResult = await sendCancellationSmsInternal(dateString);
+            }
+
             return {
                 success: true,
                 date: dateString,
                 status,
                 ...result,
+                smsSent: smsResult.smsSent || 0,
+                smsError: smsResult.error || null,
             };
 
         } catch (error) {

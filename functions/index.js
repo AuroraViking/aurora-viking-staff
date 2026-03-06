@@ -129,6 +129,12 @@ exports.sendTourStatusEmails = tourStatus.sendTourStatusEmails;
 exports.disruptDeparture = tourStatus.disruptDeparture;
 
 // ============================================
+// SMS MODULE
+// ============================================
+const sms = require('./modules/sms');
+exports.sendTestSms = sms.sendTestSms;
+
+// ============================================
 // PHOTO DELIVERY MODULE
 // ============================================
 const photoDelivery = require('./modules/photo_delivery');
