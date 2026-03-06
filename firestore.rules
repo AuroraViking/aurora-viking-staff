@@ -211,5 +211,10 @@ service cloud.firestore {
     match /radio_messages/{messageId} {
       allow read, write: if request.auth != null;
     }
+    
+    // Photo request logs - staff can read (Cloud Functions write via Admin SDK)
+    match /photo_requests/{requestId} {
+      allow read: if request.auth != null;
+    }
   }
 } 

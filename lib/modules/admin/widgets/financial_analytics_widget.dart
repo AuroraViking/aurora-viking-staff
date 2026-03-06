@@ -178,9 +178,9 @@ class FinancialAnalyticsWidget extends StatelessWidget {
         Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: Colors.grey.shade50,
+            color: const Color(0xFF252540),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.grey.shade200),
+            border: Border.all(color: Colors.grey.shade700),
           ),
           child: Column(
             children: [
@@ -217,8 +217,9 @@ class FinancialAnalyticsWidget extends StatelessWidget {
         Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: Colors.grey.shade100,
+            color: const Color(0xFF252540),
             borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.grey.shade700),
           ),
           child: Column(
             children: [
@@ -322,9 +323,9 @@ class FinancialAnalyticsWidget extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: Colors.grey.shade100,
+        color: const Color(0xFF252540),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade300),
+        border: Border.all(color: Colors.grey.shade700),
       ),
       child: Column(
         children: [
@@ -334,7 +335,7 @@ class FinancialAnalyticsWidget extends StatelessWidget {
             'No tour data available for this period',
             style: TextStyle(
               fontSize: 16,
-              color: Colors.grey.shade600,
+              color: Colors.grey.shade300,
               fontWeight: FontWeight.w500,
             ),
           ),
@@ -364,7 +365,7 @@ class FinancialAnalyticsWidget extends StatelessWidget {
           const SizedBox(height: 4),
           Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: color)),
           const SizedBox(height: 2),
-          Text(subtitle, style: TextStyle(fontSize: 10, color: Colors.grey.shade600)),
+          Text(subtitle, style: TextStyle(fontSize: 10, color: Colors.grey.shade400)),
         ],
       ),
     );
@@ -378,7 +379,7 @@ class FinancialAnalyticsWidget extends StatelessWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
+            Text(label, style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.white)),
             Text(_formatCurrency(amount), style: TextStyle(fontWeight: FontWeight.bold, color: color)),
           ],
         ),
@@ -391,17 +392,17 @@ class FinancialAnalyticsWidget extends StatelessWidget {
                 child: LinearProgressIndicator(
                   value: total > 0 ? amount / total : 0,
                   minHeight: 8,
-                  backgroundColor: Colors.grey.shade200,
+                  backgroundColor: Colors.grey.shade800,
                   valueColor: AlwaysStoppedAnimation<Color>(color),
                 ),
               ),
             ),
             const SizedBox(width: 12),
-            Text('${percentage.toStringAsFixed(0)}%', style: TextStyle(fontWeight: FontWeight.w500, color: Colors.grey.shade600)),
+            Text('${percentage.toStringAsFixed(0)}%', style: TextStyle(fontWeight: FontWeight.w500, color: Colors.grey.shade400)),
           ],
         ),
         const SizedBox(height: 2),
-        Text(detail, style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
+        Text(detail, style: TextStyle(fontSize: 11, color: Colors.grey.shade400)),
       ],
     );
   }
@@ -411,8 +412,8 @@ class FinancialAnalyticsWidget extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         children: [
-          Expanded(child: Text(label, style: const TextStyle(fontWeight: FontWeight.w500))),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          Expanded(child: Text(label, style: const TextStyle(fontWeight: FontWeight.w500, color: Colors.white))),
+          Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.white)),
           const SizedBox(width: 12),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -438,7 +439,7 @@ class FinancialAnalyticsWidget extends StatelessWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
+            Text(label, style: const TextStyle(fontWeight: FontWeight.w500, color: Colors.white)),
             Text(
               isComplete ? '✅ $percentage%' : '$percentage%',
               style: TextStyle(fontWeight: FontWeight.bold, color: isComplete ? Colors.green : color),
@@ -451,14 +452,14 @@ class FinancialAnalyticsWidget extends StatelessWidget {
           child: LinearProgressIndicator(
             value: progress.clamp(0.0, 1.0),
             minHeight: 8,
-            backgroundColor: Colors.grey.shade200,
+            backgroundColor: Colors.grey.shade800,
             valueColor: AlwaysStoppedAnimation<Color>(isComplete ? Colors.green : color),
           ),
         ),
         const SizedBox(height: 4),
         Text(
           '${_formatCurrency(current)} / ${_formatCurrency(target)}',
-          style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+          style: TextStyle(fontSize: 12, color: Colors.grey.shade400),
         ),
       ],
     );
@@ -467,8 +468,8 @@ class FinancialAnalyticsWidget extends StatelessWidget {
   Widget _buildQuickStat(String label, String value) {
     return Column(
       children: [
-        Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-        Text(label, style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+        Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.white)),
+        Text(label, style: TextStyle(fontSize: 11, color: Colors.grey.shade400)),
       ],
     );
   }

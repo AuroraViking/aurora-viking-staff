@@ -890,7 +890,8 @@ class FirebaseService {
   }
 
   /// Save bookings to Firebase cache for future retrieval
-  /// This allows us to access past bookings even when Bokun API blocks them
+  /// This allows us to access past bookings even when Bokun API blocks them.
+  /// If the document has been frozen (frozenAt set), the write is skipped.
   static Future<void> cacheBookings({
     required String date, // YYYY-MM-DD format
     required List<PickupBooking> bookings,
@@ -901,13 +902,19 @@ class FirebaseService {
     }
     
     try {
+      final docRef = _firestore!.collection('cached_bookings').doc(date);
+
+      // Check if this cache has been frozen (departure save-state)
+      final existing = await docRef.get();
+      if (existing.exists && existing.data()?['frozenAt'] != null) {
+        print('🔒 cached_bookings/$date is frozen — skipping overwrite');
+        return;
+      }
+
       // Convert bookings to JSON-serializable format
       final bookingsData = bookings.map((b) => b.toJson()).toList();
       
-      await _firestore!
-          .collection('cached_bookings')
-          .doc(date)
-          .set({
+      await docRef.set({
         'date': date,
         'bookings': bookingsData,
         'cachedAt': FieldValue.serverTimestamp(),
@@ -917,6 +924,36 @@ class FirebaseService {
       print('💾 Cached ${bookings.length} bookings for date $date to Firebase');
     } catch (e) {
       print('❌ Failed to cache bookings to Firebase: $e');
+    }
+  }
+
+  /// Freeze the cached bookings for a date so they can never be overwritten.
+  /// Called once the tour has departed (>23h past).
+  /// Uses merge so the existing booking data is preserved.
+  static Future<void> freezeBookingsCache({required String date}) async {
+    if (!_initialized || _firestore == null) return;
+
+    try {
+      final docRef = _firestore!.collection('cached_bookings').doc(date);
+      final existing = await docRef.get();
+
+      // Only freeze if there's actual data and it isn't already frozen
+      if (!existing.exists) {
+        print('⚠️ No cached_bookings/$date to freeze');
+        return;
+      }
+      if (existing.data()?['frozenAt'] != null) {
+        print('ℹ️ cached_bookings/$date already frozen');
+        return;
+      }
+
+      await docRef.set({
+        'frozenAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      print('🔒 Froze cached_bookings/$date — overwrites are now blocked');
+    } catch (e) {
+      print('⚠️ Failed to freeze cached_bookings/$date: $e');
     }
   }
 
@@ -1115,7 +1152,7 @@ class FirebaseService {
 
   /// Clear old cached bookings (older than specified days)
   /// Call this periodically to clean up storage
-  static Future<void> clearOldCachedBookings({int olderThanDays = 90}) async {
+  static Future<void> clearOldCachedBookings({int olderThanDays = 365}) async {
     if (!_initialized || _firestore == null) return;
     
     try {

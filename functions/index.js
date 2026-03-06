@@ -126,6 +126,7 @@ exports.setTourStatus = tourStatus.setTourStatus;
 exports.getTourStatusHistory = tourStatus.getTourStatusHistory;
 exports.tourStatusReminder = tourStatus.tourStatusReminder;
 exports.sendTourStatusEmails = tourStatus.sendTourStatusEmails;
+exports.disruptDeparture = tourStatus.disruptDeparture;
 
 // ============================================
 // PHOTO DELIVERY MODULE

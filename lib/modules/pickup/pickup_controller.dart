@@ -360,9 +360,9 @@ class PickupController extends ChangeNotifier {
       updatedBookings.sort((a, b) => a.pickupPlaceName.compareTo(b.pickupPlaceName));
 
       // ========================================
-      // AUTO-SNAPSHOT: If this date is >23h in the past and we have booking data,
-      // write a frozen tour report to Firestore so participants are preserved even
-      // after Bokun can no longer serve the old booking data.
+      // AUTO-FREEZE: If this date is >23h in the past and we have booking data,
+      // freeze the cached_bookings document so it can never be overwritten.
+      // Also snapshot a tour report as a secondary backup.
       // This is fire-and-forget (unawaited) — it must not block the UI.
       // ========================================
       final _snapNow = DateTime.now();
@@ -372,7 +372,8 @@ class PickupController extends ChangeNotifier {
       ).subtract(const Duration(hours: 23));
       final _selectedDateMidnight = DateTime(date.year, date.month, date.day);
       if (_selectedDateMidnight.isBefore(_snapCutoff) && updatedBookings.isNotEmpty) {
-        print('📸 Date $dateKey is >23h past — triggering tour report snapshot');
+        print('🔒 Date $dateKey is >23h past — freezing cached bookings');
+        FirebaseService.freezeBookingsCache(date: dateKey); // intentionally not awaited
         FirebaseService.snapshotTourReport(
           date: dateKey,
           bookings: updatedBookings,

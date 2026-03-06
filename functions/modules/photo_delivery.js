@@ -197,6 +197,29 @@ function shouldShowReviews(report) {
 }
 
 /**
+ * Log a photo request to Firestore for analytics.
+ * Fire-and-forget — never blocks the response.
+ */
+function logPhotoRequest(req, { date, guide, success, photoCount, showReviews, error }) {
+    const ip = req.headers['x-forwarded-for'] || req.ip || 'unknown';
+    const userAgent = req.headers['user-agent'] || 'unknown';
+
+    db.collection('photo_requests').add({
+        date: date || null,
+        guide: guide || null,
+        success: success,
+        photoCount: photoCount || 0,
+        showReviews: showReviews || false,
+        error: error || null,
+        ip: ip,
+        userAgent: userAgent,
+        timestamp: new Date().toISOString(),
+    }).catch((err) => {
+        console.error('⚠️ Failed to log photo request:', err.message);
+    });
+}
+
+/**
  * GET /getPhotoLink?date=YYYY-MM-DD&guide=GuideName
  * 
  * Returns:
@@ -313,12 +336,24 @@ const getPhotoLink = onRequest(
                 });
 
                 if (anyShifts.length === 0) {
+                    logPhotoRequest(req, {
+                        date,
+                        guide: guideName,
+                        success: false,
+                        error: 'No tour found for this date',
+                    });
                     return res.json({
                         success: false,
                         error: 'No tour was found for this date. Please check the date and try again.',
                     });
                 }
 
+                logPhotoRequest(req, {
+                    date,
+                    guide: guideName,
+                    success: false,
+                    error: `Guide not found: ${guideName}`,
+                });
                 return res.json({
                     success: false,
                     error: `No guide named "${guideName}" was found for this date. Please check the name and try again.`,
@@ -409,10 +444,29 @@ const getPhotoLink = onRequest(
             }
 
             console.log('✅ Photo delivery response sent successfully');
+
+            // Log successful request
+            logPhotoRequest(req, {
+                date,
+                guide: guideName,
+                success: true,
+                photoCount: photoCount,
+                showReviews: showReviews,
+            });
+
             return res.json(response);
 
         } catch (error) {
             console.error('❌ Photo delivery error:', error);
+
+            // Log failed request
+            logPhotoRequest(req, {
+                date,
+                guide: guide,
+                success: false,
+                error: error.message || 'Internal error',
+            });
+
             return res.status(500).json({
                 success: false,
                 error: 'Something went wrong. Please try again or email photo@auroraviking.com.',

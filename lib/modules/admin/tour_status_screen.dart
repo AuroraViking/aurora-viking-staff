@@ -22,6 +22,7 @@ class _TourStatusScreenState extends State<TourStatusScreen> {
   bool _isSaving = false;
   bool _isSendingEmails = false;
   int? _lastEmailCount;
+  bool _isDisruptingDeparture = false;
 
   @override
   void initState() {
@@ -80,19 +81,23 @@ class _TourStatusScreenState extends State<TourStatusScreen> {
   }
 
   Future<void> _setStatus(String status) async {
-    // Show confirmation dialog first
+    if (status == 'OFF') {
+      // Show the new checkbox action sheet for cancellations
+      _showCancellationActionsSheet();
+      return;
+    }
+
+    // For ON status, keep the existing simple flow
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: const Color(0xFF1E293B),
-        title: Text(
-          status == 'ON' ? 'Confirm Tour ON' : 'Confirm Tour Cancellation',
-          style: const TextStyle(color: Colors.white),
+        title: const Text(
+          'Confirm Tour ON',
+          style: TextStyle(color: Colors.white),
         ),
         content: Text(
-          status == 'ON' 
-            ? 'Set the tour status to ON for today?'
-            : 'Set the tour status to OFF for today?',
+          'Set the tour status to ON for today?',
           style: TextStyle(color: Colors.grey[300]),
         ),
         actions: [
@@ -103,57 +108,54 @@ class _TourStatusScreenState extends State<TourStatusScreen> {
           ElevatedButton(
             onPressed: () => Navigator.of(context).pop(true),
             style: ElevatedButton.styleFrom(
-              backgroundColor: status == 'ON' ? Colors.green : Colors.orange,
+              backgroundColor: Colors.green,
             ),
-            child: Text('Set $status'),
+            child: const Text('Set ON'),
           ),
         ],
       ),
     );
-    
+
     if (confirmed != true) return;
-    
+
     setState(() => _isSaving = true);
-    
+
     try {
-      // Set status WITHOUT sending emails
       final result = await _functions.httpsCallable('setTourStatus').call({
-        'status': status,
-        'message': status == 'OFF' ? 'Tour canceled' : 'Tour is running',
+        'status': 'ON',
+        'message': 'Tour is running',
         'sendEmail': false,
       });
-      
+
       if (result.data['success'] == true) {
         setState(() {
           _currentStatus = result.data['status'] as String?;
           _lastUpdatedBy = result.data['updatedByName'] as String?;
         });
-        
+
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Tour status set to $status'),
-            backgroundColor: status == 'ON' ? Colors.green : Colors.orange,
-            duration: const Duration(seconds: 2),
+          const SnackBar(
+            content: Text('Tour status set to ON ✅'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
           ),
         );
-        
-        // Now ask if they want to send emails
+
+        // Ask about sending confirmation emails
         if (mounted) {
           final sendEmails = await showDialog<bool>(
             context: context,
             builder: (context) => AlertDialog(
               backgroundColor: const Color(0xFF1E293B),
-              title: Row(
+              title: const Row(
                 children: [
-                  Icon(Icons.email_outlined, color: status == 'ON' ? Colors.green : Colors.orange),
-                  const SizedBox(width: 8),
-                  const Text('Send Emails?', style: TextStyle(color: Colors.white)),
+                  Icon(Icons.email_outlined, color: Colors.green),
+                  SizedBox(width: 8),
+                  Text('Send Emails?', style: TextStyle(color: Colors.white)),
                 ],
               ),
               content: Text(
-                status == 'ON'
-                  ? 'Send personalized pickup info emails to all customers booked for today?'
-                  : 'Send cancellation emails with booking portal link to all customers booked for today?',
+                'Send personalized pickup info emails to all customers booked for today?',
                 style: TextStyle(color: Colors.grey[300]),
               ),
               actions: [
@@ -166,19 +168,18 @@ class _TourStatusScreenState extends State<TourStatusScreen> {
                   icon: const Icon(Icons.send, size: 18),
                   label: const Text('Send Emails'),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: status == 'ON' ? Colors.green : Colors.orange,
+                    backgroundColor: Colors.green,
                   ),
                 ),
               ],
             ),
           );
-          
+
           if (sendEmails == true) {
             _sendEmails();
           }
         }
-        
-        // Reload history in background
+
         _loadStatus();
       }
     } catch (e) {
@@ -587,5 +588,338 @@ class _TourStatusScreenState extends State<TourStatusScreen> {
         ],
       ),
     );
+  }
+
+  // ── Cancellation Actions Bottom Sheet ───────────────────
+
+  void _showCancellationActionsSheet() {
+    // Local state for checkboxes (all checked by default)
+    bool doSetStatus = true;
+    bool doSendEmails = true;
+    bool doDisruptDeparture = true;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return Container(
+              decoration: const BoxDecoration(
+                color: Color(0xFF1E293B),
+                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Drag handle
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[600],
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Header
+                  const Row(
+                    children: [
+                      Text('🚫', style: TextStyle(fontSize: 28)),
+                      SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Cancel Tonight\'s Tour',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            SizedBox(height: 2),
+                            Text(
+                              'Select the actions to perform',
+                              style: TextStyle(
+                                color: Colors.grey,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 24),
+
+                  // Checkbox 1: Set Status OFF
+                  _buildActionCheckbox(
+                    value: doSetStatus,
+                    onChanged: (v) => setSheetState(() => doSetStatus = v ?? true),
+                    icon: Icons.cancel_outlined,
+                    iconColor: Colors.orange,
+                    title: 'Set tour status to OFF',
+                    subtitle: 'Updates the status in the system',
+                  ),
+
+                  const SizedBox(height: 12),
+
+                  // Checkbox 2: Send Emails
+                  _buildActionCheckbox(
+                    value: doSendEmails,
+                    onChanged: (v) => setSheetState(() => doSendEmails = v ?? true),
+                    icon: Icons.email_outlined,
+                    iconColor: Colors.blue,
+                    title: 'Send cancellation emails',
+                    subtitle: 'Email all customers with portal link',
+                  ),
+
+                  const SizedBox(height: 12),
+
+                  // Checkbox 3: Disrupt Departure
+                  _buildActionCheckbox(
+                    value: doDisruptDeparture,
+                    onChanged: (v) => setSheetState(() => doDisruptDeparture = v ?? true),
+                    icon: Icons.block_outlined,
+                    iconColor: Colors.red,
+                    title: 'Disrupt departure on Bokun',
+                    subtitle: 'Close the departure so no new bookings come in',
+                  ),
+
+                  const SizedBox(height: 28),
+
+                  // Execute Button
+                  SizedBox(
+                    width: double.infinity,
+                    height: 52,
+                    child: ElevatedButton.icon(
+                      onPressed: (!doSetStatus && !doSendEmails && !doDisruptDeparture)
+                          ? null
+                          : () {
+                              Navigator.of(context).pop();
+                              _executeCancellationActions(
+                                setStatus: doSetStatus,
+                                sendEmails: doSendEmails,
+                                disruptDeparture: doDisruptDeparture,
+                              );
+                            },
+                      icon: const Icon(Icons.rocket_launch, size: 20),
+                      label: Text(
+                        _getExecuteButtonLabel(doSetStatus, doSendEmails, doDisruptDeparture),
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red[700],
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        disabledBackgroundColor: Colors.grey[800],
+                      ),
+                    ),
+                  ),
+
+                  // Safety spacer for bottom
+                  SizedBox(height: MediaQuery.of(context).viewInsets.bottom),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildActionCheckbox({
+    required bool value,
+    required ValueChanged<bool?> onChanged,
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    required String subtitle,
+  }) {
+    return GestureDetector(
+      onTap: () => onChanged(!value),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: value ? iconColor.withOpacity(0.08) : Colors.white.withOpacity(0.03),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: value ? iconColor.withOpacity(0.3) : Colors.grey.withOpacity(0.15),
+            width: value ? 1.5 : 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: iconColor, size: 22),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      color: value ? Colors.white : Colors.grey[400],
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      color: Colors.grey[500],
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Checkbox(
+              value: value,
+              onChanged: onChanged,
+              activeColor: iconColor,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(4),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _getExecuteButtonLabel(bool status, bool emails, bool disrupt) {
+    final count = [status, emails, disrupt].where((v) => v).length;
+    if (count == 0) return 'Select at least one action';
+    if (count == 3) return 'Execute All Actions';
+    return 'Execute $count Action${count > 1 ? 's' : ''}';
+  }
+
+  Future<void> _executeCancellationActions({
+    required bool setStatus,
+    required bool sendEmails,
+    required bool disruptDeparture,
+  }) async {
+    setState(() => _isSaving = true);
+
+    // Track progress for snackbar updates
+    final actions = <String>[];
+    final errors = <String>[];
+
+    try {
+      // Step 1: Set tour status to OFF
+      if (setStatus) {
+        try {
+          final result = await _functions.httpsCallable('setTourStatus').call({
+            'status': 'OFF',
+            'message': 'Tour canceled',
+            'sendEmail': false, // We handle emails separately
+          });
+
+          if (result.data['success'] == true) {
+            setState(() {
+              _currentStatus = result.data['status'] as String?;
+              _lastUpdatedBy = result.data['updatedByName'] as String?;
+            });
+            actions.add('Status → OFF');
+          }
+        } catch (e) {
+          print('Error setting tour status: $e');
+          errors.add('Status: $e');
+        }
+      }
+
+      // Step 2: Send cancellation emails
+      if (sendEmails) {
+        try {
+          setState(() => _isSendingEmails = true);
+
+          final result = await _functions.httpsCallable('sendTourStatusEmails').call({
+            'status': 'OFF',
+          });
+
+          final emailsSent = result.data['emailsSent'] as int? ?? 0;
+          final uniqueCustomers = result.data['uniqueCustomers'] as int? ?? 0;
+
+          setState(() {
+            _lastEmailCount = emailsSent;
+            _isSendingEmails = false;
+          });
+          actions.add('$emailsSent emails sent');
+        } catch (e) {
+          print('Error sending emails: $e');
+          setState(() => _isSendingEmails = false);
+          errors.add('Emails: $e');
+        }
+      }
+
+      // Step 3: Disrupt departure on Bokun
+      if (disruptDeparture) {
+        try {
+          setState(() => _isDisruptingDeparture = true);
+          await _disruptDeparture();
+          setState(() => _isDisruptingDeparture = false);
+          actions.add('Departure disrupted');
+        } catch (e) {
+          print('Error disrupting departure: $e');
+          setState(() => _isDisruptingDeparture = false);
+          errors.add('Disrupt: $e');
+        }
+      }
+
+      // Show final result
+      if (mounted) {
+        if (errors.isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('✅ All done! ${actions.join(' • ')}'),
+              backgroundColor: Colors.green,
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                '⚠️ Partial: ${actions.join(' • ')}${errors.isNotEmpty ? '\nErrors: ${errors.join(', ')}' : ''}',
+              ),
+              backgroundColor: Colors.orange,
+              duration: const Duration(seconds: 6),
+            ),
+          );
+        }
+      }
+
+      // Reload history
+      _loadStatus();
+    } finally {
+      setState(() => _isSaving = false);
+    }
+  }
+
+  Future<void> _disruptDeparture() async {
+    // Call the Cloud Function that disrupts the departure on Bokun
+    final result = await _functions.httpsCallable('disruptDeparture').call({});
+
+    if (result.data['success'] != true) {
+      throw Exception(result.data['error'] ?? 'Failed to disrupt departure');
+    }
+
+    print('✅ Departure disrupted on Bokun: ${result.data}');
   }
 }

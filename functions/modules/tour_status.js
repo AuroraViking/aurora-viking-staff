@@ -9,6 +9,7 @@ const https = require('https');
 const crypto = require('crypto');
 const { admin, db } = require('../utils/firebase');
 const { sendNotificationToAdminsOnly } = require('../utils/notifications');
+const { disruptDeparture } = require('./departure_disruption');
 
 // Gmail OAuth2 client setup
 function getGmailOAuth2Client(clientId, clientSecret) {
@@ -80,7 +81,7 @@ function buildOffEmailHtml(firstName, confirmationCode, email, fullName) {
     <p>You can see the forecast by clicking this link: <a href="${FORECAST_URL}" style="color:#4fc3f7;text-decoration:underline;font-weight:bold;">THE FORECAST</a><br>
     <span style="color:#aaa;font-size:13px;">The white color represents clouds while blue represents rain and pink snow.</span></p>
     <p>Please let us know what you want to do, if you want to reschedule or otherwise, we need to hear from you so we don't have to worry that you didn't receive this message and will be waiting for us to show up tonight when we aren't going to be.</p>
-    <p>Click the button below to reschedule or cancel your booking. If you have any issues, email us at <a href="mailto:info@auroraviking.com" style="color:#4fc3f7;">info@auroraviking.com</a> with your decision asap.</p>
+    <p>Click the button below to reschedule or cancel your booking.</p>
     <div style="text-align:center;margin:25px 0;">
       <a href="${portalUrl}" style="display:inline-block;background:linear-gradient(135deg,#00b894,#00cec9);color:#fff;text-decoration:none;padding:14px 32px;border-radius:8px;font-weight:bold;font-size:16px;letter-spacing:0.5px;">Go to Booking Portal</a>
       <p style="color:#aaa;font-size:13px;margin-top:12px;">Your booking reference is: <strong style="color:#e0e0e0;font-size:14px;">${confirmationCode || 'N/A'}</strong><br>Enter it in the Booking Portal if prompted.</p>
@@ -679,4 +680,5 @@ module.exports = {
     getTourStatusHistory,
     tourStatusReminder,
     sendTourStatusEmails,
+    disruptDeparture,
 };

@@ -665,6 +665,7 @@ const portalRescheduleBooking = onRequest(
             }
 
             const customerName = `${booking.customer?.firstName || ''} ${booking.customer?.lastName || ''}`.trim();
+            const customerEmail = email || booking.customer?.email || '';
             const productBooking = booking.productBookings?.[0];
             const activityBookingId = productBooking?.id;
 
@@ -737,7 +738,7 @@ const portalRescheduleBooking = onRequest(
                         userId: 'customer_portal',
                         source: 'customer_portal',
                         customerName,
-                        customerEmail: email,
+                        customerEmail,
                         status: 'completed',
                         method: 'activity_change_date_action',
                         isOTABooking: otaInfo.isOTA,
@@ -796,7 +797,7 @@ const portalRescheduleBooking = onRequest(
                 userId: 'customer_portal',
                 source: 'customer_portal',
                 customerName,
-                customerEmail: email,
+                customerEmail,
                 status: 'pending',
                 createdAt: admin.firestore.FieldValue.serverTimestamp(),
             });
@@ -886,6 +887,7 @@ const portalCancelBooking = onRequest(
             }
 
             const customerName = `${booking.customer?.firstName || ''} ${booking.customer?.lastName || ''}`.trim();
+            const customerEmail = email || booking.customer?.email || '';
             const tourDate = booking.productBookings?.[0]?.startDate || booking.startDate;
             const totalGuests = booking.productBookings?.[0]?.totalParticipants || 1;
             const tourName = booking.productBookings?.[0]?.product?.title || 'Northern Lights Tour';
@@ -900,7 +902,7 @@ const portalCancelBooking = onRequest(
                 userId: 'customer_portal',
                 source: 'customer_portal',
                 customerName,
-                customerEmail: email,
+                customerEmail,
                 cancelPolicy: cancelPolicyApplied,
                 isWithin24h: hoursUntilCancelDeparture < 24,
                 isTourOff,
@@ -913,7 +915,7 @@ const portalCancelBooking = onRequest(
                 bookingId: String(booking.id),
                 confirmationCode: booking.confirmationCode,
                 customerName,
-                customerEmail: email,
+                customerEmail,
                 tourName,
                 tourDate,
                 totalGuests,
@@ -1126,6 +1128,7 @@ const portalUpdatePickup = onRequest(
             }
 
             const customerName = `${booking.customer?.firstName || ''} ${booking.customer?.lastName || ''}`.trim();
+            const customerEmail = email || booking.customer?.email || '';
             const productBookingId = booking.productBookings?.[0]?.id;
 
             console.log(`ðŸ“ Portal pickup update: ${booking.confirmationCode} â†’ ${pickupPlaceName || pickupPlaceId}`);
@@ -1139,7 +1142,7 @@ const portalUpdatePickup = onRequest(
                 userId: 'customer_portal',
                 source: 'customer_portal',
                 customerName,
-                customerEmail: email,
+                customerEmail,
                 status: 'pending',
                 createdAt: admin.firestore.FieldValue.serverTimestamp(),
             });
@@ -1169,12 +1172,78 @@ const portalUpdatePickup = onRequest(
 );
 
 // =====================================================================
+// Helper: Fetch bookings directly from Bokun API (fallback when no cache)
+// =====================================================================
+async function fetchBookingsFromBokun(dateString, accessKey, secretKey) {
+    const path = '/booking.json/booking-search';
+    const method = 'POST';
+
+    const startOfDay = `${dateString}T00:00:00Z`;
+    const endOfDay = `${dateString}T23:59:59Z`;
+
+    const requestBody = JSON.stringify({
+        startDateRange: {
+            from: startOfDay,
+            to: endOfDay,
+        },
+        offset: 0,
+        limit: 500,
+    });
+
+    const bokunDate = new Date().toISOString().replace('T', ' ').substring(0, 19);
+    const message = bokunDate + accessKey + method + path;
+    const signature = crypto.createHmac('sha1', secretKey).update(message).digest('base64');
+
+    return new Promise((resolve) => {
+        const options = {
+            hostname: 'api.bokun.io',
+            path,
+            method,
+            headers: {
+                'Content-Type': 'application/json',
+                'Content-Length': Buffer.byteLength(requestBody),
+                'X-Bokun-AccessKey': accessKey,
+                'X-Bokun-Date': bokunDate,
+                'X-Bokun-Signature': signature,
+            },
+        };
+
+        const req = https.request(options, (res) => {
+            let data = '';
+            res.on('data', (chunk) => { data += chunk; });
+            res.on('end', () => {
+                if (res.statusCode >= 200 && res.statusCode < 300) {
+                    try {
+                        const result = JSON.parse(data);
+                        resolve(result.items || []);
+                    } catch (e) {
+                        console.log('Failed to parse Bokun response:', e.message);
+                        resolve([]);
+                    }
+                } else {
+                    console.log(`Bokun API error: ${res.statusCode}`);
+                    resolve([]);
+                }
+            });
+        });
+
+        req.on('error', (e) => {
+            console.error('Bokun request error:', e.message);
+            resolve([]);
+        });
+        req.write(requestBody);
+        req.end();
+    });
+}
+
+// =====================================================================
 // 7. BOOKING MANIFEST (Admin only - fetches all bookings + portal activity)
 // =====================================================================
 const getBookingManifest = onCall(
     {
         region: 'us-central1',
-        timeoutSeconds: 30,
+        secrets: ['BOKUN_ACCESS_KEY', 'BOKUN_SECRET_KEY'],
+        timeoutSeconds: 60,
     },
     async (request) => {
         if (!request.auth) {
@@ -1195,7 +1264,35 @@ const getBookingManifest = onCall(
                 bookings = data.bookings || [];
                 console.log('Found ' + bookings.length + ' cached bookings for ' + date);
             } else {
-                console.log('No cached bookings found for ' + date);
+                console.log('No cached bookings found for ' + date + ', fetching from Bokun...');
+
+                // Fallback: fetch directly from Bokun API
+                const accessKey = process.env.BOKUN_ACCESS_KEY;
+                const secretKey = process.env.BOKUN_SECRET_KEY;
+
+                if (accessKey && secretKey) {
+                    const bokunBookings = await fetchBookingsFromBokun(date, accessKey, secretKey);
+                    if (bokunBookings.length > 0) {
+                        bookings = bokunBookings;
+                        console.log('Fetched ' + bookings.length + ' bookings from Bokun for ' + date);
+
+                        // Cache them so the next load is instant
+                        try {
+                            await db.collection('cached_bookings').doc(date).set({
+                                date,
+                                bookings: bokunBookings,
+                                cachedAt: admin.firestore.FieldValue.serverTimestamp(),
+                                count: bokunBookings.length,
+                                source: 'manifest_fallback',
+                            });
+                            console.log('Cached ' + bokunBookings.length + ' Bokun bookings for ' + date);
+                        } catch (cacheErr) {
+                            console.log('Failed to cache Bokun bookings:', cacheErr.message);
+                        }
+                    }
+                } else {
+                    console.log('Bokun API keys not available for fallback fetch');
+                }
             }
 
             // Also merge manual bookings
@@ -1207,7 +1304,7 @@ const getBookingManifest = onCall(
                 if (manual) bookings.push(manual);
             });
         } catch (e) {
-            console.error('Failed to fetch cached bookings:', e.message);
+            console.error('Failed to fetch bookings:', e.message);
             throw new Error('Failed to fetch bookings');
         }
 
@@ -1333,6 +1430,50 @@ const getBookingManifest = onCall(
                 cancelReason,
             };
         });
+
+        // 6. Re-inject cancelled/rescheduled bookings that fell out of the cache
+        //    (Bokun removes them after cancellation/reschedule, so cached_bookings loses them)
+        const manifestCodes = new Set(manifest.map(m => m.confirmationCode));
+
+        for (const [code, cancel] of Object.entries(cancellations)) {
+            if (!manifestCodes.has(code)) {
+                manifest.push({
+                    customerName: cancel.customerName || 'Unknown',
+                    confirmationCode: code,
+                    email: cancel.customerEmail || '',
+                    guests: cancel.totalGuests || 1,
+                    tourName: cancel.tourName || 'Northern Lights Tour',
+                    status: 'cancelled',
+                    statusLabel: 'Cancelled',
+                    refundStatus: cancel.status || 'pending_review',
+                    refundDocId: cancel.docId,
+                    reviewedBy: cancel.reviewedByName || null,
+                    newDate: null,
+                    cancelReason: cancel.reason || '',
+                });
+                manifestCodes.add(code);
+            }
+        }
+
+        for (const [code, reschedule] of Object.entries(reschedules)) {
+            if (!manifestCodes.has(code)) {
+                manifest.push({
+                    customerName: reschedule.customerName || 'Unknown',
+                    confirmationCode: code,
+                    email: reschedule.customerEmail || '',
+                    guests: 1,
+                    tourName: 'Northern Lights Tour',
+                    status: 'rescheduled',
+                    statusLabel: `Rescheduled to ${reschedule.newDate || 'unknown'}`,
+                    refundStatus: null,
+                    refundDocId: null,
+                    reviewedBy: null,
+                    newDate: reschedule.newDate || 'unknown',
+                    cancelReason: null,
+                });
+                manifestCodes.add(code);
+            }
+        }
 
         return {
             date,

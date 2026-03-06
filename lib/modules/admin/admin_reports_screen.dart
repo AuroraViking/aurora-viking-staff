@@ -9,6 +9,7 @@ import '../../core/services/firebase_service.dart';
 import 'admin_service.dart';
 import 'gps_trail_viewer.dart';
 import 'widgets/financial_analytics_widget.dart';
+import 'widgets/photo_request_stats_widget.dart';
 
 class AdminReportsScreen extends StatefulWidget {
   const AdminReportsScreen({super.key});
@@ -1104,6 +1105,14 @@ class _AdminReportsScreenState extends State<AdminReportsScreen> {
                     totalGuidesWorked: _tourReports
                         .where((r) => _isInSelectedMonth(r['date'] as String?))
                         .fold(0, (sum, r) => sum + ((r['totalGuides'] as int?) ?? 0)),
+                  ),
+                  
+                  const SizedBox(height: 32),
+                  
+                  // ===== PHOTO WIDGET USAGE =====
+                  PhotoRequestStatsWidget(
+                    selectedYear: _selectedYear,
+                    selectedMonth: _selectedMonth,
                   ),
                   
                   const SizedBox(height: 32),
