@@ -4,6 +4,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+
+const String _apiBase = 'https://us-central1-aurora-viking-staff.cloudfunctions.net';
 
 class PortalActivityScreen extends StatefulWidget {
   const PortalActivityScreen({super.key});
@@ -472,6 +476,10 @@ class _PortalActivityScreenState extends State<PortalActivityScreen> {
               if (refundStatus == 'pending_review' && refundDocId != null)
                 _buildRefundActions(refundDocId),
             ],
+
+            // Admin action buttons for active bookings
+            if (status == 'as_scheduled' || status == 'disrupted')
+              _buildAdminActions(code, name),
           ],
         ),
       ),
@@ -593,5 +601,253 @@ class _PortalActivityScreenState extends State<PortalActivityScreen> {
         ],
       ),
     );
+  }
+
+  // ─── Admin action buttons for active bookings ─────────────────────
+  Widget _buildAdminActions(String confirmationCode, String customerName) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 8, left: 28),
+      child: Row(
+        children: [
+          _buildSmallActionButton(
+            icon: Icons.swap_horiz,
+            label: 'Reschedule',
+            color: Colors.blue,
+            onTap: () => _adminReschedule(confirmationCode, customerName),
+          ),
+          const SizedBox(width: 6),
+          _buildSmallActionButton(
+            icon: Icons.cancel_outlined,
+            label: 'Cancel',
+            color: Colors.red,
+            onTap: () => _adminCancel(confirmationCode, customerName),
+          ),
+          const SizedBox(width: 6),
+          _buildSmallActionButton(
+            icon: Icons.location_on_outlined,
+            label: 'Pickup',
+            color: Colors.teal,
+            onTap: () => _adminChangePickup(confirmationCode, customerName),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSmallActionButton({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return Expanded(
+      child: SizedBox(
+        height: 30,
+        child: OutlinedButton.icon(
+          onPressed: onTap,
+          icon: Icon(icon, size: 13),
+          label: Text(label, style: const TextStyle(fontSize: 10)),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: color,
+            side: BorderSide(color: color.withOpacity(0.5)),
+            padding: EdgeInsets.zero,
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ─── Admin Reschedule ──────────────────────────────────────────────
+  Future<void> _adminReschedule(String code, String name) async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: DateTime.now().add(const Duration(days: 1)),
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 90)),
+    );
+    if (picked == null || !mounted) return;
+
+    final newDate = DateFormat('yyyy-MM-dd').format(picked);
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Confirm Reschedule'),
+        content: Text('Reschedule $name ($code) to $newDate?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white),
+            child: const Text('Reschedule'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+
+    try {
+      final res = await http.post(
+        Uri.parse('$_apiBase/portalRescheduleBooking'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'confirmationCode': code, 'newDate': newDate}),
+      );
+      final data = jsonDecode(res.body);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(data['success'] == true ? 'Rescheduled to $newDate' : (data['error'] ?? 'Failed')),
+          backgroundColor: data['success'] == true ? Colors.green : Colors.red,
+        ));
+        _loadManifest();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red));
+      }
+    }
+  }
+
+  // ─── Admin Cancel ──────────────────────────────────────────────────
+  Future<void> _adminCancel(String code, String name) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Confirm Cancellation'),
+        content: Text('Cancel booking for $name ($code)?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Back')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            child: const Text('Cancel Booking'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+
+    try {
+      final res = await http.post(
+        Uri.parse('$_apiBase/portalCancelBooking'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'confirmationCode': code, 'reason': 'Admin cancellation'}),
+      );
+      final data = jsonDecode(res.body);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(data['success'] == true ? 'Booking cancelled' : (data['error'] ?? 'Failed')),
+          backgroundColor: data['success'] == true ? Colors.green : Colors.red,
+        ));
+        _loadManifest();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red));
+      }
+    }
+  }
+
+  // ─── Admin Change Pickup ───────────────────────────────────────────
+  Future<void> _adminChangePickup(String code, String name) async {
+    // First, lookup the booking to get productId
+    try {
+      final lookupRes = await http.post(
+        Uri.parse('$_apiBase/portalLookupBooking'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'confirmationCode': code}),
+      );
+      final lookupData = jsonDecode(lookupRes.body);
+      if (lookupData['success'] != true) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(lookupData['error'] ?? 'Could not look up booking'),
+            backgroundColor: Colors.red,
+          ));
+        }
+        return;
+      }
+
+      final productId = lookupData['booking']?['productId'];
+      if (productId == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Could not determine product for pickup change'),
+            backgroundColor: Colors.red,
+          ));
+        }
+        return;
+      }
+
+      // Get pickup places
+      final placesRes = await http.post(
+        Uri.parse('$_apiBase/portalGetPickupPlaces'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'confirmationCode': code, 'productId': '$productId'}),
+      );
+      final placesData = jsonDecode(placesRes.body);
+      if (placesData['success'] != true || !mounted) return;
+
+      final places = (placesData['pickupPlaces'] as List).cast<Map<String, dynamic>>();
+      if (places.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('No pickup places available'),
+            backgroundColor: Colors.orange,
+          ));
+        }
+        return;
+      }
+
+      // Show picker
+      if (!mounted) return;
+      final selected = await showDialog<Map<String, dynamic>>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text('Change Pickup — $name'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: places.length,
+              itemBuilder: (_, i) {
+                final p = places[i];
+                return ListTile(
+                  title: Text(p['title'] ?? ''),
+                  subtitle: p['address'] != null && (p['address'] as String).isNotEmpty
+                      ? Text(p['address'] as String, style: const TextStyle(fontSize: 12))
+                      : null,
+                  onTap: () => Navigator.pop(ctx, p),
+                );
+              },
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          ],
+        ),
+      );
+      if (selected == null || !mounted) return;
+
+      final res = await http.post(
+        Uri.parse('$_apiBase/portalUpdatePickup'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'confirmationCode': code,
+          'pickupPlaceId': '${selected['id']}',
+          'pickupPlaceName': selected['title'] ?? '',
+        }),
+      );
+      final data = jsonDecode(res.body);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(data['success'] == true ? 'Pickup updated' : (data['error'] ?? 'Failed')),
+          backgroundColor: data['success'] == true ? Colors.green : Colors.red,
+        ));
+        _loadManifest();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red));
+      }
+    }
   }
 }

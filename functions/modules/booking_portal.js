@@ -1357,12 +1357,15 @@ const getBookingManifest = onCall(
         const cancellations = {};
         cancelSnap.docs.forEach(doc => {
             const data = doc.data();
-            // Match by confirmation code
+            // Match by confirmation code AND filter by tour date
             if (data.confirmationCode) {
-                cancellations[data.confirmationCode] = {
-                    docId: doc.id,
-                    ...data,
-                };
+                const cancelTourDate = safeExtractDate(data.tourDate);
+                if (cancelTourDate === date) {
+                    cancellations[data.confirmationCode] = {
+                        docId: doc.id,
+                        ...data,
+                    };
+                }
             }
         });
 

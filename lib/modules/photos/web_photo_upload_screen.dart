@@ -7,6 +7,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'dart:math';
 import 'dart:js_interop';
+import 'dart:js_interop_unsafe';
 import 'package:web/web.dart' as web;
 
 import 'package:flutter/material.dart';
@@ -92,9 +93,23 @@ class _WebPhotoUploadScreenState extends State<WebPhotoUploadScreen> {
       final allowedExts = _allowedExtensions.toSet();
       final newFiles = <_WebFileInfo>[];
 
+      // Get the top-level folder name from webkitRelativePath
+      // Format: "FolderName/file.jpg" or "FolderName/SubFolder/file.jpg"
+      String? folderName;
+
       for (int i = 0; i < files.length; i++) {
         final file = files.item(i);
         if (file == null) continue;
+
+        // Extract top-level folder name from the first file's relative path
+        if (folderName == null) {
+          // webkitRelativePath gives "FolderName/file.jpg"
+          final jsPath = (file as JSObject)['webkitRelativePath'];
+          final relativePath = (jsPath as JSString?)?.toDart ?? '';
+          if (relativePath.isNotEmpty && relativePath.contains('/')) {
+            folderName = relativePath.split('/').first;
+          }
+        }
 
         final ext = file.name.toLowerCase().split('.').last;
         if (!allowedExts.contains(ext)) continue;
@@ -112,6 +127,7 @@ class _WebPhotoUploadScreenState extends State<WebPhotoUploadScreen> {
             name: file.name,
             bytes: bytes,
             size: file.size,
+            subfolder: folderName,
           ));
         }
       }
@@ -127,8 +143,9 @@ class _WebPhotoUploadScreenState extends State<WebPhotoUploadScreen> {
       });
 
       if (mounted) {
+        final label = folderName != null ? '📁 Added ${newFiles.length} file(s) from "$folderName"' : '📁 Added ${newFiles.length} file(s) from folder';
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('📁 Added ${newFiles.length} file(s) from folder (${_formatTotalSize()})'), backgroundColor: Colors.green),
+          SnackBar(content: Text('$label (${_formatTotalSize()})'), backgroundColor: Colors.green),
         );
       }
     } catch (e) { _showAlert('Error reading folder: $e'); }
@@ -189,7 +206,7 @@ class _WebPhotoUploadScreenState extends State<WebPhotoUploadScreen> {
         _currentFileIndex = i + 1;
 
         try {
-          await _uploadSingleFile(functions, file, folderId, i + 1);
+          await _uploadSingleFile(functions, file, folderId, i + 1, file.subfolder);
           successCount++;
         } catch (e) {
           failCount++;
@@ -212,7 +229,7 @@ class _WebPhotoUploadScreenState extends State<WebPhotoUploadScreen> {
   }
 
   Future<void> _uploadSingleFile(
-    FirebaseFunctions functions, _WebFileInfo file, String folderId, int fileIndex,
+    FirebaseFunctions functions, _WebFileInfo file, String folderId, int fileIndex, [String? subfolder]
   ) async {
     final bytes = file.bytes;
     final totalChunks = (bytes.length / _chunkSize).ceil();
@@ -249,15 +266,18 @@ class _WebPhotoUploadScreenState extends State<WebPhotoUploadScreen> {
       _statusMessage = 'Saving ${file.name} to Drive...\nFile $_currentFileIndex/$_totalFiles';
     });
 
-    await functions.httpsCallable('finalizeFileUpload',
-      options: HttpsCallableOptions(timeout: const Duration(minutes: 9)),
-    ).call({
+    final Map<String, dynamic> finalizeData = {
       'uploadId': uploadId,
       'fileName': file.name,
       'folderId': folderId,
       'fileIndex': fileIndex,
       'totalChunks': totalChunks,
-    });
+    };
+    if (subfolder != null) finalizeData['subfolder'] = subfolder;
+
+    await functions.httpsCallable('finalizeFileUpload',
+      options: HttpsCallableOptions(timeout: const Duration(minutes: 9)),
+    ).call(finalizeData);
 
     debugPrint('✅ ${file.name} uploaded to Drive');
   }
@@ -417,5 +437,6 @@ class _WebFileInfo {
   final String name;
   final Uint8List bytes;
   final int size;
-  _WebFileInfo({required this.name, required this.bytes, required this.size});
+  final String? subfolder;
+  _WebFileInfo({required this.name, required this.bytes, required this.size, this.subfolder});
 }

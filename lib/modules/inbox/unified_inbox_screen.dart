@@ -33,6 +33,10 @@ class _UnifiedInboxScreenState extends State<UnifiedInboxScreen> {
       builder: (context, controller, child) {
         return Scaffold(
           appBar: AppBar(
+            leading: IconButton(
+              icon: const Icon(Icons.arrow_back),
+              onPressed: () => Navigator.of(context).pop(),
+            ),
             title: Row(
               mainAxisSize: MainAxisSize.min,
               children: [

@@ -156,10 +156,10 @@ const finalizeFileUpload = onCall(
     { region: 'us-central1', timeoutSeconds: 540, memory: '1GiB' },
     async (request) => {
         if (!request.auth) throw new Error('Authentication required.');
-        const { uploadId, fileName, folderId, fileIndex, totalChunks } = request.data;
+        const { uploadId, fileName, folderId, fileIndex, totalChunks, subfolder } = request.data;
         if (!uploadId || !fileName || !folderId) throw new Error('Missing params');
 
-        console.log(`🔗 Assembling ${totalChunks} chunks for ${fileName}...`);
+        console.log(`🔗 Assembling ${totalChunks} chunks for ${fileName}${subfolder ? ` (→ ${subfolder}/)` : ''}...`);
         const bucket = admin.storage().bucket();
 
         try {
@@ -176,6 +176,14 @@ const finalizeFileUpload = onCall(
             // Upload to Google Drive (as photo@auroraviking.com to have storage quota)
             const auth = await getDriveAuthAsPhotoUser();
             const drive = google.drive({ version: 'v3', auth });
+
+            // If subfolder is specified, create it inside the parent folder
+            let targetFolderId = folderId;
+            if (subfolder) {
+                targetFolderId = await findOrCreateFolder(drive, subfolder, folderId);
+                console.log(`📁 Using subfolder: ${subfolder} (${targetFolderId})`);
+            }
+
             const { Readable } = require('stream');
             const stream = new Readable();
             stream.push(fullBuffer);
@@ -185,7 +193,7 @@ const finalizeFileUpload = onCall(
             const driveFileName = `${paddedIndex}_${fileName}`;
 
             await drive.files.create({
-                requestBody: { name: driveFileName, parents: [folderId] },
+                requestBody: { name: driveFileName, parents: [targetFolderId] },
                 media: { mimeType: getMimeType(fileName), body: stream },
                 supportsAllDrives: true,
             });

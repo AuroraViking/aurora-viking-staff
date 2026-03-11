@@ -24,6 +24,9 @@ class _PickupScreenState extends State<PickupScreen> {
   final Map<String, Timer> _noShowTimers = {};
   final Map<String, int> _noShowTimeRemaining = {}; // bookingId -> seconds remaining
 
+  // Auto-refresh timer — keeps the pickup list updated when admins make changes
+  Timer? _autoRefreshTimer;
+
   // FIX: Track initialization state
   bool _isInitialized = false;
   bool _hasSubmittedEndOfShift = false;
@@ -39,7 +42,9 @@ class _PickupScreenState extends State<PickupScreen> {
 
   @override
   void dispose() {
-    // Cancel all timers
+    // Cancel auto-refresh timer
+    _autoRefreshTimer?.cancel();
+    // Cancel all no-show timers
     for (final timer in _noShowTimers.values) {
       timer.cancel();
     }
@@ -86,6 +91,14 @@ class _PickupScreenState extends State<PickupScreen> {
     if (mounted) {
       setState(() {
         _isInitialized = true;
+      });
+
+      // Start auto-refresh timer (every 30 seconds)
+      _autoRefreshTimer?.cancel();
+      _autoRefreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+        if (mounted) {
+          _silentRefresh();
+        }
       });
     }
   }
@@ -1165,6 +1178,18 @@ class _PickupScreenState extends State<PickupScreen> {
     controller.setCurrentUser(authController.currentUser!);
 
     // Force refresh to always get fresh data from API and Firebase
+    await controller.loadBookingsForDate(controller.selectedDate, forceRefresh: true);
+  }
+
+  /// Silent auto-refresh — same as _refreshData but without triggering
+  /// the full loading indicator, so the UI isn't disrupted.
+  Future<void> _silentRefresh() async {
+    if (!mounted) return;
+    final controller = context.read<PickupController>();
+    final authController = context.read<AuthController>();
+    if (authController.currentUser == null) return;
+
+    controller.setCurrentUser(authController.currentUser!);
     await controller.loadBookingsForDate(controller.selectedDate, forceRefresh: true);
   }
 
