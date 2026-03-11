@@ -93,9 +93,9 @@ class _PickupScreenState extends State<PickupScreen> {
         _isInitialized = true;
       });
 
-      // Start auto-refresh timer (every 30 seconds)
+      // Start auto-refresh timer (every 60 seconds)
       _autoRefreshTimer?.cancel();
-      _autoRefreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      _autoRefreshTimer = Timer.periodic(const Duration(seconds: 60), (_) {
         if (mounted) {
           _silentRefresh();
         }
