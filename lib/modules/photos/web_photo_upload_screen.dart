@@ -6,6 +6,8 @@
 import 'dart:convert';
 import 'dart:typed_data';
 import 'dart:math';
+import 'dart:js_interop';
+import 'package:web/web.dart' as web;
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -68,6 +70,68 @@ class _WebPhotoUploadScreenState extends State<WebPhotoUploadScreen> {
         );
       }
     } catch (e) { _showAlert('Error picking files: $e'); }
+  }
+
+  Future<void> _pickFolder() async {
+    try {
+      // Use package:web to create an input with webkitdirectory for folder selection
+      final input = web.HTMLInputElement()
+        ..type = 'file'
+        ..multiple = true;
+      input.setAttribute('webkitdirectory', '');
+      input.setAttribute('directory', '');
+
+      input.click();
+
+      await input.onChange.first;
+      final files = input.files;
+      if (files == null || files.length == 0) return;
+
+      setState(() => _statusMessage = 'Reading folder...');
+
+      final allowedExts = _allowedExtensions.toSet();
+      final newFiles = <_WebFileInfo>[];
+
+      for (int i = 0; i < files.length; i++) {
+        final file = files.item(i);
+        if (file == null) continue;
+
+        final ext = file.name.toLowerCase().split('.').last;
+        if (!allowedExts.contains(ext)) continue;
+        if (file.size == 0) continue;
+
+        // Read file data using FileReader
+        final reader = web.FileReader();
+        reader.readAsArrayBuffer(file);
+        await reader.onLoadEnd.first;
+
+        final result = reader.result;
+        if (result != null) {
+          final bytes = (result as JSArrayBuffer).toDart.asUint8List();
+          newFiles.add(_WebFileInfo(
+            name: file.name,
+            bytes: bytes,
+            size: file.size,
+          ));
+        }
+      }
+
+      if (newFiles.isEmpty) {
+        _showAlert('No supported photo/video files found in the folder.');
+        return;
+      }
+
+      setState(() {
+        _selectedFiles.addAll(newFiles);
+        _statusMessage = '';
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('📁 Added ${newFiles.length} file(s) from folder (${_formatTotalSize()})'), backgroundColor: Colors.green),
+        );
+      }
+    } catch (e) { _showAlert('Error reading folder: $e'); }
   }
 
   String _formatTotalSize() {
@@ -293,10 +357,17 @@ class _WebPhotoUploadScreenState extends State<WebPhotoUploadScreen> {
         Text(DateFormat('EEE, MMM d, y').format(_selectedDate), style: const TextStyle(color: Colors.white))]))),
   ]));
 
-  Widget _buildPickButton() => SizedBox(width: double.infinity, child: ElevatedButton.icon(
-    onPressed: _pickFiles, icon: const Icon(Icons.add_photo_alternate),
-    label: const Text('Select Photos & Videos'),
-    style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16), backgroundColor: Colors.green)));
+  Widget _buildPickButton() => Column(children: [
+    SizedBox(width: double.infinity, child: ElevatedButton.icon(
+      onPressed: _pickFiles, icon: const Icon(Icons.add_photo_alternate),
+      label: const Text('Select Photos & Videos'),
+      style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16), backgroundColor: Colors.green))),
+    const SizedBox(height: 8),
+    SizedBox(width: double.infinity, child: ElevatedButton.icon(
+      onPressed: _pickFolder, icon: const Icon(Icons.folder_open),
+      label: const Text('Select Folder'),
+      style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16), backgroundColor: Colors.teal))),
+  ]);
 
   Widget _buildFileList() {
     final pc = _selectedFiles.where((f) => !_isVideoFile(f.name)).length;

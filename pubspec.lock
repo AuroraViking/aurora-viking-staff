@@ -1068,10 +1068,10 @@ packages:
     dependency: "direct main"
     description:
       name: record
-      sha256: "4a5cf4d083d1ee49e0878823c4397d073f8eb0a775f31215d388e2bc47a9e867"
+      sha256: "2e3d56d196abcd69f1046339b75e5f3855b2406fc087e5991f6703f188aa03a6"
       url: "https://pub.dev"
     source: hosted
-    version: "5.1.2"
+    version: "5.2.1"
   record_android:
     dependency: transitive
     description:
@@ -1097,13 +1097,13 @@ packages:
     source: hosted
     version: "0.7.2"
   record_platform_interface:
-    dependency: "direct overridden"
+    dependency: transitive
     description:
       name: record_platform_interface
-      sha256: "11f8b03ea8a0e279b0e306571dbe0db0202c0b8e866495c9fa1ad2281d5e4c15"
+      sha256: "8a81dbc4e14e1272a285bbfef6c9136d070a47d9b0d1f40aa6193516253ee2f6"
       url: "https://pub.dev"
     source: hosted
-    version: "1.1.0"
+    version: "1.5.0"
   record_web:
     dependency: transitive
     description:

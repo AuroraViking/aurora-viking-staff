@@ -85,11 +85,9 @@ dependencies:
   qr_flutter: ^4.1.0
 
   # Voice radio / walkie-talkie
-  record: 5.1.2
+  record: ^5.2.0
   audioplayers: ^6.1.0
 
-dependency_overrides:
-  record_platform_interface: 1.1.0
 
 dev_dependencies:
   flutter_test:
