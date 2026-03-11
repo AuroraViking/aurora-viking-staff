@@ -215,6 +215,19 @@ class _ForecastScreenState extends State<ForecastScreen> {
       final bzRes = await SolarWindService.fetchBzHistory();
       final kpIndex = await KpService.fetchCurrentKp();
 
+      // Guard: never overwrite good data with empty data from a failed refresh
+      if (bzRes.bzValues.isEmpty && _bzValues.isNotEmpty) {
+        print('⚠️ Skipping Bz update — API returned empty but we have ${_bzValues.length} cached points');
+        // Still update the scalar values if they were fetched successfully
+        setState(() {
+          _kp = kpIndex;
+          _speed = swData.speed;
+          _density = swData.density;
+          _bt = swData.bt;
+        });
+        return;
+      }
+
       setState(() {
         _bzValues = bzRes.bzValues;
         _btValues = bzRes.btValues;
@@ -231,7 +244,7 @@ class _ForecastScreenState extends State<ForecastScreen> {
         if (_speedValues.isNotEmpty) print('Speed range: ${_speedValues.first.toStringAsFixed(0)} to ${_speedValues.last.toStringAsFixed(0)} km/s');
       });
     } catch (e) {
-      // Handle error silently for now
+      print('⚠️ Solar wind data load failed: $e');
     }
   }
 
@@ -754,7 +767,31 @@ class _ForecastScreenState extends State<ForecastScreen> {
 
   Widget _buildBzChart() {
     if (_bzValues.isEmpty) {
-      return const SizedBox.shrink();
+      // Show a placeholder instead of hiding entirely — prevents layout jump
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16.0),
+        child: Container(
+          height: MediaQuery.of(context).size.height * 0.3,
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.05),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.tealAccent.withOpacity(0.3)),
+          ),
+          child: const Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(color: Colors.tealAccent),
+                SizedBox(height: 12),
+                Text(
+                  'Loading Bz data...',
+                  style: TextStyle(color: Colors.white54, fontSize: 14),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
     }
     
     return Padding(
