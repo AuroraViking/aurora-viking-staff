@@ -203,6 +203,11 @@ service cloud.firestore {
       allow read, write: if request.auth != null;
     }
     
+    // Pickup route history - auto-sort learning data
+    match /pickup_route_history/{document} {
+      allow read, write: if request.auth != null;
+    }
+    
     // Voice Radio - channels and messages
     match /radio_channels/{channelId} {
       allow read, write: if request.auth != null;

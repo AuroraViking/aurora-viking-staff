@@ -614,6 +614,75 @@ class FirebaseService {
     }
   }
 
+  // --- Pickup Route History (for auto-sort learning) ---
+
+  /// Save a route snapshot — the ordered list of pickup place names.
+  /// Called automatically when a guide's pickup list is reordered.
+  /// This builds up the historical data the auto-sort algorithm uses.
+  static Future<void> savePickupRouteSnapshot({
+    required String guideId,
+    required String date,
+    required List<String> pickupPlaceOrder,
+  }) async {
+    if (!_initialized || _firestore == null) {
+      print('⚠️ Firebase not initialized - skipping route snapshot');
+      return;
+    }
+    
+    // Don't save empty or single-item routes — no ordering info
+    if (pickupPlaceOrder.length < 2) return;
+    
+    try {
+      await _firestore!
+          .collection('pickup_route_history')
+          .doc('${date}_$guideId')
+          .set({
+        'guideId': guideId,
+        'date': date,
+        'pickupPlaceOrder': pickupPlaceOrder,
+        'savedAt': FieldValue.serverTimestamp(),
+      });
+      
+      print('📍 Route snapshot saved for guide $guideId: ${pickupPlaceOrder.length} stops');
+    } catch (e) {
+      print('❌ Failed to save route snapshot: $e');
+    }
+  }
+
+  /// Fetch historical route snapshots from ALL guides.
+  /// Returns a list of pickup-place-order arrays, most recent first.
+  static Future<List<List<String>>> getPickupRouteHistory({
+    int limit = 60,
+  }) async {
+    if (!_initialized || _firestore == null) {
+      print('⚠️ Firebase not initialized - returning empty route history');
+      return [];
+    }
+    
+    try {
+      final query = await _firestore!
+          .collection('pickup_route_history')
+          .orderBy('date', descending: true)
+          .limit(limit)
+          .get();
+      
+      final routes = <List<String>>[];
+      for (final doc in query.docs) {
+        final data = doc.data();
+        final order = List<String>.from(data['pickupPlaceOrder'] ?? []);
+        if (order.length >= 2) {
+          routes.add(order);
+        }
+      }
+      
+      print('📍 Loaded ${routes.length} route snapshots from history');
+      return routes;
+    } catch (e) {
+      print('❌ Failed to get route history: $e');
+      return [];
+    }
+  }
+
   // Save updated pickup place for a booking
   static Future<void> saveUpdatedPickupPlace({
     required String bookingId,

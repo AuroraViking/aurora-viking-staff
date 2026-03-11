@@ -7,7 +7,8 @@ import 'package:provider/provider.dart';
 import '../modules/shifts/shifts_screen.dart';
 import '../modules/tracking/tracking_screen.dart';
 import '../modules/photos/photo_upload_screen.dart';
-import '../modules/photos/web_photo_upload_screen.dart';
+import '../modules/photos/web_photo_upload_stub.dart'
+    if (dart.library.html) '../modules/photos/web_photo_upload_screen.dart';
 import '../modules/profile/profile_screen.dart';
 import '../modules/profile/settings_screen.dart';
 import '../modules/pickup/pickup_screen.dart';
@@ -53,7 +54,7 @@ class _HomeScreenState extends State<HomeScreen> {
     
     // Photos tab: web uses file picker, mobile uses SAF camera access
     if (PlatformFeatures.uploadTab) {
-      screens.add(kIsWeb ? const WebPhotoUploadScreen() : const PhotoUploadScreen());
+      screens.add(kIsWeb ? WebPhotoUploadScreen() : const PhotoUploadScreen());
     }
     
     // Only add Tracking tab on mobile (requires native GPS)

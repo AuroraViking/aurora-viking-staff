@@ -42,7 +42,7 @@ android {
         applicationId = "com.auroraviking.aurora_viking_staff"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = 23  // Updated from flutter.minSdkVersion to 23 for Firebase compatibility
+        minSdk = flutter.minSdkVersion  // Updated from flutter.minSdkVersion to 23 for Firebase compatibility
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
@@ -64,10 +64,19 @@ flutter {
 
 dependencies {
     implementation("com.google.android.gms:play-services-location:20.0.0")
-    implementation("androidx.core:core:1.10.0")
+    implementation("androidx.core:core:1.15.0")
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("androidx.documentfile:documentfile:1.0.1")
     implementation("androidx.activity:activity-ktx:1.7.2")
     // Core library desugaring for flutter_local_notifications
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
+}
+
+// Force kotlin-stdlib to match compiler version (transitive deps pull in 2.3.10 which is incompatible)
+configurations.all {
+    resolutionStrategy {
+        force("org.jetbrains.kotlin:kotlin-stdlib:2.1.20")
+        force("org.jetbrains.kotlin:kotlin-stdlib-jdk7:2.1.20")
+        force("org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.1.20")
+    }
 }

@@ -586,10 +586,38 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
             icon: const Icon(Icons.calendar_today),
             onPressed: _selectDate,
           ),
-          IconButton(
+          PopupMenuButton<String>(
             icon: const Icon(Icons.auto_fix_high),
-            onPressed: _autoDistribute,
-            tooltip: 'Auto Distribute',
+            tooltip: 'Auto Actions',
+            onSelected: (action) {
+              if (action == 'distribute') {
+                _autoDistribute();
+              } else if (action == 'sort_all') {
+                _autoSortAllGuides();
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'distribute',
+                child: Row(
+                  children: [
+                    Icon(Icons.group, color: Colors.white70, size: 20),
+                    SizedBox(width: 8),
+                    Text('Auto Distribute', style: TextStyle(color: Colors.white)),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'sort_all',
+                child: Row(
+                  children: [
+                    Icon(Icons.route, color: Colors.green, size: 20),
+                    SizedBox(width: 8),
+                    Text('Auto Sort All Lists', style: TextStyle(color: Colors.white)),
+                  ],
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -1512,6 +1540,13 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
             ),
             const SizedBox(width: 8),
             IconButton(
+              icon: const Icon(Icons.route, size: 20, color: Colors.green),
+              onPressed: () {
+                _autoSortGuide(guideList, controller);
+              },
+              tooltip: 'Auto Sort (learned route)',
+            ),
+            IconButton(
               icon: const Icon(Icons.sort, size: 20),
               onPressed: () {
                 _resetGuideOrder(guideList, controller);
@@ -1807,7 +1842,7 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
     _saveReorderedList(guideList, controller);
   }
 
-  // Save reordered list to Firebase
+  // Save reordered list to Firebase (also snapshots route for auto-sort learning)
   Future<void> _saveReorderedList(GuidePickupList guideList, PickupController controller) async {
     final reorderedList = _reorderedBookings[guideList.guideId];
     if (reorderedList != null) {
@@ -1818,6 +1853,14 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
         guideId: guideList.guideId,
         date: dateStr,
         bookingIds: bookingIds,
+      );
+
+      // Save route snapshot for auto-sort learning
+      final pickupPlaceOrder = reorderedList.map((b) => b.pickupPlaceName).toList();
+      await FirebaseService.savePickupRouteSnapshot(
+        guideId: guideList.guideId,
+        date: dateStr,
+        pickupPlaceOrder: pickupPlaceOrder,
       );
     }
   }
@@ -2192,6 +2235,71 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Bookings distributed successfully!'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    }
+  }
+
+  void _autoSortGuide(GuidePickupList guideList, PickupController controller) async {
+    print('📍 Auto-sorting guide: ${guideList.guideName}');
+    
+    final success = await controller.autoSortGuideBookings(guideList.guideId);
+    
+    if (success && mounted) {
+      // Update local reordered bookings to reflect the new order
+      final updatedGuideList = controller.guideLists.firstWhere(
+        (g) => g.guideId == guideList.guideId,
+        orElse: () => guideList,
+      );
+      setState(() {
+        _reorderedBookings[guideList.guideId] = List.from(updatedGuideList.bookings);
+      });
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${guideList.guideName}\'s list auto-sorted using learned route!'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    } else if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Failed to auto-sort — no bookings or guide not found'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    }
+  }
+
+  void _autoSortAllGuides() async {
+    final controller = context.read<PickupController>();
+    
+    if (controller.guideLists.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No guide lists to sort'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+    
+    await controller.autoSortAllGuides();
+    
+    // Update local reordered bookings for all guides
+    if (mounted) {
+      setState(() {
+        for (final guideList in controller.guideLists) {
+          _reorderedBookings[guideList.guideId] = List.from(guideList.bookings);
+        }
+      });
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('All ${controller.guideLists.length} guide lists auto-sorted!'),
           backgroundColor: AppColors.success,
         ),
       );

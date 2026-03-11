@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../core/models/pickup_models.dart';
 import '../../core/models/user_model.dart';
 import 'pickup_service.dart';
+import 'pickup_auto_sorter.dart';
 import '../../core/services/firebase_service.dart';
 
 class PickupController extends ChangeNotifier {
@@ -875,6 +876,87 @@ class PickupController extends ChangeNotifier {
     }
   }
 
+  // ==========================================
+  // AUTO-SORT: Uses historical route data to
+  // intelligently sort a guide's pickup list
+  // ==========================================
+
+  /// Auto-sort a specific guide's bookings using learned route history.
+  /// Returns true if the guide was found and sorted.
+  Future<bool> autoSortGuideBookings(String guideId) async {
+    final guideIndex = _guideLists.indexWhere((g) => g.guideId == guideId);
+    if (guideIndex == -1) return false;
+
+    final guideList = _guideLists[guideIndex];
+    if (guideList.bookings.isEmpty) return false;
+
+    print('🔄 Auto-sorting bookings for guide ${guideList.guideName}...');
+
+    final sorted = await PickupAutoSorter.autoSortBookings(guideList.bookings);
+
+    // Update guide list with sorted bookings
+    _guideLists[guideIndex] = guideList.copyWith(bookings: sorted);
+    notifyListeners();
+
+    // Persist the sorted order
+    final dateStr = _getDateKey(_selectedDate);
+    final bookingIds = sorted.map((b) => b.id).toList();
+    await FirebaseService.saveReorderedBookings(
+      guideId: guideId,
+      date: dateStr,
+      bookingIds: bookingIds,
+    );
+
+    // Also save route snapshot so the algo keeps learning
+    final pickupPlaceOrder = sorted.map((b) => b.pickupPlaceName).toList();
+    await FirebaseService.savePickupRouteSnapshot(
+      guideId: guideId,
+      date: dateStr,
+      pickupPlaceOrder: pickupPlaceOrder,
+    );
+
+    print('✅ Auto-sorted ${sorted.length} bookings for guide ${guideList.guideName}');
+    return true;
+  }
+
+  /// Auto-sort ALL guides' bookings using learned route history.
+  Future<void> autoSortAllGuides() async {
+    if (_guideLists.isEmpty) return;
+
+    print('🔄 Auto-sorting ALL guide lists...');
+
+    final sortedMap = await PickupAutoSorter.autoSortAllGuides(_guideLists);
+
+    final dateStr = _getDateKey(_selectedDate);
+
+    for (int i = 0; i < _guideLists.length; i++) {
+      final guideList = _guideLists[i];
+      final sorted = sortedMap[guideList.guideId];
+      if (sorted != null && sorted.isNotEmpty) {
+        _guideLists[i] = guideList.copyWith(bookings: sorted);
+
+        // Persist
+        final bookingIds = sorted.map((b) => b.id).toList();
+        await FirebaseService.saveReorderedBookings(
+          guideId: guideList.guideId,
+          date: dateStr,
+          bookingIds: bookingIds,
+        );
+
+        // Route snapshot
+        final pickupPlaceOrder = sorted.map((b) => b.pickupPlaceName).toList();
+        await FirebaseService.savePickupRouteSnapshot(
+          guideId: guideList.guideId,
+          date: dateStr,
+          pickupPlaceOrder: pickupPlaceOrder,
+        );
+      }
+    }
+
+    notifyListeners();
+    print('✅ Auto-sorted all ${_guideLists.length} guide lists');
+  }
+
   // Update pickup place for a booking
   Future<void> updatePickupPlace(String bookingId, String newPickupPlace) async {
     // Update in current user bookings
@@ -904,6 +986,7 @@ class PickupController extends ChangeNotifier {
   }
 
   // Save reordered bookings to Firebase
+  // Also saves a route snapshot so the auto-sort algorithm can learn.
   Future<void> _saveReorderedBookings(List<PickupBooking> reorderedBookings) async {
     if (_currentUser == null) return;
 
@@ -917,7 +1000,15 @@ class PickupController extends ChangeNotifier {
         bookingIds: bookingIds,
       );
 
-      print('💾 Saved reordered bookings for guide ${_currentUser!.fullName} on $dateStr');
+      // Save route snapshot for the auto-sort learning algorithm
+      final pickupPlaceOrder = reorderedBookings.map((b) => b.pickupPlaceName).toList();
+      await FirebaseService.savePickupRouteSnapshot(
+        guideId: _currentUser!.id,
+        date: dateStr,
+        pickupPlaceOrder: pickupPlaceOrder,
+      );
+
+      print('💾 Saved reordered bookings + route snapshot for guide ${_currentUser!.fullName} on $dateStr');
     } catch (e) {
       print('❌ Failed to save reordered bookings: $e');
     }
