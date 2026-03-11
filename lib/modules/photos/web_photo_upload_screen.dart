@@ -48,19 +48,22 @@ class _WebPhotoUploadScreenState extends State<WebPhotoUploadScreen> {
 
   Future<void> _pickFiles() async {
     try {
-      final result = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: _allowedExtensions,
-        allowMultiple: true,
-        withData: true,
-      );
-      if (result == null || result.files.isEmpty) return;
+      // Use HTML input so we don't load file bytes into memory
+      final input = web.HTMLInputElement()
+        ..type = 'file'
+        ..multiple = true
+        ..accept = _allowedExtensions.map((e) => '.$e').join(',');
+
+      input.click();
+      await input.onChange.first;
+      final files = input.files;
+      if (files == null || files.length == 0) return;
 
       final newFiles = <_WebFileInfo>[];
-      for (final file in result.files) {
-        if (file.bytes != null && file.bytes!.isNotEmpty) {
-          newFiles.add(_WebFileInfo(name: file.name, bytes: file.bytes!, size: file.size));
-        }
+      for (int i = 0; i < files.length; i++) {
+        final file = files.item(i);
+        if (file == null || file.size == 0) continue;
+        newFiles.add(_WebFileInfo(name: file.name, size: file.size, webFile: file));
       }
       if (newFiles.isEmpty) { _showAlert('Could not read selected files.'); return; }
 
@@ -75,7 +78,6 @@ class _WebPhotoUploadScreenState extends State<WebPhotoUploadScreen> {
 
   Future<void> _pickFolder() async {
     try {
-      // Use package:web to create an input with webkitdirectory for folder selection
       final input = web.HTMLInputElement()
         ..type = 'file'
         ..multiple = true;
@@ -83,27 +85,20 @@ class _WebPhotoUploadScreenState extends State<WebPhotoUploadScreen> {
       input.setAttribute('directory', '');
 
       input.click();
-
       await input.onChange.first;
       final files = input.files;
       if (files == null || files.length == 0) return;
 
-      setState(() => _statusMessage = 'Reading folder...');
-
       final allowedExts = _allowedExtensions.toSet();
       final newFiles = <_WebFileInfo>[];
-
-      // Get the top-level folder name from webkitRelativePath
-      // Format: "FolderName/file.jpg" or "FolderName/SubFolder/file.jpg"
       String? folderName;
 
       for (int i = 0; i < files.length; i++) {
         final file = files.item(i);
         if (file == null) continue;
 
-        // Extract top-level folder name from the first file's relative path
+        // Extract top-level folder name
         if (folderName == null) {
-          // webkitRelativePath gives "FolderName/file.jpg"
           final jsPath = (file as JSObject)['webkitRelativePath'];
           final relativePath = (jsPath as JSString?)?.toDart ?? '';
           if (relativePath.isNotEmpty && relativePath.contains('/')) {
@@ -115,21 +110,13 @@ class _WebPhotoUploadScreenState extends State<WebPhotoUploadScreen> {
         if (!allowedExts.contains(ext)) continue;
         if (file.size == 0) continue;
 
-        // Read file data using FileReader
-        final reader = web.FileReader();
-        reader.readAsArrayBuffer(file);
-        await reader.onLoadEnd.first;
-
-        final result = reader.result;
-        if (result != null) {
-          final bytes = (result as JSArrayBuffer).toDart.asUint8List();
-          newFiles.add(_WebFileInfo(
-            name: file.name,
-            bytes: bytes,
-            size: file.size,
-            subfolder: folderName,
-          ));
-        }
+        // Store file reference only — bytes read lazily during upload
+        newFiles.add(_WebFileInfo(
+          name: file.name,
+          size: file.size,
+          webFile: file,
+          subfolder: folderName,
+        ));
       }
 
       if (newFiles.isEmpty) {
@@ -137,10 +124,7 @@ class _WebPhotoUploadScreenState extends State<WebPhotoUploadScreen> {
         return;
       }
 
-      setState(() {
-        _selectedFiles.addAll(newFiles);
-        _statusMessage = '';
-      });
+      setState(() => _selectedFiles.addAll(newFiles));
 
       if (mounted) {
         final label = folderName != null ? '📁 Added ${newFiles.length} file(s) from "$folderName"' : '📁 Added ${newFiles.length} file(s) from folder';
@@ -231,18 +215,24 @@ class _WebPhotoUploadScreenState extends State<WebPhotoUploadScreen> {
   Future<void> _uploadSingleFile(
     FirebaseFunctions functions, _WebFileInfo file, String folderId, int fileIndex, [String? subfolder]
   ) async {
-    final bytes = file.bytes;
-    final totalChunks = (bytes.length / _chunkSize).ceil();
+    final fileSize = file.size;
+    final totalChunks = (fileSize / _chunkSize).ceil();
     final uploadId = '${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(99999)}';
 
-    debugPrint('📤 Uploading ${file.name}: ${_formatFileSize(file.size)}, $totalChunks chunks');
+    debugPrint('📤 Uploading ${file.name}: ${_formatFileSize(fileSize)}, $totalChunks chunks');
 
-    // Send chunks
+    // Send chunks — read each chunk lazily from the web.File via Blob.slice
     for (int c = 0; c < totalChunks; c++) {
       final start = c * _chunkSize;
-      final end = min(start + _chunkSize, bytes.length);
-      final chunk = bytes.sublist(start, end);
-      final b64 = base64Encode(chunk);
+      final end = min(start + _chunkSize, fileSize);
+
+      // Slice the file to get just this chunk (no full file read)
+      final blob = file.webFile.slice(start, end);
+      final reader = web.FileReader();
+      reader.readAsArrayBuffer(blob);
+      await reader.onLoadEnd.first;
+      final chunkBytes = (reader.result! as JSArrayBuffer).toDart.asUint8List();
+      final b64 = base64Encode(chunkBytes);
 
       setState(() {
         final fileProgress = (c + 1) / totalChunks;
@@ -435,8 +425,8 @@ class _WebPhotoUploadScreenState extends State<WebPhotoUploadScreen> {
 
 class _WebFileInfo {
   final String name;
-  final Uint8List bytes;
   final int size;
+  final web.File webFile;
   final String? subfolder;
-  _WebFileInfo({required this.name, required this.bytes, required this.size, this.subfolder});
+  _WebFileInfo({required this.name, required this.size, required this.webFile, this.subfolder});
 }
