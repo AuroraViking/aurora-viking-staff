@@ -594,6 +594,8 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
                 _autoDistribute();
               } else if (action == 'sort_all') {
                 _autoSortAllGuides();
+              } else if (action == 'unassign_all') {
+                _unassignAll();
               }
             },
             itemBuilder: (context) => [
@@ -614,6 +616,17 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
                     Icon(Icons.route, color: Colors.green, size: 20),
                     SizedBox(width: 8),
                     Text('Auto Sort All Lists', style: TextStyle(color: Colors.white)),
+                  ],
+                ),
+              ),
+              const PopupMenuDivider(),
+              const PopupMenuItem(
+                value: 'unassign_all',
+                child: Row(
+                  children: [
+                    Icon(Icons.clear_all, color: Colors.redAccent, size: 20),
+                    SizedBox(width: 8),
+                    Text('Unassign All', style: TextStyle(color: Colors.redAccent)),
                   ],
                 ),
               ),
@@ -2217,8 +2230,16 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
       return;
     }
 
-    // Convert AdminGuide to User for the controller
-    final guides = _guides.map((adminGuide) => User(
+    // Show guide + bus selection dialog
+    final result = await _showGuideAndBusSelectionDialog();
+    if (result == null) return;
+    
+    final selectedGuides = result['guides'] as List<AdminGuide>;
+    final busAssignments = result['buses'] as Map<String, String?>; // guideId -> busId
+    if (selectedGuides.isEmpty) return;
+
+    // Convert selected AdminGuide to User for the controller
+    final guides = selectedGuides.map((adminGuide) => User(
       id: adminGuide.id,
       fullName: adminGuide.name,
       email: adminGuide.email,
@@ -2230,15 +2251,271 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
     )).toList();
 
     await controller.distributeBookings(guides);
+
+    // Auto-sort each guide's list using learned route history
+    await controller.autoSortAllGuides();
+
+    // Save bus assignments for each guide
+    for (final guide in selectedGuides) {
+      final busId = busAssignments[guide.id];
+      if (busId != null && busId.isNotEmpty) {
+        final bus = _availableBuses.firstWhere(
+          (b) => b['id'] == busId,
+          orElse: () => <String, dynamic>{},
+        );
+        final busName = bus['name'] as String? ?? 'Unknown Bus';
+        await _assignBusToGuide(guide.id, guide.name, busId, busName, controller);
+      }
+    }
     
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Bookings distributed successfully!'),
+        SnackBar(
+          content: Text('Bookings distributed to ${guides.length} guides with buses!'),
           backgroundColor: AppColors.success,
         ),
       );
     }
+  }
+
+  /// Unassign ALL bookings from all guides for the current date.
+  void _unassignAll() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A2E),
+        title: const Text('Unassign All', style: TextStyle(color: Colors.white)),
+        content: const Text(
+          'This will remove all guide and bus assignments for today. Are you sure?',
+          style: TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Unassign All'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    final controller = context.read<PickupController>();
+    
+    // Unassign every booking
+    for (final booking in controller.bookings) {
+      if (booking.assignedGuideId != null && booking.assignedGuideId!.isNotEmpty) {
+        await controller.assignBookingToGuide(booking.id, '', '');
+      }
+    }
+
+    // Remove bus assignments
+    final dateStr = _getDateKey(controller.selectedDate);
+    for (final guideId in _busAssignments.keys.toList()) {
+      await FirebaseService.removeBusGuideAssignment(guideId: guideId, date: dateStr);
+    }
+
+    setState(() {
+      _busAssignments.clear();
+      _reorderedBookings.clear();
+    });
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('All assignments cleared'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    }
+  }
+
+  /// Show a dialog where the admin selects guides + assigns a bus to each.
+  Future<Map<String, dynamic>?> _showGuideAndBusSelectionDialog() async {
+    final selected = <String>{};
+    final guideBusMap = <String, String?>{}; // guideId -> busId
+
+    // Pre-select guides who already have assignments
+    final controller = context.read<PickupController>();
+    for (final guideList in controller.guideLists) {
+      selected.add(guideList.guideId);
+    }
+    // Pre-fill existing bus assignments
+    for (final entry in _busAssignments.entries) {
+      guideBusMap[entry.key] = entry.value['busId'];
+    }
+
+    return showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            return AlertDialog(
+              backgroundColor: const Color(0xFF1A1A2E),
+              title: const Text(
+                'Select Guides & Buses',
+                style: TextStyle(color: Colors.white, fontSize: 18),
+              ),
+              content: SizedBox(
+                width: double.maxFinite,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Select all / none row
+                    Row(
+                      children: [
+                        TextButton(
+                          onPressed: () {
+                            setDialogState(() {
+                              selected.addAll(_guides.map((g) => g.id));
+                            });
+                          },
+                          child: const Text('Select All', style: TextStyle(color: Colors.green, fontSize: 12)),
+                        ),
+                        const SizedBox(width: 8),
+                        TextButton(
+                          onPressed: () {
+                            setDialogState(() {
+                              selected.clear();
+                              guideBusMap.clear();
+                            });
+                          },
+                          child: const Text('Clear', style: TextStyle(color: Colors.orange, fontSize: 12)),
+                        ),
+                        const Spacer(),
+                        Text(
+                          '${selected.length}/${_guides.length}',
+                          style: const TextStyle(color: Colors.white54, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    // Guide list with bus dropdowns
+                    Flexible(
+                      child: ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: _guides.length,
+                        itemBuilder: (ctx, index) {
+                          final guide = _guides[index];
+                          final isSelected = selected.contains(guide.id);
+                          final selectedBusId = guideBusMap[guide.id];
+                          return Column(
+                            children: [
+                              CheckboxListTile(
+                                dense: true,
+                                value: isSelected,
+                                activeColor: AppColors.primary,
+                                checkColor: Colors.white,
+                                onChanged: (val) {
+                                  setDialogState(() {
+                                    if (val == true) {
+                                      selected.add(guide.id);
+                                    } else {
+                                      selected.remove(guide.id);
+                                      guideBusMap.remove(guide.id);
+                                    }
+                                  });
+                                },
+                                title: Text(
+                                  guide.name,
+                                  style: const TextStyle(color: Colors.white, fontSize: 14),
+                                ),
+                                subtitle: isSelected && _availableBuses.isNotEmpty
+                                    ? Padding(
+                                        padding: const EdgeInsets.only(top: 4),
+                                        child: DropdownButtonFormField<String?>(
+                                          value: selectedBusId,
+                                          dropdownColor: const Color(0xFF2A2A4E),
+                                          decoration: InputDecoration(
+                                            isDense: true,
+                                            contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                            border: OutlineInputBorder(
+                                              borderRadius: BorderRadius.circular(8),
+                                              borderSide: BorderSide(color: Colors.white24),
+                                            ),
+                                            hintText: 'Select bus...',
+                                            hintStyle: const TextStyle(color: Colors.white38, fontSize: 12),
+                                          ),
+                                          style: const TextStyle(color: Colors.white, fontSize: 12),
+                                          items: [
+                                            const DropdownMenuItem<String?>(
+                                              value: null,
+                                              child: Text('No bus', style: TextStyle(color: Colors.white54, fontSize: 12)),
+                                            ),
+                                            ..._availableBuses.map((bus) {
+                                              final busId = bus['id'] as String;
+                                              final busName = bus['name'] as String;
+                                              // Check if this bus is already assigned to another guide
+                                              final alreadyTaken = guideBusMap.entries
+                                                  .any((e) => e.value == busId && e.key != guide.id);
+                                              return DropdownMenuItem<String?>(
+                                                value: busId,
+                                                child: Text(
+                                                  alreadyTaken ? '$busName (taken)' : busName,
+                                                  style: TextStyle(
+                                                    color: alreadyTaken ? Colors.white38 : Colors.white,
+                                                    fontSize: 12,
+                                                  ),
+                                                ),
+                                              );
+                                            }),
+                                          ],
+                                          onChanged: (val) {
+                                            setDialogState(() {
+                                              guideBusMap[guide.id] = val;
+                                            });
+                                          },
+                                        ),
+                                      )
+                                    : Text(
+                                        isSelected ? 'No buses loaded' : '',
+                                        style: const TextStyle(color: Colors.white38, fontSize: 11),
+                                      ),
+                              ),
+                              if (index < _guides.length - 1)
+                                const Divider(height: 1, color: Colors.white12),
+                            ],
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, null),
+                  child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                  ),
+                  onPressed: selected.isEmpty
+                      ? null
+                      : () {
+                          final selectedGuides = _guides
+                              .where((g) => selected.contains(g.id))
+                              .toList();
+                          Navigator.pop(ctx, {
+                            'guides': selectedGuides,
+                            'buses': guideBusMap,
+                          });
+                        },
+                  child: Text('Distribute to ${selected.length} guides'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   void _autoSortGuide(GuidePickupList guideList, PickupController controller) async {

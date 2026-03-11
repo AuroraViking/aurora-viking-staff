@@ -1497,7 +1497,6 @@ class PickupService {
     DateTime date,
   ) async {
     final guideLists = <GuidePickupList>[];
-    final unassignedBookings = List<PickupBooking>.from(bookings);
     
     // Create empty lists for each guide
     for (final guide in guides) {
@@ -1510,33 +1509,141 @@ class PickupService {
       ));
     }
 
-    // Simple distribution algorithm
-    int guideIndex = 0;
-    for (final booking in unassignedBookings) {
-      if (guideLists.isEmpty) break;
-      
-      final currentGuideList = guideLists[guideIndex % guideLists.length];
-      final newTotalPassengers = currentGuideList.totalPassengers + booking.numberOfGuests;
-      
-      // Check if adding this booking would exceed passenger limit
-      if (newTotalPassengers <= _maxPassengersPerBus) {
-        // Add booking to this guide
-        final updatedBookings = List<PickupBooking>.from(currentGuideList.bookings)
-          ..add(booking.copyWith(
-            assignedGuideId: currentGuideList.guideId,
-            assignedGuideName: currentGuideList.guideName,
-          ));
-        
-        guideLists[guideIndex % guideLists.length] = currentGuideList.copyWith(
-          bookings: updatedBookings,
-          totalPassengers: newTotalPassengers,
-        );
+    if (guideLists.isEmpty || bookings.isEmpty) return guideLists;
+
+    // ======================================================
+    // Step 1: Group bookings by normalised pickup place name.
+    //         Fuzzy-match handles OTA naming differences
+    //         (e.g. "Harpa" vs "Harpa Concert Hall").
+    // ======================================================
+    final groups = _groupByPickupPlace(bookings);
+    print('📍 Grouped ${bookings.length} bookings into ${groups.length} pickup-place groups');
+
+    // Sort groups by total passengers descending (largest groups first
+    // for better bin-packing)
+    groups.sort((a, b) {
+      final aPax = a.fold<int>(0, (s, bk) => s + bk.numberOfGuests);
+      final bPax = b.fold<int>(0, (s, bk) => s + bk.numberOfGuests);
+      return bPax.compareTo(aPax);
+    });
+
+    // ======================================================
+    // Step 2: Assign each group to the guide with the fewest
+    //         passengers (greedy bin-packing), respecting the
+    //         per-bus passenger limit.
+    // ======================================================
+    for (final group in groups) {
+      final groupPax = group.fold<int>(0, (s, b) => s + b.numberOfGuests);
+
+      // Find the guide with the fewest passengers that can fit this group
+      int bestIdx = -1;
+      int bestPax = 999999;
+      for (int i = 0; i < guideLists.length; i++) {
+        final gl = guideLists[i];
+        if (gl.totalPassengers + groupPax <= _maxPassengersPerBus &&
+            gl.totalPassengers < bestPax) {
+          bestPax = gl.totalPassengers;
+          bestIdx = i;
+        }
       }
-      
-      guideIndex++;
+
+      // If no guide can fit the whole group, find the one with the most room
+      if (bestIdx == -1) {
+        int mostRoom = -1;
+        for (int i = 0; i < guideLists.length; i++) {
+          final room = _maxPassengersPerBus - guideLists[i].totalPassengers;
+          if (room > mostRoom) {
+            mostRoom = room;
+            bestIdx = i;
+          }
+        }
+      }
+
+      if (bestIdx == -1) bestIdx = 0; // fallback
+
+      final target = guideLists[bestIdx];
+      final updatedBookings = List<PickupBooking>.from(target.bookings);
+      int addedPax = 0;
+
+      for (final booking in group) {
+        // Respect per-bus limit even within a group
+        if (target.totalPassengers + addedPax + booking.numberOfGuests > _maxPassengersPerBus) {
+          continue; // skip — would overflow
+        }
+        updatedBookings.add(booking.copyWith(
+          assignedGuideId: target.guideId,
+          assignedGuideName: target.guideName,
+        ));
+        addedPax += booking.numberOfGuests;
+      }
+
+      guideLists[bestIdx] = target.copyWith(
+        bookings: updatedBookings,
+        totalPassengers: target.totalPassengers + addedPax,
+      );
+
+      print('🚌 Assigned ${group.length} bookings (${group.first.pickupPlaceName}) → ${target.guideName} (now ${target.totalPassengers + addedPax} pax)');
     }
 
     return guideLists;
+  }
+
+  /// Group bookings by normalised pickup place name.
+  /// Uses fuzzy matching so "Bus Stop X" and "Bus Stop x - City" merge.
+  List<List<PickupBooking>> _groupByPickupPlace(List<PickupBooking> bookings) {
+    // Canonical key → list of bookings
+    final map = <String, List<PickupBooking>>{};
+    // Canonical key → original display name (first occurrence)
+    final canonicalNames = <String, String>{};
+
+    for (final b in bookings) {
+      final key = _normalisePickupName(b.pickupPlaceName);
+
+      // Try fuzzy merge: check if this key is a prefix/suffix of an existing key
+      String? matchedKey;
+      for (final existing in map.keys) {
+        if (_fuzzyMatch(key, existing)) {
+          matchedKey = existing;
+          break;
+        }
+      }
+
+      final finalKey = matchedKey ?? key;
+      map.putIfAbsent(finalKey, () => []);
+      map[finalKey]!.add(b);
+      canonicalNames.putIfAbsent(finalKey, () => b.pickupPlaceName);
+    }
+
+    return map.values.toList();
+  }
+
+  /// Normalise a pickup place name for grouping.
+  String _normalisePickupName(String name) {
+    return name
+        .trim()
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9\s]'), '') // strip punctuation
+        .replaceAll(RegExp(r'\s+'), ' ');        // collapse whitespace
+  }
+
+  /// Fuzzy match: true if one name contains the other, or if they share
+  /// a long common prefix (≥ 60% of the shorter string).
+  bool _fuzzyMatch(String a, String b) {
+    if (a == b) return true;
+    // One contains the other
+    if (a.contains(b) || b.contains(a)) return true;
+    // Long common prefix
+    final shorter = a.length <= b.length ? a : b;
+    final longer = a.length > b.length ? a : b;
+    int common = 0;
+    for (int i = 0; i < shorter.length; i++) {
+      if (shorter[i] == longer[i]) {
+        common++;
+      } else {
+        break;
+      }
+    }
+    return common >= (shorter.length * 0.6);
   }
 
   // Get pickup list statistics

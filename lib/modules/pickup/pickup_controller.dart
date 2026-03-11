@@ -714,6 +714,33 @@ class PickupController extends ChangeNotifier {
 
     try {
       _guideLists = await _pickupService.distributeBookings(_bookings, guides, _selectedDate);
+
+      // Persist every assignment to Firebase so they survive refresh
+      for (final guideList in _guideLists) {
+        for (final booking in guideList.bookings) {
+          await _pickupService.assignBookingToGuide(
+            booking.id,
+            guideList.guideId,
+            guideList.guideName,
+            date: _selectedDate,
+          );
+        }
+      }
+
+      // Also update _bookings to reflect the new assignments
+      for (final guideList in _guideLists) {
+        for (final booking in guideList.bookings) {
+          final idx = _bookings.indexWhere((b) => b.id == booking.id);
+          if (idx != -1) {
+            _bookings[idx] = _bookings[idx].copyWith(
+              assignedGuideId: guideList.guideId,
+              assignedGuideName: guideList.guideName,
+            );
+          }
+        }
+      }
+
+      print('✅ Distributed and saved ${_guideLists.length} guide assignments to Firebase');
       notifyListeners();
     } catch (e) {
       _error = 'Failed to distribute bookings: $e';
