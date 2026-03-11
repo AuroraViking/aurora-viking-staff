@@ -23,8 +23,9 @@ bool get supportsForegroundService => !kIsWeb;
 
 /// Features available on current platform
 class PlatformFeatures {
-  /// Photo upload to Drive - requires native file system access
-  static bool get uploadTab => !kIsWeb;
+  /// Photo upload to Drive - works on all platforms
+  /// Mobile uses SAF camera access, web uses file picker
+  static bool get uploadTab => true;
   
   /// GPS tracking - requires native location services
   static bool get trackingTab => !kIsWeb;
@@ -83,7 +84,7 @@ class PlatformFeatures {
       switch (feature) {
         case 'photos':
         case 'upload':
-          return 'Photo upload requires the mobile app. Please use the tablet to upload photos from cameras.';
+          return 'Photo upload is available on all platforms.';
         case 'tracking':
           return 'GPS tracking requires the mobile app. Please use the tablet for live location sharing.';
         default:

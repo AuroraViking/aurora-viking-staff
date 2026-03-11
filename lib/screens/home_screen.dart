@@ -2,10 +2,12 @@
 // Now with web compatibility - Photos and Tracking tabs hidden on web!
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:provider/provider.dart';
 import '../modules/shifts/shifts_screen.dart';
 import '../modules/tracking/tracking_screen.dart';
 import '../modules/photos/photo_upload_screen.dart';
+import '../modules/photos/web_photo_upload_screen.dart';
 import '../modules/profile/profile_screen.dart';
 import '../modules/profile/settings_screen.dart';
 import '../modules/pickup/pickup_screen.dart';
@@ -49,9 +51,9 @@ class _HomeScreenState extends State<HomeScreen> {
       const ShiftsScreen(),
     ];
     
-    // Only add Photos tab on mobile (requires native file system)
+    // Photos tab: web uses file picker, mobile uses SAF camera access
     if (PlatformFeatures.uploadTab) {
-      screens.add(const PhotoUploadScreen());
+      screens.add(kIsWeb ? const WebPhotoUploadScreen() : const PhotoUploadScreen());
     }
     
     // Only add Tracking tab on mobile (requires native GPS)
@@ -78,7 +80,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     ];
     
-    // Only add Photos tab on mobile
+    // Photos tab on all platforms
     if (PlatformFeatures.uploadTab) {
       items.add(const BottomNavigationBarItem(
         icon: Icon(Icons.camera_alt),

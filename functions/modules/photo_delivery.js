@@ -25,22 +25,22 @@ const MONTH_NAMES = [
 
 /**
  * Transliterate Icelandic characters to English equivalents.
- * e.g. "Emil Þór" → "Emil Thor", "Tómas Nói" → "Tomas Noi"
+ * e.g. "Emil ÃžÃ³r" â†’ "Emil Thor", "TÃ³mas NÃ³i" â†’ "Tomas Noi"
  */
 function transliterate(name) {
     const map = {
-        'Þ': 'Th', 'þ': 'th',
-        'Ð': 'D', 'ð': 'd',
-        'Æ': 'Ae', 'æ': 'ae',
-        'Ö': 'O', 'ö': 'o',
-        'Á': 'A', 'á': 'a',
-        'É': 'E', 'é': 'e',
-        'Í': 'I', 'í': 'i',
-        'Ó': 'O', 'ó': 'o',
-        'Ú': 'U', 'ú': 'u',
-        'Ý': 'Y', 'ý': 'y',
+        'Ãž': 'Th', 'Ã¾': 'th',
+        'Ã': 'D', 'Ã°': 'd',
+        'Ã†': 'Ae', 'Ã¦': 'ae',
+        'Ã–': 'O', 'Ã¶': 'o',
+        'Ã': 'A', 'Ã¡': 'a',
+        'Ã‰': 'E', 'Ã©': 'e',
+        'Ã': 'I', 'Ã­': 'i',
+        'Ã“': 'O', 'Ã³': 'o',
+        'Ãš': 'U', 'Ãº': 'u',
+        'Ã': 'Y', 'Ã½': 'y',
     };
-    return name.replace(/[ÞþÐðÆæÖöÁáÉéÍíÓóÚúÝý]/g, (ch) => map[ch] || ch);
+    return name.replace(/[ÃžÃ¾ÃÃ°Ã†Ã¦Ã–Ã¶ÃÃ¡Ã‰Ã©ÃÃ­Ã“Ã³ÃšÃºÃÃ½]/g, (ch) => map[ch] || ch);
 }
 
 /**
@@ -59,9 +59,9 @@ async function findDriveFolderByPath(drive, pathSegments, parentId = 'root') {
         let foundFolder = null;
 
         if (i === 0 && parentId === 'root') {
-            // For the root folder (e.g. "Norðurljósamyndir"), it's shared with the service account
+            // For the root folder (e.g. "NorÃ°urljÃ³samyndir"), it's shared with the service account
             // Try multiple search strategies to find it
-            console.log(`  📂 Searching for shared root folder: "${segment}"`);
+            console.log(`  ðŸ“‚ Searching for shared root folder: "${segment}"`);
 
             // Strategy 1: Search all accessible files
             const queries = [
@@ -80,14 +80,14 @@ async function findDriveFolderByPath(drive, pathSegments, parentId = 'root') {
 
                 if (res.data.files && res.data.files.length > 0) {
                     foundFolder = res.data.files[0];
-                    console.log(`  ✅ Found root folder: "${foundFolder.name}" (${foundFolder.id})`);
+                    console.log(`  âœ… Found root folder: "${foundFolder.name}" (${foundFolder.id})`);
                     break;
                 }
             }
         } else {
             // For subfolders, search within the parent
             const query = `name = '${escapedName}' and '${currentParentId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
-            console.log(`  📂 Searching for folder: "${segment}" in parent ${currentParentId}`);
+            console.log(`  ðŸ“‚ Searching for folder: "${segment}" in parent ${currentParentId}`);
 
             const res = await drive.files.list({
                 q: query,
@@ -99,12 +99,12 @@ async function findDriveFolderByPath(drive, pathSegments, parentId = 'root') {
 
             if (res.data.files && res.data.files.length > 0) {
                 foundFolder = res.data.files[0];
-                console.log(`  ✅ Found folder: "${foundFolder.name}" (${foundFolder.id})`);
+                console.log(`  âœ… Found folder: "${foundFolder.name}" (${foundFolder.id})`);
             }
         }
 
         if (!foundFolder) {
-            console.log(`  ❌ Folder not found: "${segment}"`);
+            console.log(`  âŒ Folder not found: "${segment}"`);
             return null;
         }
 
@@ -116,7 +116,7 @@ async function findDriveFolderByPath(drive, pathSegments, parentId = 'root') {
 
 /**
  * Share a Drive folder as "anyone with the link can view".
- * Idempotent — won't fail if already shared.
+ * Idempotent â€” won't fail if already shared.
  */
 async function shareFolderAsViewer(drive, folderId) {
     try {
@@ -131,7 +131,7 @@ async function shareFolderAsViewer(drive, folderId) {
         );
 
         if (alreadyShared) {
-            console.log('📂 Folder already shared as viewer');
+            console.log('ðŸ“‚ Folder already shared as viewer');
             return;
         }
 
@@ -143,10 +143,10 @@ async function shareFolderAsViewer(drive, folderId) {
             },
         });
 
-        console.log('📂 Folder shared as "anyone with link can view"');
+        console.log('ðŸ“‚ Folder shared as "anyone with link can view"');
     } catch (error) {
-        console.error('⚠️ Error sharing folder:', error.message);
-        // Don't throw — sharing failure shouldn't block the response
+        console.error('âš ï¸ Error sharing folder:', error.message);
+        // Don't throw â€” sharing failure shouldn't block the response
     }
 }
 
@@ -162,7 +162,7 @@ async function countFilesInFolder(drive, folderId) {
         });
         return res.data.files?.length || 0;
     } catch (error) {
-        console.error('⚠️ Error counting files:', error.message);
+        console.error('âš ï¸ Error counting files:', error.message);
         return 0;
     }
 }
@@ -173,7 +173,7 @@ async function countFilesInFolder(drive, folderId) {
  * - auroraRating is 'great' or 'exceptional' (always show), OR
  * - shouldRequestReviews is true AND aurora was at least somewhat visible
  * 
- * Never show reviews if aurora was 'not_seen' or 'camera_only' — there's
+ * Never show reviews if aurora was 'not_seen' or 'camera_only' â€” there's
  * nothing positive to review and the shouldRequestReviews toggle defaults
  * to true in the UI, so it can't be trusted alone for weak aurora nights.
  */
@@ -187,18 +187,18 @@ function shouldShowReviews(report) {
         return false;
     }
 
-    // Great or exceptional — always show reviews
+    // Great or exceptional â€” always show reviews
     if (rating === 'great' || rating === 'exceptional') {
         return true;
     }
 
-    // For 'a_little' and 'good' — only show if guide explicitly requested
+    // For 'a_little' and 'good' â€” only show if guide explicitly requested
     return report.shouldRequestReviews === true;
 }
 
 /**
  * Log a photo request to Firestore for analytics.
- * Fire-and-forget — never blocks the response.
+ * Fire-and-forget â€” never blocks the response.
  */
 function logPhotoRequest(req, { date, guide, success, photoCount, showReviews, error }) {
     const ip = req.headers['x-forwarded-for'] || req.ip || 'unknown';
@@ -215,7 +215,7 @@ function logPhotoRequest(req, { date, guide, success, photoCount, showReviews, e
         userAgent: userAgent,
         timestamp: new Date().toISOString(),
     }).catch((err) => {
-        console.error('⚠️ Failed to log photo request:', err.message);
+        console.error('âš ï¸ Failed to log photo request:', err.message);
     });
 }
 
@@ -236,9 +236,9 @@ const getPhotoLink = onRequest(
         invoker: 'public',
     },
     async (req, res) => {
-        console.log('📸 Photo delivery request:', req.query);
+        console.log('ðŸ“¸ Photo delivery request:', req.query);
 
-        const { date, guide } = req.query;
+        const { date, guide, listGuides } = req.query;
 
         // Validate inputs
         if (!date) {
@@ -248,10 +248,63 @@ const getPhotoLink = onRequest(
             });
         }
 
+        // -------------------------------------------------------
+        // List Guides mode: return guide names for a date (from Drive folders)
+        // -------------------------------------------------------
+        if (listGuides === 'true') {
+            try {
+                const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+                if (!dateRegex.test(date)) {
+                    return res.json({ success: true, guides: [] });
+                }
+
+                const tourDate = new Date(date + 'T00:00:00Z');
+                const year = tourDate.getUTCFullYear().toString();
+                const month = MONTH_NAMES[tourDate.getUTCMonth()];
+                const day = tourDate.getUTCDate().toString();
+                const dateFolder = `${day} ${month}`;
+
+                console.log(`ðŸ“‹ Looking for guide folders in: ${PHOTO_ROOT_FOLDER_NAME}/${year}/${month}/${dateFolder}`);
+
+                // Navigate to the date folder in Google Drive
+                const auth = await getGoogleAuth();
+                const drive = google.drive({ version: 'v3', auth });
+
+                const dateFolderId = await findDriveFolderByPath(
+                    drive,
+                    [PHOTO_ROOT_FOLDER_NAME, year, month, dateFolder],
+                );
+
+                if (!dateFolderId) {
+                    console.log(`ðŸ“‹ No date folder found for ${dateFolder}`);
+                    return res.json({ success: true, guides: [] });
+                }
+
+                // List all subfolders (guide names) in the date folder
+                const foldersRes = await drive.files.list({
+                    q: `'${dateFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+                    fields: 'files(id, name)',
+                    pageSize: 50,
+                    supportsAllDrives: true,
+                    includeItemsFromAllDrives: true,
+                });
+
+                const guideNames = (foldersRes.data.files || [])
+                    .map(f => f.name)
+                    .sort();
+
+                console.log(`ðŸ“‹ Found ${guideNames.length} guide folders for ${date}: ${JSON.stringify(guideNames)}`);
+                return res.json({ success: true, guides: guideNames });
+            } catch (err) {
+                console.error('âŒ listGuides error:', err);
+                return res.json({ success: true, guides: [] });
+            }
+        }
+
         if (!guide) {
             return res.status(400).json({
                 success: false,
-                error: 'Please enter your guide\'s name.',
+                error: 'Please select your guide.',
             });
         }
 
@@ -284,120 +337,99 @@ const getPhotoLink = onRequest(
 
         try {
             // -------------------------------------------------------
-            // Step 1: Verify the guide worked on this date (Firestore)
+            // Step 1: Find the Google Drive photo folder directly
+            // No shift verification  we go straight to Drive
             // -------------------------------------------------------
             const guideName = guide.trim();
-
-            // Dart's DateTime.toIso8601String() produces dates WITHOUT 'Z' suffix
-            // e.g. "2026-03-02T00:00:00.000" — we must match this format for Firestore string comparisons
-            const startOfDayNoZ = `${date}T00:00:00.000`;
-            const endOfDayNoZ = `${date}T23:59:59.999`;
-            // Also try with Z suffix in case some entries use it
-            const startOfDayZ = `${date}T00:00:00.000Z`;
-            const endOfDayZ = `${date}T23:59:59.999Z`;
-
-            console.log(`🔍 Querying shifts between "${startOfDayNoZ}" and "${endOfDayZ}"`);
-
-            // Query with a broad range that covers both formats (no-Z sorts before Z in ASCII)
-            const shiftsSnap = await db.collection('shifts')
-                .where('date', '>=', startOfDayNoZ)
-                .where('date', '<=', endOfDayZ)
-                .get();
-
-            console.log(`🔍 Found ${shiftsSnap.docs.length} total shift documents for date range`);
-
-            // Filter for accepted/completed shifts with matching guide name
-            // Transliterates Icelandic characters so guests without Icelandic keyboard can match
             const normalizedSearch = transliterate(guideName).toLowerCase();
 
-            const matchingShifts = shiftsSnap.docs.filter((doc) => {
-                const data = doc.data();
-                const status = data.status;
-                const fullName = (data.guideName || '').trim();
-                const normalizedFull = transliterate(fullName).toLowerCase();
-                return (
-                    (status === 'accepted' || status === 'completed') &&
-                    normalizedFull === normalizedSearch
-                );
-            });
-
-            if (matchingShifts.length > 0) {
-                matchingShifts.forEach((doc) => {
-                    const data = doc.data();
-                    console.log(`  ✅ Matched shift: guide="${data.guideName}", status=${data.status}`);
-                });
-            }
-
-            if (matchingShifts.length === 0) {
-                // Check if there were any shifts at all on this date
-                const anyShifts = shiftsSnap.docs.filter((doc) => {
-                    const data = doc.data();
-                    return data.status === 'accepted' || data.status === 'completed';
-                });
-
-                if (anyShifts.length === 0) {
-                    logPhotoRequest(req, {
-                        date,
-                        guide: guideName,
-                        success: false,
-                        error: 'No tour found for this date',
-                    });
-                    return res.json({
-                        success: false,
-                        error: 'No tour was found for this date. Please check the date and try again.',
-                    });
-                }
-
-                logPhotoRequest(req, {
-                    date,
-                    guide: guideName,
-                    success: false,
-                    error: `Guide not found: ${guideName}`,
-                });
-                return res.json({
-                    success: false,
-                    error: `No guide named "${guideName}" was found for this date. Please check the name and try again.`,
-                    hint: 'The guide name should match exactly as introduced on the tour.',
-                });
-            }
-
-            console.log(`✅ Found ${matchingShifts.length} shift(s) for guide "${guideName}" on ${date}`);
-
-            // -------------------------------------------------------
-            // Step 2: Find the Google Drive photo folder
-            // -------------------------------------------------------
             const year = tourDate.getUTCFullYear().toString();
             const month = MONTH_NAMES[tourDate.getUTCMonth()];
             const day = tourDate.getUTCDate().toString();
             const dateFolder = `${day} ${month}`;
 
-            // Use the actual guide name from Firestore for Drive path (preserves casing)
-            const firestoreGuideName = matchingShifts[0].data().guideName.trim();
-            const pathSegments = [PHOTO_ROOT_FOLDER_NAME, year, month, dateFolder, firestoreGuideName];
-
-            console.log(`📁 Looking for Drive folder: ${pathSegments.join('/')}`);
-
             const auth = await getGoogleAuth();
             const drive = google.drive({ version: 'v3', auth });
 
-            const folderId = await findDriveFolderByPath(drive, pathSegments);
+            // Find the date folder first
+            const dateFolderId = await findDriveFolderByPath(
+                drive,
+                [PHOTO_ROOT_FOLDER_NAME, year, month, dateFolder],
+            );
 
-            if (!folderId) {
+            if (!dateFolderId) {
+                logPhotoRequest(req, {
+                    date,
+                    guide: guideName,
+                    success: false,
+                    error: 'No tour found for this date',
+                });
                 return res.json({
                     success: false,
-                    error: 'Photos for this date have not been uploaded yet. Please check back later or email photo@auroraviking.com.',
+                    error: 'No tour was found for this date. Please check the date and try again.',
                 });
             }
 
+            // Try exact guide name first (covers dropdown selection)
+            let folderId = await findDriveFolderByPath(drive, [guideName], dateFolderId);
+
+            // If not found, try transliterated name
+            if (!folderId) {
+                const transliteratedName = transliterate(guideName);
+                if (transliteratedName !== guideName) {
+                    console.log(`📁 Exact name not found, trying transliterated: "${transliteratedName}"`);
+                    folderId = await findDriveFolderByPath(drive, [transliteratedName], dateFolderId);
+                }
+            }
+
+            // If still not found, try fuzzy match against available folders
+            if (!folderId) {
+                const foldersRes = await drive.files.list({
+                    q: `'${dateFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+                    fields: 'files(id, name)',
+                    pageSize: 50,
+                    supportsAllDrives: true,
+                    includeItemsFromAllDrives: true,
+                });
+
+                const availableGuides = (foldersRes.data.files || []).map(f => f.name);
+                console.log(`❌ No folder for "${guideName}". Available: ${JSON.stringify(availableGuides)}`);
+
+                const fuzzyMatch = (foldersRes.data.files || []).find(f => {
+                    const n = transliterate(f.name).toLowerCase();
+                    return n.includes(normalizedSearch) || normalizedSearch.includes(n);
+                });
+
+                if (fuzzyMatch) {
+                    folderId = fuzzyMatch.id;
+                    console.log(`✅ Fuzzy matched to folder: "${fuzzyMatch.name}"`);
+                } else {
+                    logPhotoRequest(req, {
+                        date,
+                        guide: guideName,
+                        success: false,
+                        error: `Guide not found: ${guideName}`,
+                    });
+                    return res.json({
+                        success: false,
+                        error: availableGuides.length > 0
+                            ? `No guide named "${guideName}" was found for this date. Please check the name and try again.`
+                            : 'Photos for this date have not been uploaded yet. Please check back later or email photo@auroraviking.com.',
+                    });
+                }
+            }
+
+            console.log(`✅ Found folder for guide "${guideName}" on ${date}`);
+
             // -------------------------------------------------------
-            // Step 3: Share the folder and count photos
+            // Step 2: Share the folder and count photos
             // -------------------------------------------------------
             await shareFolderAsViewer(drive, folderId);
             const photoCount = await countFilesInFolder(drive, folderId);
 
             const photoUrl = `https://drive.google.com/drive/folders/${folderId}`;
 
-            console.log(`📸 Found ${photoCount} photos in folder, URL: ${photoUrl}`);
+            console.log(`ðŸ“¸ Found ${photoCount} photos in folder, URL: ${photoUrl}`);
 
             // -------------------------------------------------------
             // Step 4: Check end-of-shift report for review eligibility
@@ -418,9 +450,9 @@ const getPhotoLink = onRequest(
             if (guideReport) {
                 const reportData = guideReport.data();
                 showReviews = shouldShowReviews(reportData);
-                console.log(`📝 End-of-shift report found: aurora=${reportData.auroraRating}, requestReviews=${reportData.shouldRequestReviews}, showReviews=${showReviews}`);
+                console.log(`ðŸ“ End-of-shift report found: aurora=${reportData.auroraRating}, requestReviews=${reportData.shouldRequestReviews}, showReviews=${showReviews}`);
             } else {
-                console.log('📝 No end-of-shift report found for this guide');
+                console.log('ðŸ“ No end-of-shift report found for this guide');
             }
 
             // -------------------------------------------------------
@@ -429,7 +461,7 @@ const getPhotoLink = onRequest(
             const response = {
                 success: true,
                 guide: {
-                    name: transliterate(firestoreGuideName),
+                    name: guideName,
                     photoUrl: photoUrl,
                     photoCount: photoCount,
                     showReviews: showReviews,
@@ -443,7 +475,7 @@ const getPhotoLink = onRequest(
                 };
             }
 
-            console.log('✅ Photo delivery response sent successfully');
+            console.log('âœ… Photo delivery response sent successfully');
 
             // Log successful request
             logPhotoRequest(req, {
@@ -457,7 +489,7 @@ const getPhotoLink = onRequest(
             return res.json(response);
 
         } catch (error) {
-            console.error('❌ Photo delivery error:', error);
+            console.error('âŒ Photo delivery error:', error);
 
             // Log failed request
             logPhotoRequest(req, {

@@ -14,6 +14,9 @@ class TourStatusScreen extends StatefulWidget {
 class _TourStatusScreenState extends State<TourStatusScreen> {
   final FirebaseFunctions _functions = FirebaseFunctions.instanceFor(region: 'us-central1');
   
+  // Default cancellation message texts
+  static const String _defaultEmailBody = 'Unfortunately the conditions are not favorable tonight giving us slim chances of being able to observe the Northern Lights.';
+  static const String _defaultSmsBody = "unfortunately tonight's Northern Lights tour has been cancelled due to unfavorable weather conditions for aurora sightings.";
   bool _isLoading = true;
   String? _currentStatus;
   String? _lastUpdatedBy;
@@ -341,8 +344,6 @@ class _TourStatusScreenState extends State<TourStatusScreen> {
                   ),
                   
                   const SizedBox(height: 24),
-                  
-                  // Send Emails Button
                   if (_currentStatus != null)
                     _buildSendEmailsButton(),
                   
@@ -599,6 +600,9 @@ class _TourStatusScreenState extends State<TourStatusScreen> {
     bool doSendEmails = true;
     bool doSendSms = true;
     bool doDisruptDeparture = true;
+    bool showMessagePreview = false;
+    final emailController = TextEditingController(text: _defaultEmailBody);
+    final smsController = TextEditingController(text: _defaultSmsBody);
 
     showModalBottomSheet(
       context: context,
@@ -607,12 +611,17 @@ class _TourStatusScreenState extends State<TourStatusScreen> {
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setSheetState) {
-            return Container(
+            return ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * 0.85,
+              ),
+              child: Container(
               decoration: const BoxDecoration(
                 color: Color(0xFF1E293B),
                 borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
               ),
               padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+              child: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -708,6 +717,130 @@ class _TourStatusScreenState extends State<TourStatusScreen> {
                     title: 'Disrupt departure on Bokun',
                     subtitle: 'Close the departure so no new bookings come in',
                   ),
+                  const SizedBox(height: 12),
+
+                  // Message Preview & Edit
+                  GestureDetector(
+                    onTap: () => setSheetState(() => showMessagePreview = !showMessagePreview),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.teal.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: Colors.teal.withOpacity(0.3),
+                          width: 1,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.edit_note, color: Colors.teal, size: 22),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              'Preview & Edit Messages',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          Icon(
+                            showMessagePreview ? Icons.expand_less : Icons.expand_more,
+                            color: Colors.grey[400],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  if (showMessagePreview) ...[
+                    const SizedBox(height: 12),
+                    if (doSendEmails) ...[
+                      Text(
+                        'EMAIL BODY',
+                        style: TextStyle(
+                          color: Colors.blue[300],
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 1,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      TextField(
+                        controller: emailController,
+                        maxLines: 3,
+                        style: const TextStyle(color: Colors.white, fontSize: 13),
+                        decoration: InputDecoration(
+                          filled: true,
+                          fillColor: Colors.white.withOpacity(0.05),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: BorderSide(color: Colors.grey.withOpacity(0.2)),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: BorderSide(color: Colors.grey.withOpacity(0.2)),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: const BorderSide(color: Colors.blue),
+                          ),
+                          hintText: 'Email body text...',
+                          hintStyle: TextStyle(color: Colors.grey[600]),
+                          contentPadding: const EdgeInsets.all(12),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'The booking reference, portal link, and sign-off are added automatically.',
+                        style: TextStyle(color: Colors.grey[600], fontSize: 11),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    if (doSendSms) ...[
+                      Text(
+                        'SMS BODY',
+                        style: TextStyle(
+                          color: Colors.purple[300],
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 1,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      TextField(
+                        controller: smsController,
+                        maxLines: 2,
+                        style: const TextStyle(color: Colors.white, fontSize: 13),
+                        decoration: InputDecoration(
+                          filled: true,
+                          fillColor: Colors.white.withOpacity(0.05),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: BorderSide(color: Colors.grey.withOpacity(0.2)),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: BorderSide(color: Colors.grey.withOpacity(0.2)),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: const BorderSide(color: Colors.purple),
+                          ),
+                          hintText: 'SMS body text...',
+                          hintStyle: TextStyle(color: Colors.grey[600]),
+                          contentPadding: const EdgeInsets.all(12),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Starts with "Hi {name}," and the portal link + booking reference are appended.',
+                        style: TextStyle(color: Colors.grey[600], fontSize: 11),
+                      ),
+                    ],
+                  ],
 
                   const SizedBox(height: 28),
 
@@ -719,12 +852,16 @@ class _TourStatusScreenState extends State<TourStatusScreen> {
                       onPressed: (!doSetStatus && !doSendEmails && !doSendSms && !doDisruptDeparture)
                           ? null
                           : () {
+                              final emailBody = emailController.text.trim();
+                              final smsBody = smsController.text.trim();
                               Navigator.of(context).pop();
                               _executeCancellationActions(
                                 setStatus: doSetStatus,
                                 sendEmails: doSendEmails,
                                 sendSms: doSendSms,
                                 disruptDeparture: doDisruptDeparture,
+                                customEmailBody: emailBody == _defaultEmailBody ? null : emailBody,
+                                customSmsBody: smsBody == _defaultSmsBody ? null : smsBody,
                               );
                             },
                       icon: const Icon(Icons.rocket_launch, size: 20),
@@ -749,6 +886,8 @@ class _TourStatusScreenState extends State<TourStatusScreen> {
                   // Safety spacer for bottom
                   SizedBox(height: MediaQuery.of(context).viewInsets.bottom),
                 ],
+              ),
+              ),
               ),
             );
           },
@@ -830,6 +969,8 @@ class _TourStatusScreenState extends State<TourStatusScreen> {
     required bool sendEmails,
     required bool sendSms,
     required bool disruptDeparture,
+    String? customEmailBody,
+    String? customSmsBody,
   }) async {
     setState(() => _isSaving = true);
 
@@ -871,6 +1012,8 @@ class _TourStatusScreenState extends State<TourStatusScreen> {
           final result = await _functions.httpsCallable('sendTourStatusEmails').call({
             'status': 'OFF',
             'sendSms': sendSms,
+            if (customEmailBody != null) 'customEmailBody': customEmailBody,
+            if (customSmsBody != null) 'customSmsBody': customSmsBody,
           });
 
           final emailsSent = result.data['emailsSent'] as int? ?? 0;

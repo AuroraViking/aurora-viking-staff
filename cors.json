@@ -1,0 +1,22 @@
+[
+    {
+        "origin": [
+            "https://aurora-viking-staff.web.app",
+            "https://aurora-viking-staff.firebaseapp.com"
+        ],
+        "method": [
+            "GET",
+            "POST",
+            "PUT",
+            "DELETE",
+            "HEAD"
+        ],
+        "maxAgeSeconds": 3600,
+        "responseHeader": [
+            "Content-Type",
+            "Content-Length",
+            "x-goog-resumable",
+            "x-goog-custom-time"
+        ]
+    }
+]

@@ -10,7 +10,7 @@ const crypto = require('crypto');
 const { admin, db } = require('../utils/firebase');
 const { sendNotificationToAdminsOnly } = require('../utils/notifications');
 const { disruptDeparture } = require('./departure_disruption');
-const { sendCancellationSmsInternal } = require('./sms');
+const { sendCancellationSmsInternal, sendOnSmsInternal } = require('./sms');
 
 // Gmail OAuth2 client setup
 function getGmailOAuth2Client(clientId, clientSecret) {
@@ -52,11 +52,13 @@ async function getGmailClient(email, clientId, clientSecret) {
     return google.gmail({ version: 'v1', auth: oauth2Client });
 }
 
-// Forecast URL for cancellation emails
-const FORECAST_URL = 'https://www.weatherandradar.com/weather-map/reykjavik/14773115?layer=wr&center=64.1355,-21.8954&placemark=64.1355,-21.8954';
+
+
+// Default cancellation body text
+const DEFAULT_CANCEL_EMAIL_BODY = 'Unfortunately the conditions are not favorable tonight giving us slim chances of being able to observe the Northern Lights.';
 
 // Build HTML OFF (cancellation) email
-function buildOffEmailHtml(firstName, confirmationCode, email, fullName) {
+function buildOffEmailHtml(firstName, confirmationCode, email, fullName, customBody) {
     let portalUrl = 'https://www.auroraviking.com/bookings';
     const params = [];
     if (confirmationCode) params.push(`code=${encodeURIComponent(confirmationCode)}`);
@@ -78,9 +80,7 @@ function buildOffEmailHtml(firstName, confirmationCode, email, fullName) {
   <tr><td style="padding:30px;color:#e0e0e0;font-size:15px;line-height:1.7;">
     <p>Hello ${firstName || 'everyone'}!</p>
     <p><strong style="color:#e94560;font-size:17px;">The Northern Lights tour tonight is cancelled.</strong></p>
-    <p>Unfortunately the cloud cover forecast is not favorable tonight giving us slim chances of being able to find clear skies to observe the Northern Lights. Of course the forecast could be wrong but we usually don't bet against the forecast.</p>
-    <p>You can see the forecast by clicking this link: <a href="${FORECAST_URL}" style="color:#4fc3f7;text-decoration:underline;font-weight:bold;">THE FORECAST</a><br>
-    <span style="color:#aaa;font-size:13px;">The white color represents clouds while blue represents rain and pink snow.</span></p>
+    <p>${customBody || DEFAULT_CANCEL_EMAIL_BODY}</p>
     <p>Please let us know what you want to do, if you want to reschedule or otherwise, we need to hear from you so we don't have to worry that you didn't receive this message and will be waiting for us to show up tonight when we aren't going to be.</p>
     <p>Get <strong style="color:#00b894;">instant confirmation</strong> of a reschedule or cancellation by using our Booking Management Portal below. Email correspondence may take some time to process.</p>
     <div style="text-align:center;margin:25px 0;">
@@ -347,7 +347,7 @@ const getTourStatus = onRequest(
  * Internal function to send tour status emails
  * Now uses cached_bookings (same as pickup menu) and sends individual personalized HTML emails
  */
-async function sendTourStatusEmailsInternal(dateString, status, sentByUid) {
+async function sendTourStatusEmailsInternal(dateString, status, sentByUid, customEmailBody) {
     console.log(`📧 [Internal] Sending ${status} emails for ${dateString}...`);
 
     const clientId = process.env.GMAIL_CLIENT_ID;
@@ -407,7 +407,7 @@ async function sendTourStatusEmailsInternal(dateString, status, sentByUid) {
         for (const customer of customers) {
             // Build personalized HTML body
             const htmlBody = status === 'OFF'
-                ? buildOffEmailHtml(customer.firstName, customer.confirmationCode, customer.email, customer.fullName)
+                ? buildOffEmailHtml(customer.firstName, customer.confirmationCode, customer.email, customer.fullName, customEmailBody)
                 : buildOnEmailHtml(customer.firstName, customer.pickupLocation, customer.departureTime);
 
             // Build MIME email
@@ -491,7 +491,7 @@ const setTourStatus = onCall(
         }
 
         const uid = request.auth.uid;
-        const { date, status, message, sendEmail = true, sendSms = true } = request.data;
+        const { date, status, message, sendEmail = true, sendSms = true, customEmailBody, customSmsBody } = request.data;
 
         if (!status || !['ON', 'OFF'].includes(status)) {
             throw new Error('Status must be "ON" or "OFF"');
@@ -534,15 +534,19 @@ const setTourStatus = onCall(
         let emailResult = { emailsSent: 0 };
         if (sendEmail) {
             console.log(`📧 Auto-sending ${status} emails to customers...`);
-            emailResult = await sendTourStatusEmailsInternal(dateString, status, uid);
+            emailResult = await sendTourStatusEmailsInternal(dateString, status, uid, customEmailBody);
             console.log(`📧 Email result: ${emailResult.emailsSent} sent`);
         }
 
-        // AUTO-SEND SMS when status is OFF
+        // AUTO-SEND SMS
         let smsResult = { smsSent: 0 };
         if (sendSms && status === 'OFF') {
             console.log(`📱 Auto-sending cancellation SMS to customers...`);
-            smsResult = await sendCancellationSmsInternal(dateString);
+            smsResult = await sendCancellationSmsInternal(dateString, customSmsBody);
+            console.log(`📱 SMS result: ${smsResult.smsSent} sent`);
+        } else if (sendSms && status === 'ON') {
+            console.log(`📱 Auto-sending ON SMS with pickup info to customers...`);
+            smsResult = await sendOnSmsInternal(dateString);
             console.log(`📱 SMS result: ${smsResult.smsSent} sent`);
         }
 
@@ -655,7 +659,7 @@ const sendTourStatusEmails = onCall(
             throw new Error('You must be logged in to send tour status emails');
         }
 
-        const { date, status, sendSms = true } = request.data;
+        const { date, status, sendSms = true, customEmailBody, customSmsBody } = request.data;
 
         if (!status || !['ON', 'OFF'].includes(status)) {
             throw new Error('Status must be "ON" or "OFF"');
@@ -665,17 +669,20 @@ const sendTourStatusEmails = onCall(
         console.log(`📅 Processing emails for: ${dateString}, Status: ${status}`);
 
         try {
-            const result = await sendTourStatusEmailsInternal(dateString, status, request.auth.uid);
+            const result = await sendTourStatusEmailsInternal(dateString, status, request.auth.uid, customEmailBody);
 
             if (!result.success) {
                 throw new Error(result.error || 'Failed to send emails');
             }
 
-            // Also send SMS when status is OFF
+            // Also send SMS
             let smsResult = { smsSent: 0 };
             if (sendSms && status === 'OFF') {
                 console.log(`📱 Sending cancellation SMS alongside emails...`);
-                smsResult = await sendCancellationSmsInternal(dateString);
+                smsResult = await sendCancellationSmsInternal(dateString, customSmsBody);
+            } else if (sendSms && status === 'ON') {
+                console.log(`📱 Sending ON SMS with pickup info alongside emails...`);
+                smsResult = await sendOnSmsInternal(dateString);
             }
 
             return {

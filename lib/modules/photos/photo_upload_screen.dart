@@ -14,6 +14,8 @@ import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'dart:typed_data';
+import 'dart:convert';
+import 'dart:io';
 import '../../core/auth/auth_controller.dart';
 import '../../core/models/upload_session.dart';
 import '../../core/services/upload_session_service.dart';
@@ -649,10 +651,58 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
     );
   }
 
-  void _openDisplayScreen() {
+  /// Fetch the Drive folder URL from the Cloud Function for the current date/guide
+  Future<String?> _fetchDriveUrl(String guideName) async {
+    // If we have an active upload session, use its folder ID directly
+    final folderId = _activeSession?.folderId;
+    if (folderId != null) {
+      return 'https://drive.google.com/drive/folders/$folderId';
+    }
+
+    // Otherwise, call the Cloud Function to look it up
+    try {
+      final dateStr = DateFormat('yyyy-MM-dd').format(_selectedDate);
+      final uri = Uri.parse(
+        'https://getphotolink-kyj6qn3nbq-uc.a.run.app?date=$dateStr&guide=${Uri.encodeComponent(guideName)}',
+      );
+
+      final client = HttpClient();
+      client.connectionTimeout = const Duration(seconds: 10);
+      final request = await client.getUrl(uri);
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      client.close();
+
+      final data = json.decode(body) as Map<String, dynamic>;
+      if (data['success'] == true && data['guide'] != null) {
+        return data['guide']['photoUrl'] as String?;
+      }
+    } catch (e) {
+      print('⚠️ Could not fetch Drive URL: $e');
+    }
+    return null;
+  }
+
+  void _openDisplayScreen() async {
     final authController = context.read<AuthController>();
     final guideName = _transliterate(authController.currentUser?.fullName ?? 'Unknown Guide');
     final formattedDate = DateFormat('EEE, MMM d, y').format(_selectedDate);
+
+    // Show loading briefly while we fetch the Drive URL
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('🔍 Looking up photos...'),
+          duration: Duration(seconds: 2),
+          backgroundColor: Color(0xFF2D3748),
+        ),
+      );
+    }
+
+    final driveUrl = await _fetchDriveUrl(guideName);
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
 
     Navigator.push(
       context,
@@ -660,15 +710,31 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
         builder: (_) => PhotoDisplayScreen(
           guideName: guideName,
           date: formattedDate,
+          driveUrl: driveUrl,
         ),
       ),
     );
   }
 
-  void _openReviewScreen() {
+  void _openReviewScreen() async {
     final authController = context.read<AuthController>();
     final guideName = _transliterate(authController.currentUser?.fullName ?? 'Unknown Guide');
     final formattedDate = DateFormat('EEE, MMM d, y').format(_selectedDate);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('🔍 Looking up photos...'),
+          duration: Duration(seconds: 2),
+          backgroundColor: Color(0xFF2D3748),
+        ),
+      );
+    }
+
+    final driveUrl = await _fetchDriveUrl(guideName);
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
 
     Navigator.push(
       context,
@@ -676,6 +742,7 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
         builder: (_) => ReviewRequestScreen(
           guideName: guideName,
           date: formattedDate,
+          driveUrl: driveUrl,
         ),
       ),
     );

@@ -3,6 +3,9 @@
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
   },
+  "storage": {
+    "rules": "storage.rules"
+  },
   "functions": {
     "source": "functions",
     "predeploy": [
@@ -17,6 +20,14 @@
       "**/node_modules/**"
     ],
     "rewrites": [
+      {
+        "source": "/booking-portal-widget.html",
+        "destination": "/booking-portal-widget.html"
+      },
+      {
+        "source": "/photo-delivery-widget.html",
+        "destination": "/photo-delivery-widget.html"
+      },
       {
         "source": "**",
         "destination": "/index.html"

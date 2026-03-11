@@ -99,6 +99,27 @@ async function verifyAndFetchBooking(confirmationCode, email, name, accessKey, s
         }
     }
 
+    // If booking was found via search (limited data), do a full fetch by booking.id
+    // to get complete data including pickup place info
+    if (booking && booking.id && !booking.productBookings?.[0]?.pickupPlace) {
+        try {
+            console.log(`🔄 Enriching booking with full fetch by ID: ${booking.id}`);
+            const fullBooking = await makeBokunRequest(
+                'GET',
+                `/booking.json/${booking.id}`,
+                null,
+                accessKey,
+                secretKey
+            );
+            if (fullBooking && fullBooking.id) {
+                booking = fullBooking;
+                console.log(`✅ Full booking data retrieved for ${booking.id}`);
+            }
+        } catch (e) {
+            console.log(`⚠️ Full fetch by ID ${booking.id} failed, using search result: ${e.message}`);
+        }
+    }
+
     // If email or name provided, validate them. Otherwise return booking directly.
     if (email || name) {
         return validateBookingIdentity(booking, email, name);
@@ -1118,14 +1139,7 @@ const portalUpdatePickup = onRequest(
                 return;
             }
 
-            // Check OTA
-            const otaInfo = detectOTABooking(booking);
-            if (otaInfo.isOTA) {
-                res.status(400).json({
-                    error: `This booking was made through ${otaInfo.otaName}. Please contact ${otaInfo.otaName} directly to make changes.`
-                });
-                return;
-            }
+            // OTA bookings can still change pickup (it's an internal update, not a booking modification)
 
             const customerName = `${booking.customer?.firstName || ''} ${booking.customer?.lastName || ''}`.trim();
             const customerEmail = email || booking.customer?.email || '';

@@ -127,6 +127,48 @@
             transition: all 0.3s ease;
         }
 
+        .form-group select {
+            width: 100%;
+            padding: 14px 16px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 12px;
+            color: #e2e8f0;
+            font-size: 15px;
+            font-family: 'Inter', sans-serif;
+            outline: none;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+            background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3e%3cpath fill='%238892a8' d='M6 8L1 3h10z'/%3e%3c/svg%3e");
+            background-repeat: no-repeat;
+            background-position: right 16px center;
+        }
+
+        .form-group select:focus {
+            border-color: rgba(212, 175, 55, 0.4);
+            background-color: rgba(255, 255, 255, 0.06);
+            box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.08);
+        }
+
+        .form-group select option {
+            background: #1a1f36;
+            color: #e2e8f0;
+        }
+
+        .guide-loading {
+            font-size: 12px;
+            color: #8892a8;
+            margin-top: 6px;
+            display: none;
+        }
+
+        .guide-loading.active {
+            display: block;
+        }
+
         .form-group input:focus {
             border-color: rgba(212, 175, 55, 0.4);
             background: rgba(255, 255, 255, 0.06);
@@ -471,9 +513,11 @@
             </div>
 
             <div class="form-group">
-                <label for="guide-name">Guide Name</label>
-                <input type="text" id="guide-name" placeholder="Enter your guide's full name" required
-                    autocomplete="off">
+                <label for="guide-select">Guide Name</label>
+                <select id="guide-select" required>
+                    <option value="" disabled selected>Select a date first...</option>
+                </select>
+                <div class="guide-loading" id="guide-loading">Loading guides...</div>
             </div>
 
             <button class="submit-btn" id="submit-btn" onclick="getPhotos()">
@@ -539,7 +583,7 @@
     </div>
 
     <script>
-        const API_BASE = 'https://us-central1-aurora-viking-staff.cloudfunctions.net/getPhotoLink';
+        const API_BASE = 'https://getphotolink-kyj6qn3nbq-uc.a.run.app';
 
         // Set default date to yesterday (tours run at night)
         (function setDefaultDate() {
@@ -555,26 +599,64 @@
             const today = new Date();
             const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
             dateInput.max = todayStr;
+
+            // Load guides for default date
+            loadGuidesForDate(dateInput.value);
         })();
 
-        // Allow Enter key to submit
-        document.getElementById('guide-name').addEventListener('keydown', function (e) {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                getPhotos();
-            }
+        // Reload guides when date changes
+        document.getElementById('tour-date').addEventListener('change', function () {
+            loadGuidesForDate(this.value);
         });
+
+        async function loadGuidesForDate(date) {
+            const select = document.getElementById('guide-select');
+            const loading = document.getElementById('guide-loading');
+
+            select.innerHTML = '<option value="" disabled selected>Loading...</option>';
+            select.disabled = true;
+            loading.classList.add('active');
+
+            try {
+                const url = `${API_BASE}?date=${encodeURIComponent(date)}&listGuides=true`;
+                const response = await fetch(url);
+                const data = await response.json();
+
+                select.innerHTML = '';
+
+                if (data.success && data.guides && data.guides.length > 0) {
+                    select.innerHTML = '<option value="" disabled selected>Select your guide...</option>';
+                    data.guides.forEach(name => {
+                        const opt = document.createElement('option');
+                        opt.value = name;
+                        opt.textContent = name;
+                        select.appendChild(opt);
+                    });
+                    select.disabled = false;
+                } else {
+                    select.innerHTML = '<option value="" disabled selected>No guides found for this date</option>';
+                    select.disabled = true;
+                }
+            } catch (err) {
+                console.error('Failed to load guides:', err);
+                select.innerHTML = '<option value="" disabled selected>Error loading guides</option>';
+                select.disabled = true;
+            }
+
+            loading.classList.remove('active');
+        }
 
         async function getPhotos() {
             const date = document.getElementById('tour-date').value;
-            const guide = document.getElementById('guide-name').value.trim();
+            const select = document.getElementById('guide-select');
+            const guide = select.value;
 
             if (!date) {
                 shakeInput('tour-date');
                 return;
             }
             if (!guide) {
-                shakeInput('guide-name');
+                shakeInput('guide-select');
                 return;
             }
 
@@ -634,7 +716,6 @@
         }
 
         function resetForm() {
-            document.getElementById('guide-name').value = '';
             showSection('form');
         }
 

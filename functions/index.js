@@ -178,4 +178,11 @@ exports.testAdminNotification = onCall(
 const radio = require('./modules/radio');
 exports.onRadioMessageCreated = radio.onRadioMessageCreated;
 
+// ============================================
+// PHOTO UPLOAD MODULE (Chunked upload → Drive)
+// ============================================
+const photoUpload = require('./modules/photo_upload');
+exports.preparePhotoUpload = photoUpload.preparePhotoUpload;
+exports.uploadFileChunk = photoUpload.uploadFileChunk;
+exports.finalizeFileUpload = photoUpload.finalizeFileUpload;
 
