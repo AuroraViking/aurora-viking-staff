@@ -170,6 +170,9 @@ class _AdminGuideManagementScreenState extends State<AdminGuideManagementScreen>
   }
 
   Future<void> _editPhoneNumber(AdminGuide guide) async {
+    // Wait for any previous dialog to fully close to avoid context assertion error
+    await Future.delayed(const Duration(milliseconds: 100));
+    if (!mounted) return;
     final phoneController = TextEditingController(text: guide.phone);
     final result = await showDialog<String>(
       context: context,
