@@ -228,7 +228,7 @@ async function checkAndSendIfUnderstaffed(dateStr, trigger) {
         const firstName = (guide.fullName || guide.displayName || 'Guide').split(' ')[0];
         const phone = guide.phoneNumber.trim();
 
-        const body = `${urgency}Hi ${firstName}! 🌌 We need ${shortage} more guide${shortage > 1 ? 's' : ''} for ${formattedDate} (${totalPax} passengers). Open the Aurora Viking app to apply! — Aurora Viking`;
+        const body = `${urgency}Hi ${firstName}! 🌌 We need ${shortage} more guide${shortage > 1 ? 's' : ''} for ${formattedDate} (${totalPax} passengers). Click here to apply: https://auroraviking.com/staff — Aurora Viking`;
 
         try {
             const opts = { body, to: phone };
