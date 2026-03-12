@@ -186,3 +186,10 @@ exports.preparePhotoUpload = photoUpload.preparePhotoUpload;
 exports.uploadFileChunk = photoUpload.uploadFileChunk;
 exports.finalizeFileUpload = photoUpload.finalizeFileUpload;
 
+// ============================================
+// AUTO-DISPATCH MODULE (Scheduled pickup distribution)
+// ============================================
+const autoDispatch = require('./modules/auto_dispatch');
+exports.autoDispatchScheduled = autoDispatch.autoDispatchScheduled;
+exports.autoDispatchManual = autoDispatch.autoDispatchManual;
+

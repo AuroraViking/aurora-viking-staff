@@ -1683,19 +1683,33 @@ class FirebaseService {
     try {
       // Parse date string to DateTime for the shift
       final dateParts = date.split('-');
-      final dateTime = DateTime(
+      
+      // Check if guide already has a shift on this date
+      // Use range query to handle different date format variations (ISO8601, plain date string, etc.)
+      final startOfDay = DateTime(
         int.parse(dateParts[0]),
         int.parse(dateParts[1]),
         int.parse(dateParts[2]),
       );
+      final endOfDay = startOfDay.add(const Duration(days: 1));
       
-      // Check if guide already has a shift on this date
-      final existingShifts = await _firestore!
+      var existingShifts = await _firestore!
           .collection('shifts')
           .where('guideId', isEqualTo: guideId)
-          .where('date', isEqualTo: dateTime.toIso8601String())
+          .where('date', isGreaterThanOrEqualTo: startOfDay.toIso8601String())
+          .where('date', isLessThan: endOfDay.toIso8601String())
           .limit(1)
           .get();
+      
+      // Also try with plain date string (YYYY-MM-DD) in case shifts use that format
+      if (existingShifts.docs.isEmpty) {
+        existingShifts = await _firestore!
+            .collection('shifts')
+            .where('guideId', isEqualTo: guideId)
+            .where('date', isEqualTo: date)
+            .limit(1)
+            .get();
+      }
       
       if (existingShifts.docs.isNotEmpty) {
         print('ℹ️ Guide $guideName already has a shift on $date - no auto-creation needed');
@@ -1722,7 +1736,7 @@ class FirebaseService {
       await _firestore!.collection('shifts').doc(shiftId).set({
         'id': shiftId,
         'type': shiftType,
-        'date': dateTime.toIso8601String(),
+        'date': startOfDay.toIso8601String(),
         'startTime': shiftType == 'northernLights' ? '20:00' : '09:00',
         'endTime': shiftType == 'northernLights' ? '03:00' : '17:00',
         'status': 'accepted',
