@@ -31,7 +31,8 @@ class _ShiftsScreenState extends State<ShiftsScreen> {
     super.initState();
     _focusedDay = DateTime.now();
     _selectedDay = DateTime.now();
-    _calendarFormat = CalendarFormat.month;
+    // Default to 2-week view for better mobile UX
+    _calendarFormat = CalendarFormat.twoWeeks;
     
     // Set the auth controller in the shifts service
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -107,12 +108,18 @@ class _ShiftsScreenState extends State<ShiftsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final screenHeight = MediaQuery.of(context).size.height;
+    // On small screens, limit calendar height
+    final calendarHeight = screenHeight < 700
+        ? (_calendarFormat == CalendarFormat.month ? 340.0 : 240.0)
+        : (_calendarFormat == CalendarFormat.month ? 400.0 : 280.0);
+
     return Scaffold(
       body: Column(
         children: [
-          // Calendar Section
+          // Calendar Section — responsive height
           Container(
-            height: 400, // Fixed height to prevent calendar from taking too much space
+            height: calendarHeight,
             decoration: BoxDecoration(
               color: AVColors.slate,
               boxShadow: [
@@ -125,10 +132,15 @@ class _ShiftsScreenState extends State<ShiftsScreen> {
               ],
             ),
             child: TableCalendar<Shift>(
-              firstDay: DateTime.now().subtract(const Duration(days: 365)), // Allow viewing past year
+              firstDay: DateTime.now().subtract(const Duration(days: 365)),
               lastDay: DateTime.now().add(const Duration(days: 365)),
               focusedDay: _focusedDay,
               calendarFormat: _calendarFormat,
+              availableCalendarFormats: const {
+                CalendarFormat.month: 'Month',
+                CalendarFormat.twoWeeks: '2 Weeks',
+                CalendarFormat.week: 'Week',
+              },
               selectedDayPredicate: (day) {
                 return isSameDay(_selectedDay, day);
               },
@@ -147,6 +159,8 @@ class _ShiftsScreenState extends State<ShiftsScreen> {
               onPageChanged: (focusedDay) {
                 _focusedDay = focusedDay;
               },
+              rowHeight: screenHeight < 700 ? 40 : 48,
+              daysOfWeekHeight: screenHeight < 700 ? 18 : 24,
               calendarStyle: const CalendarStyle(
                 outsideDaysVisible: false,
                 defaultTextStyle: TextStyle(color: AVColors.textHigh),
@@ -170,17 +184,18 @@ class _ShiftsScreenState extends State<ShiftsScreen> {
                 weekdayStyle: TextStyle(color: AVColors.textLow),
                 weekendStyle: TextStyle(color: AVColors.textLow),
               ),
-              headerStyle: const HeaderStyle(
+              headerStyle: HeaderStyle(
                 formatButtonVisible: true,
                 titleCentered: true,
-                titleTextStyle: TextStyle(color: AVColors.textHigh, fontWeight: FontWeight.bold),
-                formatButtonTextStyle: TextStyle(color: AVColors.textHigh),
-                formatButtonDecoration: BoxDecoration(
+                headerPadding: const EdgeInsets.symmetric(vertical: 4),
+                titleTextStyle: const TextStyle(color: AVColors.textHigh, fontWeight: FontWeight.bold, fontSize: 14),
+                formatButtonTextStyle: const TextStyle(color: AVColors.textHigh, fontSize: 12),
+                formatButtonDecoration: const BoxDecoration(
                   color: AVColors.slateElev,
                   borderRadius: BorderRadius.all(Radius.circular(12)),
                 ),
-                leftChevronIcon: Icon(Icons.chevron_left, color: AVColors.textHigh),
-                rightChevronIcon: Icon(Icons.chevron_right, color: AVColors.textHigh),
+                leftChevronIcon: const Icon(Icons.chevron_left, color: AVColors.textHigh, size: 20),
+                rightChevronIcon: const Icon(Icons.chevron_right, color: AVColors.textHigh, size: 20),
               ),
               calendarBuilders: CalendarBuilders(
                 markerBuilder: (context, date, events) {
@@ -191,8 +206,8 @@ class _ShiftsScreenState extends State<ShiftsScreen> {
                       return Positioned(
                         bottom: 1,
                         child: Container(
-                          width: 8,
-                          height: 8,
+                          width: 6,
+                          height: 6,
                           decoration: BoxDecoration(
                             color: color,
                             shape: BoxShape.circle,
@@ -503,7 +518,7 @@ class _ShiftsScreenState extends State<ShiftsScreen> {
         onTap: isApplied ? null : onTap,
         borderRadius: BorderRadius.circular(8),
         child: Padding(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           child: Row(
             children: [
               Container(

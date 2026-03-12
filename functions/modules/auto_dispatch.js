@@ -106,6 +106,21 @@ async function getAppliedGuides(dateStr) {
 
     if (shiftsSnapshot.empty) return [];
 
+    // Get recent shift counts for fairness (last 30 days)
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const recentShiftsSnap = await db.collection('shifts')
+        .where('status', 'in', ['accepted', 'completed'])
+        .where('updatedAt', '>=', thirtyDaysAgo.toISOString())
+        .get();
+
+    // Count shifts per guide
+    const recentCounts = {};
+    for (const doc of recentShiftsSnap.docs) {
+        const gId = doc.data().guideId;
+        if (gId) recentCounts[gId] = (recentCounts[gId] || 0) + 1;
+    }
+
     const guidesWithShifts = [];
     for (const shiftDoc of shiftsSnapshot.docs) {
         const shift = shiftDoc.data();
@@ -116,16 +131,26 @@ async function getAppliedGuides(dateStr) {
         if (!userDoc.exists) continue;
 
         const userData = userDoc.data();
+        const recentShifts = recentCounts[guideId] || 0;
+        // Fairness score: priority minus penalty for recent shifts
+        // Guides with fewer recent shifts get a boost
+        const fairnessScore = (userData.priority || 0) - (recentShifts * 2);
+
         guidesWithShifts.push({
             guideId,
             guideName: userData.fullName || 'Unknown',
             priority: userData.priority || 0,
+            recentShifts,
+            fairnessScore,
             shiftId: shiftDoc.id,
         });
     }
 
-    // Sort by priority descending
-    guidesWithShifts.sort((a, b) => b.priority - a.priority);
+    // Sort by fairness score descending (higher = more deserving)
+    guidesWithShifts.sort((a, b) => b.fairnessScore - a.fairnessScore);
+    console.log('📊 Guide fairness ranking:', guidesWithShifts.map(g =>
+        `${g.guideName}: priority=${g.priority}, recent=${g.recentShifts}, score=${g.fairnessScore}`
+    ));
     return guidesWithShifts;
 }
 
