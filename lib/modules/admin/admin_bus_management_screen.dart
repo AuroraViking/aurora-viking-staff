@@ -376,22 +376,56 @@ class _AdminBusManagementScreenState extends State<AdminBusManagementScreen> {
                     ],
                   ),
                 )
-              : ListView.builder(
+              : ReorderableListView.builder(
                   itemCount: _buses.length,
+                  onReorder: (oldIndex, newIndex) {
+                    if (oldIndex < newIndex) newIndex -= 1;
+                    setState(() {
+                      final bus = _buses.removeAt(oldIndex);
+                      _buses.insert(newIndex, bus);
+                    });
+                    _saveBusPriorities();
+                  },
                   itemBuilder: (context, index) {
                     final bus = _buses[index];
                     final isActive = bus['isActive'] ?? true;
                     final color = _getColorFromString(bus['color'] ?? 'grey');
+                    final rank = index + 1;
 
                     return Card(
+                      key: ValueKey(bus['id']),
                       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       child: ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: color,
-                          child: Icon(
-                            Icons.directions_bus,
-                            color: Colors.white,
-                          ),
+                        leading: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 24,
+                              height: 24,
+                              decoration: BoxDecoration(
+                                color: rank <= 3
+                                    ? (rank == 1 ? Colors.amber : rank == 2 ? Colors.grey[400] : Colors.brown[300])
+                                    : Colors.white12,
+                                shape: BoxShape.circle,
+                              ),
+                              child: Center(
+                                child: Text(
+                                  '$rank',
+                                  style: TextStyle(
+                                    color: rank <= 3 ? Colors.black87 : Colors.white70,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            CircleAvatar(
+                              radius: 16,
+                              backgroundColor: color,
+                              child: const Icon(Icons.directions_bus, color: Colors.white, size: 16),
+                            ),
+                          ],
                         ),
                         title: Text(
                           bus['name'],
@@ -404,28 +438,27 @@ class _AdminBusManagementScreenState extends State<AdminBusManagementScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text('License: ${bus['licensePlate']}'),
-                            if (bus['description']?.isNotEmpty == true)
-                              Text(
-                                bus['description'],
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey[600],
+                            Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: isActive ? Colors.green[100] : Colors.grey[100],
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Text(
+                                    isActive ? 'Active' : 'Inactive',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: isActive ? Colors.green : Colors.grey[600],
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
                                 ),
-                              ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: isActive ? Colors.green[100] : Colors.grey[100],
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Text(
-                                isActive ? 'Active' : 'Inactive',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: isActive ? Colors.green : Colors.grey[600],
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
+                                const SizedBox(width: 8),
+                                const Icon(Icons.drag_handle, size: 14, color: Colors.grey),
+                                const Text('Drag to rank', style: TextStyle(fontSize: 10, color: Colors.grey)),
+                              ],
                             ),
                           ],
                         ),
@@ -477,5 +510,20 @@ class _AdminBusManagementScreenState extends State<AdminBusManagementScreen> {
                   },
                 ),
     );
+  }
+
+  Future<void> _saveBusPriorities() async {
+    try {
+      final batch = BusManagementService().updateBusPriorities(
+        {for (int i = 0; i < _buses.length; i++) _buses[i]['id'] as String: _buses.length - i},
+      );
+      await batch;
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error saving bus priorities: $e')),
+        );
+      }
+    }
   }
 } 

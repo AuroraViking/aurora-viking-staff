@@ -13,6 +13,7 @@ class AdminGuide {
   final List<String> certifications;
   final Map<String, dynamic> preferences;
   final DateTime? lastActive;
+  final int priority; // Higher = better ranked guide (for auto-dispatch)
 
   AdminGuide({
     required this.id,
@@ -27,6 +28,7 @@ class AdminGuide {
     required this.certifications,
     required this.preferences,
     this.lastActive,
+    this.priority = 0,
   });
 
   factory AdminGuide.fromJson(Map<String, dynamic> json) {
@@ -45,6 +47,7 @@ class AdminGuide {
       lastActive: json['lastActive'] != null 
           ? DateTime.parse(json['lastActive']) 
           : null,
+      priority: json['priority'] ?? 0,
     );
   }
 
@@ -62,6 +65,7 @@ class AdminGuide {
       'certifications': certifications,
       'preferences': preferences,
       'lastActive': lastActive?.toIso8601String(),
+      'priority': priority,
     };
   }
 }

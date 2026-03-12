@@ -16,14 +16,18 @@ class BusManagementService {
   Stream<List<Map<String, dynamic>>> getAllBuses() {
     return _firestore
         .collection(_collectionName)
-        .orderBy('name')
         .snapshots()
-        .map((snapshot) => snapshot.docs
-            .map((doc) => {
-                  'id': doc.id,
-                  ...doc.data(),
-                })
-            .toList());
+        .map((snapshot) {
+          final buses = snapshot.docs
+              .map((doc) => {
+                    'id': doc.id,
+                    ...doc.data(),
+                  })
+              .toList();
+          // Sort by priority descending (highest priority first)
+          buses.sort((a, b) => ((b['priority'] as int?) ?? 0).compareTo((a['priority'] as int?) ?? 0));
+          return buses;
+        });
   }
 
   // Get a specific bus
@@ -194,8 +198,8 @@ class BusManagementService {
                     ...doc.data(),
                   })
               .toList();
-          // Sort in memory instead of using orderBy
-          buses.sort((a, b) => (a['name'] as String).compareTo(b['name'] as String));
+          // Sort by priority descending (highest priority first)
+          buses.sort((a, b) => ((b['priority'] as int?) ?? 0).compareTo((a['priority'] as int?) ?? 0));
           return buses;
         });
   }
@@ -236,6 +240,23 @@ class BusManagementService {
     } catch (e) {
       print('❌ Error getting bus by license plate: $e');
       return null;
+    }
+  }
+
+  // Batch-update bus priorities (called when admin reorders the list)
+  Future<bool> updateBusPriorities(Map<String, int> busPriorities) async {
+    try {
+      final batch = _firestore.batch();
+      for (final entry in busPriorities.entries) {
+        batch.update(_firestore.collection(_collectionName).doc(entry.key), {
+          'priority': entry.value,
+        });
+      }
+      await batch.commit();
+      return true;
+    } catch (e) {
+      print('❌ Error updating bus priorities: $e');
+      return false;
     }
   }
 } 

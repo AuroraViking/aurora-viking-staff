@@ -364,21 +364,61 @@ class _AdminGuideManagementScreenState extends State<AdminGuideManagementScreen>
                           ],
                         ),
                       )
-                    : ListView.builder(
+                    : ReorderableListView.builder(
                         padding: const EdgeInsets.all(16),
                         itemCount: _filteredGuides.length,
+                        onReorder: (oldIndex, newIndex) {
+                          if (oldIndex < newIndex) newIndex -= 1;
+                          setState(() {
+                            final guide = _filteredGuides.removeAt(oldIndex);
+                            _filteredGuides.insert(newIndex, guide);
+                            // Also reorder in _guides
+                            _guides = List.from(_filteredGuides);
+                          });
+                          _saveGuidePriorities();
+                        },
                         itemBuilder: (context, index) {
                           final guide = _filteredGuides[index];
+                          final rank = index + 1;
                           return Card(
+                            key: ValueKey(guide.id),
                             margin: const EdgeInsets.only(bottom: 12),
                             child: ListTile(
-                              leading: CircleAvatar(
-                                backgroundImage: guide.profileImageUrl.isNotEmpty
-                                    ? NetworkImage(guide.profileImageUrl)
-                                    : null,
-                                child: guide.profileImageUrl.isEmpty
-                                    ? const Icon(Icons.person)
-                                    : null,
+                              leading: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  // Rank badge
+                                  Container(
+                                    width: 28,
+                                    height: 28,
+                                    decoration: BoxDecoration(
+                                      color: rank <= 3
+                                          ? (rank == 1 ? Colors.amber : rank == 2 ? Colors.grey[400] : Colors.brown[300])
+                                          : AppColors.primary.withOpacity(0.2),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: Center(
+                                      child: Text(
+                                        '$rank',
+                                        style: TextStyle(
+                                          color: rank <= 3 ? Colors.black87 : Colors.white70,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  CircleAvatar(
+                                    radius: 18,
+                                    backgroundImage: guide.profileImageUrl.isNotEmpty
+                                        ? NetworkImage(guide.profileImageUrl)
+                                        : null,
+                                    child: guide.profileImageUrl.isEmpty
+                                        ? const Icon(Icons.person, size: 18)
+                                        : null,
+                                  ),
+                                ],
                               ),
                               title: Text(
                                 guide.name,
@@ -413,21 +453,12 @@ class _AdminGuideManagementScreenState extends State<AdminGuideManagementScreen>
                                         style: const TextStyle(fontSize: 12),
                                       ),
                                       const SizedBox(width: 8),
-                                      Row(
-                                        children: [
-                                          const Icon(Icons.star, size: 12, color: Colors.amber),
-                                          Text(
-                                            '${guide.rating}',
-                                            style: const TextStyle(fontSize: 12),
-                                          ),
-                                        ],
+                                      const Icon(Icons.drag_handle, size: 16, color: Colors.grey),
+                                      const Text(
+                                        'Drag to rank',
+                                        style: TextStyle(fontSize: 10, color: Colors.grey),
                                       ),
                                     ],
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    'Last active: ${_getTimeAgo(guide.lastActive)}',
-                                    style: const TextStyle(fontSize: 11, color: Colors.grey),
                                   ),
                                 ],
                               ),
@@ -502,5 +533,22 @@ class _AdminGuideManagementScreenState extends State<AdminGuideManagementScreen>
         ],
       ),
     );
+  }
+
+  Future<void> _saveGuidePriorities() async {
+    // Highest rank (index 0) gets highest priority value
+    final priorities = <String, int>{};
+    for (int i = 0; i < _filteredGuides.length; i++) {
+      priorities[_filteredGuides[i].id] = _filteredGuides.length - i;
+    }
+    try {
+      await AdminService.updateGuidePriorities(priorities);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error saving priorities: $e')),
+        );
+      }
+    }
   }
 } 

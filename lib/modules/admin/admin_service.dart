@@ -124,13 +124,15 @@ class AdminService {
           profileImageUrl: user.profilePictureUrl ?? '',
           status: user.isActive ? 'active' : 'inactive',
           joinDate: user.createdAt,
-          totalShifts: 0, // TODO: Calculate from shifts collection
-          rating: 4.5, // TODO: Calculate from ratings
-          certifications: [], // TODO: Add certifications field to User model
-          preferences: {}, // TODO: Add preferences field to User model
-          lastActive: user.createdAt, // TODO: Add lastActive field to User model
+          totalShifts: 0,
+          rating: 4.5,
+          certifications: [],
+          preferences: {},
+          lastActive: user.createdAt,
+          priority: userData['priority'] ?? 0,
         );
-      }).toList();
+      }).toList()
+        ..sort((a, b) => b.priority.compareTo(a.priority));
     } catch (e) {
       throw Exception('Failed to load guides: $e');
     }
@@ -177,6 +179,22 @@ class AdminService {
       return true;
     } catch (e) {
       throw Exception('Failed to update guide status: $e');
+    }
+  }
+
+  /// Batch-update guide priorities (called when admin reorders the list)
+  static Future<bool> updateGuidePriorities(Map<String, int> guidePriorities) async {
+    try {
+      final batch = _firestore.batch();
+      for (final entry in guidePriorities.entries) {
+        batch.update(_firestore.collection('users').doc(entry.key), {
+          'priority': entry.value,
+        });
+      }
+      await batch.commit();
+      return true;
+    } catch (e) {
+      throw Exception('Failed to update guide priorities: $e');
     }
   }
 

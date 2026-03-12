@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/models/pickup_models.dart';
@@ -11,6 +12,7 @@ import 'admin_service.dart';
 import '../../core/models/admin_models.dart';
 import '../../core/services/firebase_service.dart'; // Added import for FirebaseService
 import '../../core/services/bus_management_service.dart';
+import '../../core/services/auto_dispatch_service.dart';
 
 class AdminPickupManagementScreen extends StatefulWidget {
   const AdminPickupManagementScreen({Key? key}) : super(key: key);
@@ -36,6 +38,8 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
   Set<String> _taggedBookingIds = {};
   bool _hasNote = false; // true when a non-empty note exists for this date
   final BusManagementService _busService = BusManagementService();
+  final AutoDispatchService _autoDispatchService = AutoDispatchService();
+  Timer? _autoDispatchTimer;
 
   @override
   void initState() {
@@ -55,6 +59,14 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
       
       // Add listener to reset reordered bookings when data changes
       controller.addListener(_onControllerDataChanged);
+
+      // Start 60s auto-dispatch timer
+      _autoDispatchTimer?.cancel();
+      _autoDispatchTimer = Timer.periodic(const Duration(seconds: 60), (_) {
+        if (mounted) _checkAutoDispatch();
+      });
+      // Also check immediately on load
+      _checkAutoDispatch();
     });
   }
 
@@ -62,8 +74,44 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
   void dispose() {
     final controller = context.read<PickupController>();
     controller.removeListener(_onControllerDataChanged);
+    _autoDispatchTimer?.cancel();
     _tabController.dispose();
     super.dispose();
+  }
+
+  Future<void> _checkAutoDispatch() async {
+    if (!mounted) return;
+    final controller = context.read<PickupController>();
+    
+    // Refresh data first
+    await controller.loadBookingsForDate(controller.selectedDate);
+    
+    // Check 30-min auto-dispatch
+    final dispatched = await _autoDispatchService.autoDispatchIfNeeded(controller);
+    if (dispatched && mounted) {
+      await _loadBusAssignments(controller);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('🤖 Auto-dispatch triggered — guides and buses assigned!'),
+          backgroundColor: Colors.green,
+          duration: Duration(seconds: 5),
+        ),
+      );
+      return;
+    }
+    
+    // Check 10-min last-minute re-dispatch
+    final reDispatched = await _autoDispatchService.handleLastMinuteBooking(controller);
+    if (reDispatched && mounted) {
+      await _loadBusAssignments(controller);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('🤖 Last-minute booking detected — redistributed!'),
+          backgroundColor: Colors.orange,
+          duration: Duration(seconds: 5),
+        ),
+      );
+    }
   }
 
   bool _isLoadingAssignments = false;
