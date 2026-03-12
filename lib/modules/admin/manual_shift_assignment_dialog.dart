@@ -64,7 +64,7 @@ class _ManualShiftAssignmentDialogState extends State<ManualShiftAssignmentDialo
       // Load all guides
       final guidesSnapshot = await _firestore
           .collection('users')
-          .where('role', isEqualTo: 'guide')
+          .where('role', whereIn: ['guide', 'admin'])
           .get();
       
       final guides = guidesSnapshot.docs.map((doc) {

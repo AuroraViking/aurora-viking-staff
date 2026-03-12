@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import '../../core/models/admin_models.dart';
 import '../../core/theme/colors.dart';
+import '../../core/services/guide_gamification.dart';
 import 'admin_service.dart';
 
 class AdminGuideManagementScreen extends StatefulWidget {
@@ -18,6 +19,8 @@ class _AdminGuideManagementScreenState extends State<AdminGuideManagementScreen>
   bool _isLoading = true;
   String _selectedStatus = 'all';
   final TextEditingController _searchController = TextEditingController();
+  final GuideGamificationService _gamificationService = GuideGamificationService();
+  final Map<String, GuideStats> _guideStats = {};
 
   @override
   void initState() {
@@ -43,6 +46,8 @@ class _AdminGuideManagementScreenState extends State<AdminGuideManagementScreen>
         _filteredGuides = guides;
         _isLoading = false;
       });
+      // Load gamification stats for all guides in background
+      _loadGuideStats(guides);
     } catch (e) {
       setState(() {
         _isLoading = false;
@@ -128,15 +133,91 @@ class _AdminGuideManagementScreenState extends State<AdminGuideManagementScreen>
     }
   }
 
+  Future<void> _loadGuideStats(List<AdminGuide> guides) async {
+    for (final guide in guides) {
+      try {
+        final stats = await _gamificationService.calculateGuideStats(guide.id, guideName: guide.name);
+        if (mounted) {
+          setState(() {
+            _guideStats[guide.id] = stats;
+          });
+        }
+      } catch (e) {
+        print('⚠️ Could not load stats for ${guide.name}: $e');
+      }
+    }
+  }
+
+  Future<void> _editPhoneNumber(AdminGuide guide) async {
+    final phoneController = TextEditingController(text: guide.phone);
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Edit Phone Number'),
+        content: TextField(
+          controller: phoneController,
+          keyboardType: TextInputType.phone,
+          decoration: const InputDecoration(
+            labelText: 'Phone number',
+            hintText: '+354 xxx xxxx',
+            prefixIcon: Icon(Icons.phone),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, phoneController.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    phoneController.dispose();
+    if (result != null && result != guide.phone) {
+      try {
+        await AdminService.updateGuidePhone(guide.id, result);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Updated phone for ${guide.name}'),
+              backgroundColor: Colors.green,
+            ),
+          );
+          _loadGuides();
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    }
+  }
+
   Future<void> _showGuideDetails(AdminGuide guide) async {
     final detailedGuide = await AdminService.getGuideById(guide.id);
+    // Get gamification stats
+    GuideStats? stats = _guideStats[guide.id];
+    stats ??= await _gamificationService.calculateGuideStats(guide.id, guideName: guide.name);
     
     if (!mounted) return;
     
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(detailedGuide.name),
+        title: Row(
+          children: [
+            Text('${stats!.currentLevel.badge} '),
+            Expanded(child: Text(detailedGuide.name)),
+          ],
+        ),
         content: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -153,43 +234,109 @@ class _AdminGuideManagementScreenState extends State<AdminGuideManagementScreen>
                         : null,
                   ),
                 ),
-              const SizedBox(height: 16),
-              _buildDetailRow('Email', detailedGuide.email),
-              _buildDetailRow('Phone', detailedGuide.phone),
-              _buildDetailRow('Status', detailedGuide.status.toUpperCase()),
-              _buildDetailRow('Join Date', _formatDate(detailedGuide.joinDate)),
-              _buildDetailRow('Total Shifts', detailedGuide.totalShifts.toString()),
-              _buildDetailRow('Rating', '${detailedGuide.rating}/5.0'),
-              if (detailedGuide.lastActive != null)
-                _buildDetailRow('Last Active', _formatDateTime(detailedGuide.lastActive!)),
               const SizedBox(height: 8),
-              const Text(
-                'Certifications:',
-                style: TextStyle(fontWeight: FontWeight.bold),
+              // Level title
+              Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        Colors.purple.withOpacity(0.3),
+                        Colors.blue.withOpacity(0.3),
+                      ],
+                    ),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    'Lv.${stats.currentLevel.level} ${stats.currentLevel.title}',
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                ),
               ),
-              const SizedBox(height: 4),
-              ...detailedGuide.certifications.map((cert) => Padding(
-                padding: const EdgeInsets.only(left: 16, bottom: 2),
-                child: Row(
-                  children: [
-                    const Icon(Icons.check_circle, size: 16, color: Colors.green),
-                    const SizedBox(width: 8),
-                    Text(cert),
-                  ],
-                ),
-              )),
-              if (detailedGuide.preferences.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                const Text(
-                  'Preferences:',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
+              const SizedBox(height: 8),
+              // XP progress bar
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('${stats.totalXP} XP', style: const TextStyle(fontWeight: FontWeight.bold)),
+                      if (stats.nextLevel != null)
+                        Text('${stats.nextLevel!.xpRequired} XP', style: const TextStyle(color: Colors.grey)),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(6),
+                    child: LinearProgressIndicator(
+                      value: stats.levelProgress,
+                      minHeight: 8,
+                      backgroundColor: Colors.grey[300],
+                      valueColor: const AlwaysStoppedAnimation<Color>(Colors.purple),
+                    ),
+                  ),
+                  if (stats.nextLevel != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Text(
+                        'Next: Lv.${stats.nextLevel!.level} ${stats.nextLevel!.title}',
+                        style: const TextStyle(fontSize: 11, color: Colors.grey),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              // Badges
+              if (stats.earnedBadges.isNotEmpty) ...[
+                const Text('Badges:', style: TextStyle(fontWeight: FontWeight.bold)),
                 const SizedBox(height: 4),
-                ...detailedGuide.preferences.entries.map((entry) => Padding(
-                  padding: const EdgeInsets.only(left: 16, bottom: 2),
-                  child: Text('${entry.key}: ${entry.value}'),
-                )),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  children: stats.earnedBadges.map((badge) => Tooltip(
+                    message: '${badge.name} — ${badge.description}',
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.grey[200],
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text('${badge.emoji} ${badge.name}', style: const TextStyle(fontSize: 12)),
+                    ),
+                  )).toList(),
+                ),
+                const SizedBox(height: 12),
               ],
+              // Stats
+              const Text('Stats:', style: TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 4),
+              _buildDetailRow('Shifts', '${stats.completedShifts}'),
+              _buildDetailRow('Aurora', '${stats.auroraSightings} sightings (${stats.strongAuroraSightings} strong)'),
+              _buildDetailRow('Passengers', '${stats.totalPassengersServed} served'),
+              const Divider(),
+              _buildDetailRow('Email', detailedGuide.email),
+              Row(
+                children: [
+                  const SizedBox(
+                    width: 80,
+                    child: Text('Phone:', style: TextStyle(fontWeight: FontWeight.bold)),
+                  ),
+                  Expanded(
+                    child: Text(detailedGuide.phone.isEmpty ? 'Not set' : detailedGuide.phone),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.edit, size: 16),
+                    onPressed: () {
+                      Navigator.pop(context);
+                      _editPhoneNumber(detailedGuide);
+                    },
+                  ),
+                ],
+              ),
+              _buildDetailRow('Status', detailedGuide.status.toUpperCase()),
+              _buildDetailRow('Joined', _formatDate(detailedGuide.joinDate)),
             ],
           ),
         ),
@@ -427,7 +574,22 @@ class _AdminGuideManagementScreenState extends State<AdminGuideManagementScreen>
                               subtitle: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(guide.email),
+                                  // Level badge + email
+                                  if (_guideStats.containsKey(guide.id))
+                                    Padding(
+                                      padding: const EdgeInsets.only(bottom: 2),
+                                      child: Text(
+                                        '${_guideStats[guide.id]!.currentLevel.badge} Lv.${_guideStats[guide.id]!.currentLevel.level} ${_guideStats[guide.id]!.currentLevel.title} • ${_guideStats[guide.id]!.totalXP} XP',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.purple[300],
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ),
+                                  Text(guide.email, style: const TextStyle(fontSize: 12)),
+                                  if (guide.phone.isNotEmpty)
+                                    Text('📱 ${guide.phone}', style: const TextStyle(fontSize: 11, color: Colors.grey)),
                                   const SizedBox(height: 4),
                                   Row(
                                     children: [
@@ -468,6 +630,9 @@ class _AdminGuideManagementScreenState extends State<AdminGuideManagementScreen>
                                     case 'view':
                                       _showGuideDetails(guide);
                                       break;
+                                    case 'edit_phone':
+                                      _editPhoneNumber(guide);
+                                      break;
                                     case 'suspend':
                                       _updateGuideStatus(guide, 'suspended');
                                       break;
@@ -487,6 +652,16 @@ class _AdminGuideManagementScreenState extends State<AdminGuideManagementScreen>
                                         Icon(Icons.visibility),
                                         SizedBox(width: 8),
                                         Text('View Details'),
+                                      ],
+                                    ),
+                                  ),
+                                  const PopupMenuItem(
+                                    value: 'edit_phone',
+                                    child: Row(
+                                      children: [
+                                        Icon(Icons.phone),
+                                        SizedBox(width: 8),
+                                        Text('Edit Phone'),
                                       ],
                                     ),
                                   ),

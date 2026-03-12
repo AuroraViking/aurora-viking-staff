@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../theme/colors.dart' as av;
 import '../../core/auth/auth_controller.dart';
+import '../../core/services/guide_gamification.dart';
 import '../shifts/shifts_screen.dart';
 import '../shifts/shifts_service.dart';
 import '../../core/models/shift_model.dart';
@@ -15,6 +16,8 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   final ShiftsService _shiftsService = ShiftsService();
+  final GuideGamificationService _gamificationService = GuideGamificationService();
+  GuideStats? _guideStats;
 
   // Dynamic stats populated from Firebase
   int _totalShiftsAllTime = 0;
@@ -39,7 +42,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadUserData();
       _loadShiftStats();
+      _loadGamification();
     });
+  }
+
+  Future<void> _loadGamification() async {
+    final authController = context.read<AuthController>();
+    final user = authController.currentUser;
+    if (user != null) {
+      try {
+        final stats = await _gamificationService.calculateGuideStats(user.id, guideName: user.fullName);
+        if (mounted) {
+          setState(() {
+            _guideStats = stats;
+          });
+        }
+      } catch (e) {
+        print('⚠️ Could not load gamification stats: $e');
+      }
+    }
   }
 
   void _loadUserData() {
@@ -315,6 +336,112 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
             const SizedBox(height: 20),
 
+            // Gamification Section
+            if (_guideStats != null)
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      Colors.purple.withOpacity(0.15),
+                      Colors.blue.withOpacity(0.1),
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.purple.withOpacity(0.3)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Level title
+                    Row(
+                      children: [
+                        Text(
+                          _guideStats!.currentLevel.badge,
+                          style: const TextStyle(fontSize: 28),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Lv.${_guideStats!.currentLevel.level} ${_guideStats!.currentLevel.title}',
+                                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                  color: av.AVColors.textHigh,
+                                ),
+                              ),
+                              Text(
+                                '${_guideStats!.totalXP} XP',
+                                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                  color: av.AVColors.textLow,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    // XP progress bar
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: LinearProgressIndicator(
+                        value: _guideStats!.levelProgress,
+                        minHeight: 10,
+                        backgroundColor: Colors.white24,
+                        valueColor: const AlwaysStoppedAnimation<Color>(Colors.purple),
+                      ),
+                    ),
+                    if (_guideStats!.nextLevel != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          'Next: Lv.${_guideStats!.nextLevel!.level} ${_guideStats!.nextLevel!.title} (${_guideStats!.nextLevel!.xpRequired} XP)',
+                          style: TextStyle(fontSize: 11, color: av.AVColors.textLow),
+                        ),
+                      ),
+                    // Stats row
+                    const SizedBox(height: 12),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      children: [
+                        _buildGamifyStat('Shifts', '${_guideStats!.completedShifts}', Icons.work),
+                        _buildGamifyStat('Aurora', '${_guideStats!.auroraSightings}', Icons.nightlight_round),
+                        _buildGamifyStat('Guests', '${_guideStats!.totalPassengersServed}', Icons.people),
+                      ],
+                    ),
+                    // Badges
+                    if (_guideStats!.earnedBadges.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 4,
+                        children: _guideStats!.earnedBadges.map((badge) => Tooltip(
+                          message: '${badge.name} — ${badge.description}',
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              '${badge.emoji} ${badge.name}',
+                              style: TextStyle(fontSize: 11, color: av.AVColors.textHigh),
+                            ),
+                          ),
+                        )).toList(),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+
+            const SizedBox(height: 20),
+
             // Shift Statistics (from Firebase)
             Container(
               padding: const EdgeInsets.all(16),
@@ -499,6 +626,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildGamifyStat(String label, String value, IconData icon) {
+    return Column(
+      children: [
+        Icon(icon, size: 20, color: Colors.purple[200]),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.bold,
+            color: av.AVColors.textHigh,
+          ),
+        ),
+        Text(
+          label,
+          style: TextStyle(fontSize: 10, color: av.AVColors.textLow),
+        ),
+      ],
     );
   }
 

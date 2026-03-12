@@ -94,7 +94,7 @@ class AdminService {
     String? search,
   }) async {
     try {
-      Query query = _firestore.collection('users').where('role', isEqualTo: 'guide');
+      Query query = _firestore.collection('users').where('role', whereIn: ['guide', 'admin']);
       
       // Apply status filter
       if (status != null) {
@@ -195,6 +195,19 @@ class AdminService {
       return true;
     } catch (e) {
       throw Exception('Failed to update guide priorities: $e');
+    }
+  }
+
+  /// Update guide phone number in Firebase
+  static Future<bool> updateGuidePhone(String guideId, String phone) async {
+    try {
+      await _firestore.collection('users').doc(guideId).update({
+        'phoneNumber': phone,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      return true;
+    } catch (e) {
+      throw Exception('Failed to update phone: $e');
     }
   }
 
