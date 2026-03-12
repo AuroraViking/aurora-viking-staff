@@ -24,6 +24,8 @@ class AutoDispatchService {
   final Set<String> _dispatchedDates = {};
   // Track last-minute re-dispatch timestamps
   final Map<String, DateTime> _lastReDispatchTime = {};
+  // Track which dates have had noon auto-accept
+  final Set<String> _noonAcceptedDates = {};
 
   /// Calculate how many guides are needed for a given passenger count.
   /// Formula: ceil(totalPax / 18) — 18 per bus with 1 seat buffer.
@@ -32,22 +34,20 @@ class AutoDispatchService {
     return (totalPassengers / 18).ceil();
   }
 
-  /// Get guides who have accepted shifts for a given date, sorted by priority (highest first).
-  Future<List<User>> getAvailableGuides(DateTime date) async {
+  /// Get guides who have APPLIED (pending) shifts for a given date, sorted by priority (highest first).
+  Future<List<Map<String, dynamic>>> getAppliedGuides(DateTime date) async {
     try {
-      // Get all shifts for the date
       final shifts = await _shiftsService.getAllShiftsForDate(date);
       
-      // Filter to accepted shifts only
-      final acceptedShifts = shifts.where(
-        (s) => s.status == ShiftStatus.accepted && s.guideId != null,
+      // Filter to pending (applied) shifts with a guide
+      final appliedShifts = shifts.where(
+        (s) => s.status == ShiftStatus.applied && s.guideId != null,
       ).toList();
 
-      if (acceptedShifts.isEmpty) return [];
+      if (appliedShifts.isEmpty) return [];
 
-      // Get guide user docs to read priority
-      final guideIds = acceptedShifts.map((s) => s.guideId!).toSet().toList();
-      final List<User> guides = [];
+      final guideIds = appliedShifts.map((s) => s.guideId!).toSet().toList();
+      final List<Map<String, dynamic>> guidesWithShifts = [];
 
       for (final guideId in guideIds) {
         try {
@@ -55,33 +55,101 @@ class AutoDispatchService {
           if (doc.exists) {
             final userData = doc.data()!;
             final user = User.fromJson(userData);
-            // Attach priority for sorting
-            guides.add(user);
+            final priority = (userData['priority'] as int?) ?? 0;
+            // Find the shift for this guide
+            final shift = appliedShifts.firstWhere((s) => s.guideId == guideId);
+            guidesWithShifts.add({
+              'user': user,
+              'priority': priority,
+              'shiftId': shift.id,
+            });
           }
         } catch (e) {
           print('⚠️ Could not load guide $guideId: $e');
         }
       }
 
-      // Sort by priority descending (read from Firestore)
-      // We need to re-fetch priority since User model may not have it
+      // Sort by priority descending (highest first)
+      guidesWithShifts.sort((a, b) => (b['priority'] as int).compareTo(a['priority'] as int));
+      return guidesWithShifts;
+    } catch (e) {
+      print('❌ Error getting applied guides: $e');
+      return [];
+    }
+  }
+
+  /// Get guides who already have ACCEPTED shifts for a given date.
+  Future<List<User>> getAcceptedGuides(DateTime date) async {
+    try {
+      final shifts = await _shiftsService.getAllShiftsForDate(date);
+      final acceptedShifts = shifts.where(
+        (s) => s.status == ShiftStatus.accepted && s.guideId != null,
+      ).toList();
+
+      if (acceptedShifts.isEmpty) return [];
+
+      final guideIds = acceptedShifts.map((s) => s.guideId!).toSet().toList();
+      final List<User> guides = [];
       final priorityMap = <String, int>{};
+
       for (final guideId in guideIds) {
         try {
           final doc = await _firestore.collection('users').doc(guideId).get();
           if (doc.exists) {
+            guides.add(User.fromJson(doc.data()!));
             priorityMap[guideId] = (doc.data()?['priority'] as int?) ?? 0;
           }
         } catch (_) {}
       }
 
       guides.sort((a, b) => (priorityMap[b.id] ?? 0).compareTo(priorityMap[a.id] ?? 0));
-
       return guides;
     } catch (e) {
-      print('❌ Error getting available guides: $e');
+      print('❌ Error getting accepted guides: $e');
       return [];
     }
+  }
+
+  /// Auto-accept the top-ranked applied guides based on how many are needed.
+  /// Returns the list of accepted User objects.
+  Future<List<User>> autoAcceptTopGuides(DateTime date, int guidesNeeded) async {
+    // First check how many are already accepted
+    final alreadyAccepted = await getAcceptedGuides(date);
+    final stillNeeded = guidesNeeded - alreadyAccepted.length;
+    
+    if (stillNeeded <= 0) {
+      print('✅ Already have ${alreadyAccepted.length} accepted guides (need $guidesNeeded)');
+      return alreadyAccepted.take(guidesNeeded).toList();
+    }
+
+    // Get applied guides sorted by priority
+    final appliedGuides = await getAppliedGuides(date);
+    if (appliedGuides.isEmpty) {
+      print('⚠️ No applied guides to accept');
+      return alreadyAccepted;
+    }
+
+    // Accept top-ranked applied guides
+    final toAccept = appliedGuides.take(stillNeeded).toList();
+    final newlyAccepted = <User>[];
+
+    for (final guideData in toAccept) {
+      final shiftId = guideData['shiftId'] as String;
+      final user = guideData['user'] as User;
+      
+      final success = await _shiftsService.updateShiftStatus(
+        shiftId: shiftId,
+        status: ShiftStatus.accepted,
+        adminNote: 'Auto-accepted by system (ranked #${toAccept.indexOf(guideData) + 1})',
+      );
+
+      if (success) {
+        print('✅ Auto-accepted shift for ${user.fullName} (priority: ${guideData['priority']})');
+        newlyAccepted.add(user);
+      }
+    }
+
+    return [...alreadyAccepted, ...newlyAccepted].take(guidesNeeded).toList();
   }
 
   /// Get active buses sorted by priority (highest first).
@@ -136,41 +204,53 @@ class AutoDispatchService {
   }
 
   /// Main auto-dispatch check — call this on every refresh.
-  /// Returns true if auto-dispatch was triggered.
-  Future<bool> autoDispatchIfNeeded(PickupController controller) async {
+  /// Returns a string describing what happened, or null if nothing.
+  Future<String?> autoDispatchIfNeeded(PickupController controller) async {
     final date = controller.selectedDate;
     final dateKey = _dateStr(date);
     final bookings = controller.bookings;
 
-    if (bookings.isEmpty) return false;
-
-    // Already dispatched this session?
-    if (_dispatchedDates.contains(dateKey) && _isAlreadyDistributed(controller)) {
-      return false;
-    }
+    if (bookings.isEmpty) return null;
 
     // Get total passengers
     final totalPax = bookings.fold<int>(0, (sum, b) => sum + b.numberOfGuests);
-    if (totalPax <= 0) return false;
+    if (totalPax <= 0) return null;
 
-    // Get earliest pickup time
-    final earliestPickup = _getEarliestPickupTime(bookings, date);
-    if (earliestPickup == null) return false;
-
+    final guidesNeeded = calculateGuidesNeeded(totalPax);
     final now = DateTime.now();
+
+    // === NOON AUTO-ACCEPT TRIGGER ===
+    // At noon (or after), auto-accept top-ranked applied guides
+    if (!_noonAcceptedDates.contains(dateKey) && now.hour >= 12) {
+      final appliedGuides = await getAppliedGuides(date);
+      if (appliedGuides.isNotEmpty) {
+        print('🕛 Noon auto-accept: accepting top $guidesNeeded of ${appliedGuides.length} applied guides');
+        await autoAcceptTopGuides(date, guidesNeeded);
+        _noonAcceptedDates.add(dateKey);
+        return 'noon_accept';
+      }
+    }
+
+    // === 30-MIN AUTO-DISPATCH TRIGGER ===
+    if (_dispatchedDates.contains(dateKey) && _isAlreadyDistributed(controller)) {
+      return null;
+    }
+
+    final earliestPickup = _getEarliestPickupTime(bookings, date);
+    if (earliestPickup == null) return null;
+
     final minutesUntilPickup = earliestPickup.difference(now).inMinutes;
 
-    // Check 30-minute trigger: not yet distributed
     if (minutesUntilPickup <= 30 && minutesUntilPickup > 0 && !_isAlreadyDistributed(controller)) {
       print('🤖 Auto-dispatch triggered: ${minutesUntilPickup}min until pickup, $totalPax passengers');
       final success = await _executeAutoDispatch(controller, date, totalPax);
       if (success) {
         _dispatchedDates.add(dateKey);
+        return 'dispatched';
       }
-      return success;
     }
 
-    return false;
+    return null;
   }
 
   /// Handle a last-minute booking detected ≤10 min before departure.
@@ -230,15 +310,12 @@ class AutoDispatchService {
       final guidesNeeded = calculateGuidesNeeded(totalPax);
       print('📊 Need $guidesNeeded guides for $totalPax passengers');
 
-      // 2. Get available guides (accepted shifts, sorted by priority)
-      final availableGuides = await getAvailableGuides(date);
-      if (availableGuides.isEmpty) {
-        print('⚠️ No guides with accepted shifts for this date');
+      // 2. Auto-accept top-ranked applied guides (this also returns already-accepted ones)
+      final selectedGuides = await autoAcceptTopGuides(date, guidesNeeded);
+      if (selectedGuides.isEmpty) {
+        print('⚠️ No guides available for this date (none applied or accepted)');
         return false;
       }
-
-      // Take only as many as needed
-      final selectedGuides = availableGuides.take(guidesNeeded).toList();
       print('👤 Selected ${selectedGuides.length} guides: ${selectedGuides.map((g) => g.fullName).join(', ')}');
 
       // 3. Get available buses (sorted by priority)
@@ -278,5 +355,6 @@ class AutoDispatchService {
   void resetForDate(String dateKey) {
     _dispatchedDates.remove(dateKey);
     _lastReDispatchTime.remove(dateKey);
+    _noonAcceptedDates.remove(dateKey);
   }
 }

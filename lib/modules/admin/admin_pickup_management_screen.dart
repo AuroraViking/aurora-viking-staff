@@ -86,17 +86,27 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
     // Refresh data first
     await controller.loadBookingsForDate(controller.selectedDate);
     
-    // Check 30-min auto-dispatch
-    final dispatched = await _autoDispatchService.autoDispatchIfNeeded(controller);
-    if (dispatched && mounted) {
+    // Check noon auto-accept + 30-min auto-dispatch
+    final result = await _autoDispatchService.autoDispatchIfNeeded(controller);
+    if (result != null && mounted) {
       await _loadBusAssignments(controller);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('🤖 Auto-dispatch triggered — guides and buses assigned!'),
-          backgroundColor: Colors.green,
-          duration: Duration(seconds: 5),
-        ),
-      );
+      if (result == 'noon_accept') {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('🕛 Noon auto-accept — top-ranked guides accepted for tonight!'),
+            backgroundColor: Colors.blue,
+            duration: Duration(seconds: 5),
+          ),
+        );
+      } else if (result == 'dispatched') {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('🤖 Auto-dispatch triggered — guides and buses assigned!'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 5),
+          ),
+        );
+      }
       return;
     }
     
