@@ -87,6 +87,27 @@ class _AdminGuideManagementScreenState extends State<AdminGuideManagementScreen>
     }
   }
 
+  Future<void> _toggleGuideSms(AdminGuide guide) async {
+    try {
+      await AdminService.toggleGuideSms(guide.id, !guide.smsEnabled);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('SMS ${!guide.smsEnabled ? "enabled" : "disabled"} for ${guide.name}'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        _loadGuides();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
   Future<void> _deleteGuide(AdminGuide guide) async {
     // Show confirmation dialog
     final confirmed = await showDialog<bool>(
@@ -642,6 +663,9 @@ class _AdminGuideManagementScreenState extends State<AdminGuideManagementScreen>
                                     case 'delete':
                                       _deleteGuide(guide);
                                       break;
+                                    case 'toggle_sms':
+                                      _toggleGuideSms(guide);
+                                      break;
                                   }
                                 },
                                 itemBuilder: (context) => [
@@ -694,6 +718,19 @@ class _AdminGuideManagementScreenState extends State<AdminGuideManagementScreen>
                                         Icon(Icons.delete, color: Colors.red),
                                         SizedBox(width: 8),
                                         Text('Delete', style: TextStyle(color: Colors.red)),
+                                      ],
+                                    ),
+                                  ),
+                                  PopupMenuItem(
+                                    value: 'toggle_sms',
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          guide.smsEnabled ? Icons.sms : Icons.sms_failed,
+                                          color: guide.smsEnabled ? Colors.green : Colors.grey,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Text(guide.smsEnabled ? 'SMS: ON' : 'SMS: OFF'),
                                       ],
                                     ),
                                   ),

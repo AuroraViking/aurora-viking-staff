@@ -14,6 +14,7 @@ class AdminGuide {
   final Map<String, dynamic> preferences;
   final DateTime? lastActive;
   final int priority; // Higher = better ranked guide (for auto-dispatch)
+  final bool smsEnabled; // Whether guide receives auto SMS reminders
 
   AdminGuide({
     required this.id,
@@ -29,6 +30,7 @@ class AdminGuide {
     required this.preferences,
     this.lastActive,
     this.priority = 0,
+    this.smsEnabled = true,
   });
 
   factory AdminGuide.fromJson(Map<String, dynamic> json) {
@@ -48,6 +50,7 @@ class AdminGuide {
           ? DateTime.parse(json['lastActive']) 
           : null,
       priority: json['priority'] ?? 0,
+      smsEnabled: json['smsEnabled'] ?? true,
     );
   }
 
@@ -66,6 +69,7 @@ class AdminGuide {
       'preferences': preferences,
       'lastActive': lastActive?.toIso8601String(),
       'priority': priority,
+      'smsEnabled': smsEnabled,
     };
   }
 }

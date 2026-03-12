@@ -193,3 +193,10 @@ const autoDispatch = require('./modules/auto_dispatch');
 exports.autoDispatchScheduled = autoDispatch.autoDispatchScheduled;
 exports.autoDispatchManual = autoDispatch.autoDispatchManual;
 
+// ============================================
+// GUIDE SHIFT SMS REMINDER (36h before departure)
+// ============================================
+const guideShiftSms = require('./modules/guide_shift_sms');
+exports.guideShiftReminderScheduled = guideShiftSms.guideShiftReminderScheduled;
+exports.guideShiftReminderManual = guideShiftSms.guideShiftReminderManual;
+

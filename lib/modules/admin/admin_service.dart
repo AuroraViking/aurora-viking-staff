@@ -130,6 +130,7 @@ class AdminService {
           preferences: {},
           lastActive: user.createdAt,
           priority: userData['priority'] ?? 0,
+          smsEnabled: userData['smsEnabled'] ?? true,
         );
       }).toList()
         ..sort((a, b) => b.priority.compareTo(a.priority));
@@ -208,6 +209,19 @@ class AdminService {
       return true;
     } catch (e) {
       throw Exception('Failed to update phone: $e');
+    }
+  }
+
+  /// Toggle SMS reminders for a guide
+  static Future<bool> toggleGuideSms(String guideId, bool enabled) async {
+    try {
+      await _firestore.collection('users').doc(guideId).update({
+        'smsEnabled': enabled,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      return true;
+    } catch (e) {
+      throw Exception('Failed to toggle SMS: $e');
     }
   }
 
