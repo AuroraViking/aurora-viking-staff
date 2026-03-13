@@ -200,3 +200,9 @@ const guideShiftSms = require('./modules/guide_shift_sms');
 exports.guideShiftReminderScheduled = guideShiftSms.guideShiftReminderScheduled;
 exports.guideShiftReminderManual = guideShiftSms.guideShiftReminderManual;
 
+// ============================================
+// GUIDE TOUR STATUS SMS (ON/OFF notification to guides)
+// ============================================
+const smsModule = require('./modules/sms');
+exports.sendGuideTourSms = smsModule.sendGuideTourSms;
+

@@ -377,8 +377,130 @@ const sendTestSms = onCall(
     }
 );
 
+/**
+ * Send tour status SMS to guides with accepted shifts for today
+ * Called when admin sets tour to ON or OFF
+ */
+const sendGuideTourSms = onCall(
+    {
+        region: 'us-central1',
+        secrets: ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_MESSAGING_SERVICE_SID'],
+    },
+    async (request) => {
+        if (!request.auth) {
+            throw new Error('Authentication required');
+        }
+
+        const { status, date } = request.data;
+        if (!status) throw new Error('status is required (ON or OFF)');
+
+        // Default to today in Iceland timezone
+        const dateStr = date || (() => {
+            const now = new Date();
+            const iceland = new Date(now.toLocaleString('en-US', { timeZone: 'Atlantic/Reykjavik' }));
+            return `${iceland.getFullYear()}-${String(iceland.getMonth() + 1).padStart(2, '0')}-${String(iceland.getDate()).padStart(2, '0')}`;
+        })();
+
+        console.log(`📱 Sending guide tour SMS (${status}) for ${dateStr}`);
+
+        // Find guides with accepted/applied shifts for this date
+        const shiftsSnap = await db.collection('shifts')
+            .where('date', '==', dateStr)
+            .where('status', 'in', ['accepted', 'applied'])
+            .get();
+
+        if (shiftsSnap.empty) {
+            console.log('📭 No shifts found for guides');
+            return { success: true, smsSent: 0, message: 'No guide shifts found' };
+        }
+
+        // Get guide details
+        const guides = [];
+        const seenGuides = new Set();
+        for (const shiftDoc of shiftsSnap.docs) {
+            const guideId = shiftDoc.data().guideId;
+            if (!guideId || seenGuides.has(guideId)) continue;
+            seenGuides.add(guideId);
+
+            const userDoc = await db.collection('users').doc(guideId).get();
+            if (!userDoc.exists) continue;
+
+            const userData = userDoc.data();
+            const phone = (userData.phoneNumber || '').trim();
+            if (!phone || !phone.startsWith('+')) continue;
+
+            guides.push({
+                id: guideId,
+                name: userData.fullName || userData.displayName || 'Guide',
+                phone,
+            });
+        }
+
+        console.log(`👥 Found ${guides.length} guides with phone numbers`);
+
+        if (guides.length === 0) {
+            return { success: true, smsSent: 0, message: 'No guides with phone numbers' };
+        }
+
+        const client = getTwilioClient();
+        const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID;
+        const fromNumber = process.env.TWILIO_PHONE_NUMBER;
+
+        if (!messagingServiceSid && !fromNumber) {
+            return { success: false, smsSent: 0, error: 'No Twilio sender configured' };
+        }
+
+        let smsSent = 0;
+        const failed = [];
+
+        for (const guide of guides) {
+            const firstName = guide.name.split(' ')[0];
+            let body;
+            if (status === 'ON') {
+                body = `Hi ${firstName}! ✅ Tonight's Northern Lights tour is ON! Please be ready for your shift. See you soon! — Aurora Viking`;
+            } else {
+                body = `Hi ${firstName}, tonight's tour has been cancelled due to weather conditions. No shift tonight. — Aurora Viking`;
+            }
+
+            try {
+                const opts = { body, to: guide.phone };
+                if (messagingServiceSid) {
+                    opts.messagingServiceSid = messagingServiceSid;
+                } else {
+                    opts.from = fromNumber;
+                }
+
+                await client.messages.create(opts);
+                smsSent++;
+                console.log(`✅ Guide SMS sent to ${firstName} (${guide.phone})`);
+            } catch (err) {
+                console.error(`❌ Failed guide SMS to ${guide.phone}: ${err.message}`);
+                failed.push({ phone: guide.phone, error: err.message });
+            }
+
+            if (guides.length > 3) {
+                await new Promise(r => setTimeout(r, 300));
+            }
+        }
+
+        // Log
+        await db.collection('guide_sms_log').doc(`tour_${status.toLowerCase()}_${dateStr}`).set({
+            date: dateStr,
+            status,
+            sentAt: admin.firestore.FieldValue.serverTimestamp(),
+            smsSent,
+            failed,
+            guidesNotified: guides.map(g => ({ id: g.id, name: g.name })),
+        });
+
+        console.log(`✅ Guide tour SMS complete: ${smsSent}/${guides.length}`);
+        return { success: true, smsSent, totalGuides: guides.length };
+    }
+);
+
 module.exports = {
     sendCancellationSmsInternal,
     sendOnSmsInternal,
     sendTestSms,
+    sendGuideTourSms,
 };

@@ -25,6 +25,7 @@ class _TourStatusScreenState extends State<TourStatusScreen> {
   bool _isSaving = false;
   bool _isSendingEmails = false;
   bool _isSendingSms = false;
+  bool _isSendingGuideSms = false;
   int? _lastEmailCount;
   bool _isDisruptingDeparture = false;
 
@@ -181,6 +182,45 @@ class _TourStatusScreenState extends State<TourStatusScreen> {
 
           if (sendEmails == true) {
             _sendEmails();
+          }
+        }
+
+        // Ask about SMS to guides
+        if (mounted) {
+          final sendGuideSms = await showDialog<bool>(
+            context: context,
+            builder: (context) => AlertDialog(
+              backgroundColor: const Color(0xFF1E293B),
+              title: const Row(
+                children: [
+                  Icon(Icons.sms, color: Colors.teal),
+                  SizedBox(width: 8),
+                  Text('SMS Guides?', style: TextStyle(color: Colors.white)),
+                ],
+              ),
+              content: Text(
+                'Send an SMS to all guides with accepted shifts letting them know the tour is ON tonight?',
+                style: TextStyle(color: Colors.grey[300]),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(false),
+                  child: const Text('Not Now'),
+                ),
+                ElevatedButton.icon(
+                  onPressed: () => Navigator.of(context).pop(true),
+                  icon: const Icon(Icons.send, size: 18),
+                  label: const Text('SMS Guides'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.teal,
+                  ),
+                ),
+              ],
+            ),
+          );
+
+          if (sendGuideSms == true) {
+            _sendGuideTourSms('ON');
           }
         }
 
@@ -524,6 +564,39 @@ class _TourStatusScreenState extends State<TourStatusScreen> {
     }
   }
 
+  Future<void> _sendGuideTourSms(String status) async {
+    setState(() => _isSendingGuideSms = true);
+    try {
+      final result = await _functions.httpsCallable('sendGuideTourSms').call({
+        'status': status,
+      });
+      final smsSent = result.data['smsSent'] as int? ?? 0;
+      final totalGuides = result.data['totalGuides'] as int? ?? 0;
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('📱 Sent $smsSent SMS to $totalGuides guides'),
+            backgroundColor: Colors.teal,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    } catch (e) {
+      print('Error sending guide SMS: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to send guide SMS: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      setState(() => _isSendingGuideSms = false);
+    }
+  }
+
   Widget _buildSendEmailsButton() {
     return Container(
       width: double.infinity,
@@ -599,6 +672,7 @@ class _TourStatusScreenState extends State<TourStatusScreen> {
     bool doSetStatus = true;
     bool doSendEmails = true;
     bool doSendSms = true;
+    bool doSendGuideSms = true;
     bool doDisruptDeparture = true;
     bool showMessagePreview = false;
     final emailController = TextEditingController(text: _defaultEmailBody);
@@ -716,6 +790,18 @@ class _TourStatusScreenState extends State<TourStatusScreen> {
                     iconColor: Colors.red,
                     title: 'Disrupt departure on Bokun',
                     subtitle: 'Close the departure so no new bookings come in',
+                  ),
+
+                  const SizedBox(height: 12),
+
+                  // Checkbox 5: SMS Guides
+                  _buildActionCheckbox(
+                    value: doSendGuideSms,
+                    onChanged: (v) => setSheetState(() => doSendGuideSms = v ?? true),
+                    icon: Icons.group,
+                    iconColor: Colors.teal,
+                    title: 'SMS Guides',
+                    subtitle: 'Notify accepted guides about cancellation',
                   ),
                   const SizedBox(height: 12),
 
@@ -849,7 +935,7 @@ class _TourStatusScreenState extends State<TourStatusScreen> {
                     width: double.infinity,
                     height: 52,
                     child: ElevatedButton.icon(
-                      onPressed: (!doSetStatus && !doSendEmails && !doSendSms && !doDisruptDeparture)
+                      onPressed: (!doSetStatus && !doSendEmails && !doSendSms && !doDisruptDeparture && !doSendGuideSms)
                           ? null
                           : () {
                               final emailBody = emailController.text.trim();
@@ -859,6 +945,7 @@ class _TourStatusScreenState extends State<TourStatusScreen> {
                                 setStatus: doSetStatus,
                                 sendEmails: doSendEmails,
                                 sendSms: doSendSms,
+                                sendGuideSms: doSendGuideSms,
                                 disruptDeparture: doDisruptDeparture,
                                 customEmailBody: emailBody == _defaultEmailBody ? null : emailBody,
                                 customSmsBody: smsBody == _defaultSmsBody ? null : smsBody,
@@ -968,6 +1055,7 @@ class _TourStatusScreenState extends State<TourStatusScreen> {
     required bool setStatus,
     required bool sendEmails,
     required bool sendSms,
+    required bool sendGuideSms,
     required bool disruptDeparture,
     String? customEmailBody,
     String? customSmsBody,
@@ -1047,6 +1135,23 @@ class _TourStatusScreenState extends State<TourStatusScreen> {
           print('Error disrupting departure: $e');
           setState(() => _isDisruptingDeparture = false);
           errors.add('Disrupt: $e');
+        }
+      }
+
+      // Step 4: SMS Guides
+      if (sendGuideSms) {
+        try {
+          setState(() => _isSendingGuideSms = true);
+          final result = await _functions.httpsCallable('sendGuideTourSms').call({
+            'status': 'OFF',
+          });
+          final guideSmsCount = result.data['smsSent'] as int? ?? 0;
+          setState(() => _isSendingGuideSms = false);
+          actions.add('$guideSmsCount guide SMS');
+        } catch (e) {
+          print('Error sending guide SMS: $e');
+          setState(() => _isSendingGuideSms = false);
+          errors.add('Guide SMS: $e');
         }
       }
 
