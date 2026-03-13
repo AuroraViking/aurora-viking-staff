@@ -75,7 +75,7 @@ class PickupController extends ChangeNotifier {
 
   // Load bookings for a specific date with Firebase statuses
   // FIX: Added comprehensive error handling and guaranteed loading state reset
-  Future<void> loadBookingsForDate(DateTime date, {bool forceRefresh = false}) async {
+  Future<void> loadBookingsForDate(DateTime date, {bool forceRefresh = false, bool silent = false}) async {
     // FIX: Guard against calling when user is null (unless forceRefresh for admin)
     if (_currentUser == null && !forceRefresh) {
       print('⚠️ Cannot load bookings: current user is null');
@@ -85,7 +85,10 @@ class PickupController extends ChangeNotifier {
       return;
     }
 
-    _setLoading(true);
+    // Silent mode skips loading indicator (used for background auto-refresh)
+    if (!silent) {
+      _setLoading(true);
+    }
     _error = null;
 
     // FIX: Use normalized date key for caching (avoids time component mismatches)

@@ -96,6 +96,9 @@ OUTPUT FORMAT (JSON):
   "reasoning": "Brief explanation of why you suggest this action"
 }`;
 
+// Google Drive subfolder name for tour reports
+const REPORTS_FOLDER_NAME = 'reports';
+
 // Google Drive root folder name for tour photos
 const PHOTO_ROOT_FOLDER_NAME = 'Norðurljósamyndir';
 
@@ -108,6 +111,7 @@ module.exports = {
   GMAIL_REDIRECT_URI,
   GMAIL_SCOPES,
   AI_SYSTEM_PROMPT,
+  REPORTS_FOLDER_NAME,
   PHOTO_ROOT_FOLDER_NAME,
   TRIPADVISOR_REVIEW_URL,
   GOOGLE_MAPS_REVIEW_URL,

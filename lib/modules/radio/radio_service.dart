@@ -1,13 +1,19 @@
-/// Firestore CRUD service for voice radio channels and messages.
+/// Firestore CRUD service for radio channels and messages (voice, text, image).
 import 'package:cloud_firestore/cloud_firestore.dart';
+
+/// Message types supported by the radio system.
+enum RadioMessageType { voice, text, image }
 
 class RadioMessage {
   final String id;
   final String channelId;
   final String senderId;
   final String senderName;
-  final String audioBase64;
-  final int durationMs;
+  final RadioMessageType type;
+  final String audioBase64;   // voice only
+  final int durationMs;       // voice only
+  final String textContent;   // text only
+  final String imageUrl;      // image only
   final DateTime createdAt;
 
   RadioMessage({
@@ -15,8 +21,11 @@ class RadioMessage {
     required this.channelId,
     required this.senderId,
     required this.senderName,
-    required this.audioBase64,
-    required this.durationMs,
+    this.type = RadioMessageType.voice,
+    this.audioBase64 = '',
+    this.durationMs = 0,
+    this.textContent = '',
+    this.imageUrl = '',
     required this.createdAt,
   });
 
@@ -27,8 +36,14 @@ class RadioMessage {
       channelId: data['channelId'] ?? '',
       senderId: data['senderId'] ?? '',
       senderName: data['senderName'] ?? 'Unknown',
+      type: RadioMessageType.values.firstWhere(
+        (e) => e.name == (data['type'] ?? 'voice'),
+        orElse: () => RadioMessageType.voice,
+      ),
       audioBase64: data['audioBase64'] ?? '',
       durationMs: data['durationMs'] ?? 0,
+      textContent: data['textContent'] ?? '',
+      imageUrl: data['imageUrl'] ?? '',
       createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
     );
   }
@@ -37,8 +52,11 @@ class RadioMessage {
         'channelId': channelId,
         'senderId': senderId,
         'senderName': senderName,
+        'type': type.name,
         'audioBase64': audioBase64,
         'durationMs': durationMs,
+        'textContent': textContent,
+        'imageUrl': imageUrl,
         'createdAt': FieldValue.serverTimestamp(),
       };
 }
@@ -173,8 +191,45 @@ class RadioService {
       channelId: channelId,
       senderId: senderId,
       senderName: senderName,
+      type: RadioMessageType.voice,
       audioBase64: audioBase64,
       durationMs: durationMs,
+      createdAt: DateTime.now(),
+    ).toFirestore());
+  }
+
+  /// Send a text message to a channel.
+  static Future<void> sendTextMessage({
+    required String channelId,
+    required String senderId,
+    required String senderName,
+    required String textContent,
+  }) async {
+    await _messagesRef.add(RadioMessage(
+      id: '',
+      channelId: channelId,
+      senderId: senderId,
+      senderName: senderName,
+      type: RadioMessageType.text,
+      textContent: textContent,
+      createdAt: DateTime.now(),
+    ).toFirestore());
+  }
+
+  /// Send an image message to a channel.
+  static Future<void> sendImageMessage({
+    required String channelId,
+    required String senderId,
+    required String senderName,
+    required String imageUrl,
+  }) async {
+    await _messagesRef.add(RadioMessage(
+      id: '',
+      channelId: channelId,
+      senderId: senderId,
+      senderName: senderName,
+      type: RadioMessageType.image,
+      imageUrl: imageUrl,
       createdAt: DateTime.now(),
     ).toFirestore());
   }

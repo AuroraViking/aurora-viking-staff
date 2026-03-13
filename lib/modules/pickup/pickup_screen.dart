@@ -93,9 +93,9 @@ class _PickupScreenState extends State<PickupScreen> {
         _isInitialized = true;
       });
 
-      // Start auto-refresh timer (every 60 seconds)
+      // Start auto-refresh timer (every 5 minutes)
       _autoRefreshTimer?.cancel();
-      _autoRefreshTimer = Timer.periodic(const Duration(seconds: 60), (_) {
+      _autoRefreshTimer = Timer.periodic(const Duration(minutes: 5), (_) {
         if (mounted) {
           _silentRefresh();
         }
@@ -1190,7 +1190,7 @@ class _PickupScreenState extends State<PickupScreen> {
     if (authController.currentUser == null) return;
 
     controller.setCurrentUser(authController.currentUser!);
-    await controller.loadBookingsForDate(controller.selectedDate, forceRefresh: true);
+    await controller.loadBookingsForDate(controller.selectedDate, forceRefresh: true, silent: true);
   }
 
   Future<void> _selectDate() async {

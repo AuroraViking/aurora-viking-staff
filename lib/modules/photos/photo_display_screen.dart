@@ -118,20 +118,20 @@ class _PhotoDisplayScreenState extends State<PhotoDisplayScreen> {
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                // Website URL
-                const Text(
-                  'AURORAVIKING.COM/PHOTOS',
+                // Email notification info
+                Text(
+                  'We\'ve already sent you an email with\na link to your photos!',
                   style: TextStyle(
-                    color: Color(0xFFD4AF37),
-                    fontSize: 30,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 2.0,
+                    color: Colors.white.withOpacity(0.7),
+                    fontSize: 18,
+                    fontWeight: FontWeight.w500,
+                    height: 1.5,
                   ),
                   textAlign: TextAlign.center,
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 12),
                 Text(
-                  'Or visit our website to access your photos',
+                  'Photos can take up to 48 hours to appear',
                   style: TextStyle(
                     color: Colors.white.withOpacity(0.4),
                     fontSize: 14,
@@ -150,7 +150,16 @@ class _PhotoDisplayScreenState extends State<PhotoDisplayScreen> {
                 ),
                 const SizedBox(height: 32),
 
-                // Email
+                // Fallback email
+                Text(
+                  'Didn\'t get the email?',
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.5),
+                    fontSize: 14,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
                 const Text(
                   'PHOTO@AURORAVIKING.COM',
                   style: TextStyle(
@@ -158,15 +167,6 @@ class _PhotoDisplayScreenState extends State<PhotoDisplayScreen> {
                     fontSize: 22,
                     fontWeight: FontWeight.w500,
                     letterSpacing: 1.5,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'Email us with your date & guide name',
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.3),
-                    fontSize: 13,
                   ),
                   textAlign: TextAlign.center,
                 ),
@@ -224,19 +224,19 @@ class _PhotoDisplayScreenState extends State<PhotoDisplayScreen> {
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        const Text(
-          'AURORAVIKING.COM/PHOTOS',
+        Text(
+          'We\'ve already sent you an email\nwith a link to your photos!',
           style: TextStyle(
             color: Color(0xFFD4AF37),
-            fontSize: 34,
+            fontSize: 28,
             fontWeight: FontWeight.bold,
-            letterSpacing: 2.0,
+            height: 1.4,
           ),
           textAlign: TextAlign.center,
         ),
         const SizedBox(height: 12),
         Text(
-          'Get your photos on our website',
+          'Photos can take up to 48 hours to appear',
           style: TextStyle(
             color: Colors.white.withOpacity(0.5),
             fontSize: 16,
@@ -247,6 +247,15 @@ class _PhotoDisplayScreenState extends State<PhotoDisplayScreen> {
         const SizedBox(height: 40),
         Container(width: 120, height: 2, color: Colors.white24),
         const SizedBox(height: 40),
+        Text(
+          'Didn\'t get the email?',
+          style: TextStyle(
+            color: Colors.white.withOpacity(0.5),
+            fontSize: 16,
+          ),
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 10),
         const Text(
           'PHOTO@AURORAVIKING.COM',
           style: TextStyle(
@@ -254,15 +263,6 @@ class _PhotoDisplayScreenState extends State<PhotoDisplayScreen> {
             fontSize: 28,
             fontWeight: FontWeight.bold,
             letterSpacing: 2.0,
-          ),
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: 8),
-        Text(
-          'Or email us with your date & guide name',
-          style: TextStyle(
-            color: Colors.white.withOpacity(0.4),
-            fontSize: 14,
           ),
           textAlign: TextAlign.center,
         ),

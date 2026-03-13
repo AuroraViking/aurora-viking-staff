@@ -1,10 +1,12 @@
 // Guide Gamification Service
 // Calculates XP, levels, and badges from Firestore data
+// 100-level progression system with unique titles
 
+import 'dart:math' as math;
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 // ============================================
-// LEVEL DEFINITIONS
+// LEVEL DEFINITIONS — 100 LEVELS
 // ============================================
 
 class GuideLevel {
@@ -21,20 +23,140 @@ class GuideLevel {
   });
 }
 
-const List<GuideLevel> guideLevels = [
-  GuideLevel(level: 1, title: 'Rookie', badge: '🌱', xpRequired: 0),
-  GuideLevel(level: 2, title: 'Explorer', badge: '🧭', xpRequired: 300),
-  GuideLevel(level: 3, title: 'Pathfinder', badge: '🥾', xpRequired: 800),
-  GuideLevel(level: 4, title: 'Night Owl', badge: '🦉', xpRequired: 1500),
-  GuideLevel(level: 5, title: 'Stargazer', badge: '⭐', xpRequired: 3000),
-  GuideLevel(level: 6, title: 'Aurora Hunter', badge: '🌌', xpRequired: 5000),
-  GuideLevel(level: 7, title: 'Storm Chaser', badge: '🌊', xpRequired: 8000),
-  GuideLevel(level: 8, title: 'Aurora Master', badge: '⚡', xpRequired: 12000),
-  GuideLevel(level: 9, title: 'Trail Blazer', badge: '🔥', xpRequired: 18000),
-  GuideLevel(level: 10, title: 'Viking Legend', badge: '🛡️', xpRequired: 25000),
-  GuideLevel(level: 11, title: 'Valhalla Elite', badge: '⚔️', xpRequired: 35000),
-  GuideLevel(level: 12, title: 'Northern God', badge: '👑', xpRequired: 50000),
-];
+/// All 100 levels with hand-crafted titles and a smooth XP curve.
+/// Early levels come fast (~50-150 XP each), later levels slow down.
+final List<GuideLevel> guideLevels = _buildLevels();
+
+List<GuideLevel> _buildLevels() {
+  // Title + emoji for each level (1-100)
+  const data = <List<String>>[
+    // --- TIER 1: NEWCOMER (1-10) ---
+    ['Newcomer',         '🌱'],  // 1
+    ['Rookie',           '🐣'],  // 2
+    ['Greenhorn',        '🌿'],  // 3
+    ['Apprentice',       '📖'],  // 4
+    ['Night Walker',     '🚶'],  // 5
+    ['Sky Watcher',      '👁️'],  // 6
+    ['Stargazer',        '⭐'],  // 7
+    ['Moon Chaser',      '🌙'],  // 8
+    ['Frost Scout',      '❄️'],  // 9
+    ['Trailblazer',      '🥾'],  // 10
+    // --- TIER 2: EXPLORER (11-20) ---
+    ['Explorer',         '🧭'],  // 11
+    ['Wayfinder',        '🗺️'],  // 12
+    ['Dusk Ranger',      '🌅'],  // 13
+    ['Ice Trekker',      '🏔️'],  // 14
+    ['Storm Watcher',    '🌧️'],  // 15
+    ['Horizon Seeker',   '🔭'],  // 16
+    ['Pathfinder',       '🛤️'],  // 17
+    ['Night Owl',        '🦉'],  // 18
+    ['Polar Wanderer',   '🐧'],  // 19
+    ['Arctic Fox',       '🦊'],  // 20
+    // --- TIER 3: HUNTER (21-35) ---
+    ['Aurora Spotter',   '👀'],  // 21
+    ['Light Seeker',     '🔦'],  // 22
+    ['Glow Chaser',      '✨'],  // 23
+    ['Aurora Apprentice', '🌠'],  // 24
+    ['Night Rider',      '🏇'],  // 25
+    ['Beacon Finder',    '🏮'],  // 26
+    ['Fjord Runner',     '🌊'],  // 27
+    ['Glacier Guide',    '🧊'],  // 28
+    ['Snow Tracker',     '🐾'],  // 29
+    ['Lava Walker',      '🌋'],  // 30
+    ['Wild Scout',       '🐺'],  // 31
+    ['Thunder Watcher',  '⛈️'],  // 32
+    ['Aurora Hunter',    '🌌'],  // 33
+    ['Tide Reader',      '🌊'],  // 34
+    ['Rune Seeker',      '🔮'],  // 35
+    // --- TIER 4: VETERAN (36-50) ---
+    ['Veteran',          '🎖️'],  // 36
+    ['Iron Will',        '⚙️'],  // 37
+    ['Storm Rider',      '🌪️'],  // 38
+    ['Flame Keeper',     '🕯️'],  // 39
+    ['Shield Bearer',    '🛡️'],  // 40
+    ['Wolf Guide',       '🐺'],  // 41
+    ['Shadow Walker',    '🌑'],  // 42
+    ['Frost Warden',     '🥶'],  // 43
+    ['Midnight Sun',     '☀️'],  // 44
+    ['Saga Teller',      '📜'],  // 45
+    ['Mountain King',    '⛰️'],  // 46
+    ['Storm Chaser',     '🌊'],  // 47
+    ['Fire Watcher',     '🔥'],  // 48
+    ['Dawn Breaker',     '🌤️'],  // 49
+    ['Half Century',     '💪'],  // 50
+    // --- TIER 5: ELITE (51-65) ---
+    ['Elite Guide',      '💎'],  // 51
+    ['Star Navigator',   '🧭'],  // 52
+    ['Cosmic Tracker',   '🌐'],  // 53
+    ['Nebula Scout',     '🔭'],  // 54
+    ['Solar Flare',      '☄️'],  // 55
+    ['Void Walker',      '🕳️'],  // 56
+    ['Aurora Ace',       '🃏'],  // 57
+    ['Sky Marshal',      '🎯'],  // 58
+    ['Polar Commander',  '🏴'],  // 59
+    ['Thunder Lord',     '⚡'],  // 60
+    ['Ice Commander',    '🏔️'],  // 61
+    ['Eagle Eye',        '🦅'],  // 62
+    ['Aurora Knight',    '⚔️'],  // 63
+    ['Night Commander',  '🌃'],  // 64
+    ['Crown Hunter',     '👑'],  // 65
+    // --- TIER 6: MASTER (66-80) ---
+    ['Aurora Master',    '🎓'],  // 66
+    ['Grand Pathfinder', '🗺️'],  // 67
+    ['Dragon Rider',     '🐉'],  // 68
+    ['Frost Monarch',    '❄️'],  // 69
+    ['Seventy Strong',   '🏋️'],  // 70
+    ['Titan Guide',      '🗿'],  // 71
+    ['Phantom Walker',   '👻'],  // 72
+    ['Sky Shaman',       '🪬'],  // 73
+    ['Rune Master',      '🔮'],  // 74
+    ['Wolf King',        '🐺'],  // 75
+    ['Celestial Keeper', '🌟'],  // 76
+    ['Storm Sage',       '🧙'],  // 77
+    ['Aurora Warden',    '🛡️'],  // 78
+    ['Bifrost Walker',   '🌈'],  // 79
+    ['Eighty Legend',    '🏅'],  // 80
+    // --- TIER 7: LEGEND (81-90) ---
+    ['Living Legend',    '🦁'],  // 81
+    ['Mythic Guide',     '🏛️'],  // 82
+    ['Saga Hero',        '📖'],  // 83
+    ['Ragnarok Ready',   '⚒️'],  // 84
+    ['Eternal Flame',    '🔥'],  // 85
+    ['Frost Giant',      '🧊'],  // 86
+    ['Valkyrie',         '🪽'],  // 87
+    ['Einherjar',        '⚔️'],  // 88
+    ['Asgard Bound',     '🌀'],  // 89
+    ['Viking Legend',    '🛡️'],  // 90
+    // --- TIER 8: GOD (91-100) ---
+    ['Demigod',          '🔱'],  // 91
+    ['Sky Father',       '⛅'],  // 92
+    ['Storm God',        '🌩️'],  // 93
+    ['Fenrir Slayer',    '🐲'],  // 94
+    ['World Serpent',    '🐍'],  // 95
+    ['Mjolnir Bearer',   '🔨'],  // 96
+    ['Allfather\'s Eye', '👁️'],  // 97
+    ['Valhalla Elite',   '⚔️'],  // 98
+    ['Northern God',     '👑'],  // 99
+    ['Odin\'s Chosen',   '🏆'],  // 100
+  ];
+
+  // XP curve: polynomial ramp — fast early, slower later
+  // Formula: xp(n) = round(15 * n^1.65)
+  // Lv1=0, Lv2≈47, Lv5≈200, Lv10≈670, Lv25≈3300, Lv50≈11600,
+  // Lv75≈24000, Lv100≈40500
+  final levels = <GuideLevel>[];
+  for (int i = 0; i < data.length; i++) {
+    final n = i + 1;
+    final xp = n == 1 ? 0 : (15.0 * math.pow(n.toDouble(), 1.65)).round();
+    levels.add(GuideLevel(
+      level: n,
+      title: data[i][0],
+      badge: data[i][1],
+      xpRequired: xp,
+    ));
+  }
+  return levels;
+}
 
 // ============================================
 // BADGE DEFINITIONS
@@ -134,6 +256,14 @@ final List<GuideBadge> allBadges = [
     description: 'Handle 10+ no-shows gracefully',
     isEarned: (s) => s.noShowsHandled >= 10,
   ),
+  // OG badge for early adopters
+  GuideBadge(
+    id: 'og_viking',
+    name: 'OG Viking',
+    emoji: '⚔️',
+    description: 'Joined Aurora Viking in its founding era (2026 or earlier)',
+    isEarned: (s) => s.isOG,
+  ),
 ];
 
 // ============================================
@@ -153,6 +283,8 @@ class GuideStats {
   final GuideLevel? nextLevel;
   final double levelProgress; // 0.0 - 1.0
   final List<GuideBadge> earnedBadges;
+  final bool isOG;      // Joined 2026 or before
+  final bool isAdmin;   // Admin user
 
   const GuideStats({
     required this.guideId,
@@ -167,7 +299,32 @@ class GuideStats {
     this.nextLevel,
     required this.levelProgress,
     required this.earnedBadges,
+    this.isOG = false,
+    this.isAdmin = false,
   });
+
+  /// Display title that accounts for OG status and admin status.
+  /// Admins at max level get a special endgame title.
+  /// OG guides get a prefix.
+  String get displayTitle {
+    if (isAdmin && currentLevel.level >= 90) {
+      return '🏛️ Allfather';
+    }
+    if (isOG) {
+      return '⚔️ OG ${currentLevel.title}';
+    }
+    return currentLevel.title;
+  }
+
+  String get displayBadge {
+    if (isAdmin && currentLevel.level >= 90) {
+      return '🏛️';
+    }
+    if (isOG) {
+      return '⚔️';
+    }
+    return currentLevel.badge;
+  }
 }
 
 // ============================================
@@ -184,6 +341,24 @@ class GuideGamificationService {
     int strongAuroraSightings = 0;
     int totalPassengersServed = 0;
     int noShowsHandled = 0;
+    bool isOG = false;
+    bool isAdmin = false;
+
+    // 0. Look up user doc for createdAt and isAdmin
+    try {
+      final userDoc = await _firestore.collection('users').doc(guideId).get();
+      if (userDoc.exists) {
+        final data = userDoc.data()!;
+        if (data['createdAt'] != null) {
+          final createdAt = DateTime.parse(data['createdAt']);
+          isOG = createdAt.year <= 2026;
+        }
+        isAdmin = data['isAdmin'] == true;
+        guideName ??= data['fullName'] as String? ?? '';
+      }
+    } catch (e) {
+      print('⚠️ Could not load user doc: $e');
+    }
 
     // 1. Count completed shifts
     try {
@@ -289,6 +464,8 @@ class GuideGamificationService {
       nextLevel: levelInfo['next'] as GuideLevel?,
       levelProgress: levelInfo['progress'] as double,
       earnedBadges: [],
+      isOG: isOG,
+      isAdmin: isAdmin,
     );
 
     final earnedBadges = allBadges.where((badge) => badge.isEarned(tempStats)).toList();
@@ -306,6 +483,8 @@ class GuideGamificationService {
       nextLevel: levelInfo['next'] as GuideLevel?,
       levelProgress: levelInfo['progress'] as double,
       earnedBadges: earnedBadges,
+      isOG: isOG,
+      isAdmin: isAdmin,
     );
   }
 

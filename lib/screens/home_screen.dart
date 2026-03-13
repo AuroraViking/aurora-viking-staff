@@ -3,6 +3,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:async';
 import 'package:provider/provider.dart';
 import '../modules/shifts/shifts_screen.dart';
 import '../modules/tracking/tracking_screen.dart';
@@ -17,9 +18,12 @@ import '../modules/admin/admin_dashboard.dart';
 import '../modules/admin/admin_controller.dart';
 import '../core/auth/auth_controller.dart';
 import '../core/utils/platform_utils.dart';
+import '../core/services/guide_gamification.dart';
 import '../modules/radio/radio_screen.dart';
 import '../modules/radio/radio_controller.dart';
 import '../modules/guide_map/guide_map_screen.dart';
+import '../core/services/notification_service.dart';
+import '../modules/inbox/unified_inbox_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -30,6 +34,9 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
+  final GuideGamificationService _gamificationService = GuideGamificationService();
+  GuideStats? _guideStats;
+  StreamSubscription<Map<String, dynamic>>? _notificationSub;
 
   @override
   void initState() {
@@ -41,8 +48,64 @@ class _HomeScreenState extends State<HomeScreen> {
       final userName = auth.currentUser?.fullName ?? 'Unknown';
       if (userId.isNotEmpty) {
         context.read<RadioController>().init(userId, userName);
+        _loadGamification(userId, userName);
       }
     });
+
+    // Listen for notification taps and navigate accordingly.
+    _notificationSub = NotificationService.onNotificationTap.listen(_handleNotificationTap);
+  }
+
+  @override
+  void dispose() {
+    _notificationSub?.cancel();
+    super.dispose();
+  }
+
+  /// Route the user to the correct screen based on the notification payload.
+  void _handleNotificationTap(Map<String, dynamic> data) {
+    final type = data['type'] as String? ?? '';
+    print('🔔 Handling notification tap: type=$type, data=$data');
+
+    switch (type) {
+      case 'radio_message':
+        final channelId = data['channelId'] as String?;
+        // Open the radio screen and switch to the right channel.
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const RadioScreen()),
+        );
+        // Switch channel after a brief delay to let the screen init.
+        if (channelId != null && channelId.isNotEmpty) {
+          Future.delayed(const Duration(milliseconds: 300), () {
+            if (mounted) {
+              context.read<RadioController>().switchChannel(channelId);
+            }
+          });
+        }
+        break;
+      case 'website_chat':
+        // Open the unified inbox.
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => UnifiedInboxScreen()),
+        );
+        break;
+      // Add more cases here as needed.
+      default:
+        print('⚠️ Unknown notification type: $type');
+    }
+  }
+
+  Future<void> _loadGamification(String userId, String userName) async {
+    try {
+      final stats = await _gamificationService.calculateGuideStats(userId, guideName: userName);
+      if (mounted) {
+        setState(() => _guideStats = stats);
+      }
+    } catch (e) {
+      print('⚠️ Could not load gamification: $e');
+    }
   }
 
   // Build screens list based on platform capabilities
@@ -261,36 +324,26 @@ class _HomeScreenState extends State<HomeScreen> {
               );
             },
           ),
-          IconButton(
-            icon: const Icon(Icons.notifications),
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Notifications - Coming Soon')),
-              );
-            },
-          ),
-          // Profile button as username
+          // Profile button as username with level
           Consumer<AuthController>(
             builder: (context, authController, child) {
               final userName = authController.currentUser?.fullName ?? 'User';
+              final levelText = _guideStats != null
+                  ? 'Lv.${_guideStats!.currentLevel.level} '
+                  : '';
               return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                child: TextButton.icon(
+                padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                child: TextButton(
                   onPressed: _showProfileMenu,
-                  icon: const CircleAvatar(
-                    radius: 12,
-                    backgroundColor: Colors.white24,
-                    child: Icon(Icons.person, size: 16, color: Colors.white),
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   ),
-                  label: Text(
-                    userName,
+                  child: Text(
+                    '$levelText$userName',
                     style: const TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.w500,
                     ),
-                  ),
-                  style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   ),
                 ),
               );

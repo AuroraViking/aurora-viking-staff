@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -23,6 +24,14 @@ class NotificationService {
   static FlutterLocalNotificationsPlugin? _localNotifications;
   static bool _initialized = false;
   static String? _currentFcmToken;
+
+  /// Stream that emits notification data when a notification is tapped.
+  /// Listen to this in your UI (e.g. HomeScreen) to navigate to the
+  /// appropriate screen.
+  static final StreamController<Map<String, dynamic>> _onNotificationTap =
+      StreamController<Map<String, dynamic>>.broadcast();
+  static Stream<Map<String, dynamic>> get onNotificationTap =>
+      _onNotificationTap.stream;
 
   // Initialize notification service
   static Future<void> initialize() async {
@@ -81,6 +90,15 @@ class NotificationService {
           initializationSettings,
           onDidReceiveNotificationResponse: (NotificationResponse response) {
             print('🔔 Notification tapped: ${response.payload}');
+            // Parse the JSON payload and push it to the navigation stream.
+            if (response.payload != null && response.payload!.isNotEmpty) {
+              try {
+                final data = jsonDecode(response.payload!) as Map<String, dynamic>;
+                _onNotificationTap.add(data);
+              } catch (e) {
+                print('⚠️ Could not parse notification payload: $e');
+              }
+            }
           },
         );
 
@@ -162,12 +180,14 @@ class NotificationService {
         iOS: iOSPlatformChannelSpecifics,
       );
 
+      // Serialize data as JSON so we can parse it on tap.
+      final payload = jsonEncode(message.data);
       await _localNotifications!.show(
         message.hashCode,
         message.notification?.title ?? 'Aurora Viking Staff',
         message.notification?.body ?? '',
         platformChannelSpecifics,
-        payload: message.data.toString(),
+        payload: payload,
       );
     }
   }
@@ -178,7 +198,10 @@ class NotificationService {
     print('   Title: ${message.notification?.title}');
     print('   Body: ${message.notification?.body}');
     print('   Data: ${message.data}');
-    // TODO: Navigate to appropriate screen based on message.data
+    // Push the data payload so the UI can navigate to the right screen.
+    if (message.data.isNotEmpty) {
+      _onNotificationTap.add(Map<String, dynamic>.from(message.data));
+    }
   }
 
   // Get FCM token and save to Firestore

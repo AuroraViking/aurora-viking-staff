@@ -13,6 +13,8 @@ import '../../core/models/admin_models.dart';
 import '../../core/services/firebase_service.dart'; // Added import for FirebaseService
 import '../../core/services/bus_management_service.dart';
 import '../../core/services/auto_dispatch_service.dart';
+import '../shifts/shifts_service.dart';
+import '../../core/models/shift_model.dart';
 
 class AdminPickupManagementScreen extends StatefulWidget {
   const AdminPickupManagementScreen({Key? key}) : super(key: key);
@@ -39,7 +41,6 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
   bool _hasNote = false; // true when a non-empty note exists for this date
   final BusManagementService _busService = BusManagementService();
   final AutoDispatchService _autoDispatchService = AutoDispatchService();
-  Timer? _autoDispatchTimer;
 
   @override
   void initState() {
@@ -60,13 +61,8 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
       // Add listener to reset reordered bookings when data changes
       controller.addListener(_onControllerDataChanged);
 
-      // Start 60s auto-dispatch timer
-      _autoDispatchTimer?.cancel();
-      _autoDispatchTimer = Timer.periodic(const Duration(seconds: 60), (_) {
-        if (mounted) _checkAutoDispatch();
-      });
-      // Also check immediately on load
-      _checkAutoDispatch();
+      // Auto-dispatch runs server-side via Cloud Functions (every 5 min).
+      // No client-side timer needed — just load data and show it.
     });
   }
 
@@ -74,54 +70,8 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
   void dispose() {
     final controller = context.read<PickupController>();
     controller.removeListener(_onControllerDataChanged);
-    _autoDispatchTimer?.cancel();
     _tabController.dispose();
     super.dispose();
-  }
-
-  Future<void> _checkAutoDispatch() async {
-    if (!mounted) return;
-    final controller = context.read<PickupController>();
-    
-    // Refresh data first
-    await controller.loadBookingsForDate(controller.selectedDate);
-    
-    // Check noon auto-accept + 30-min auto-dispatch
-    final result = await _autoDispatchService.autoDispatchIfNeeded(controller);
-    if (result != null && mounted) {
-      await _loadBusAssignments(controller);
-      if (result == 'noon_accept') {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('🕛 Noon auto-accept — top-ranked guides accepted for tonight!'),
-            backgroundColor: Colors.blue,
-            duration: Duration(seconds: 5),
-          ),
-        );
-      } else if (result == 'dispatched') {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('🤖 Auto-dispatch triggered — guides and buses assigned!'),
-            backgroundColor: Colors.green,
-            duration: Duration(seconds: 5),
-          ),
-        );
-      }
-      return;
-    }
-    
-    // Check 10-min last-minute re-dispatch
-    final reDispatched = await _autoDispatchService.handleLastMinuteBooking(controller);
-    if (reDispatched && mounted) {
-      await _loadBusAssignments(controller);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('🤖 Last-minute booking detected — redistributed!'),
-          backgroundColor: Colors.orange,
-          duration: Duration(seconds: 5),
-        ),
-      );
-    }
   }
 
   bool _isLoadingAssignments = false;
@@ -921,7 +871,12 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
   }
 
   Widget _buildUnassignedTab(PickupController controller) {
-    final unassignedBookings = controller.unassignedBookings;
+    final unassignedBookings = List<PickupBooking>.from(controller.unassignedBookings)
+      ..sort((a, b) {
+        final placeCompare = a.pickupPlaceName.compareTo(b.pickupPlaceName);
+        if (placeCompare != 0) return placeCompare;
+        return a.customerFullName.compareTo(b.customerFullName);
+      });
     
     // Group bookings by TOUR TYPE and DEPARTURE TIME first!
     // This prevents mixing up private tours with group tours
@@ -1161,6 +1116,19 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
                   fontWeight: FontWeight.bold,
                 ),
               ),
+            ),
+            const SizedBox(width: 4),
+            // Assign entire group to a guide in one tap
+            PopupMenuButton<String>(
+              icon: Icon(
+                Icons.person_add,
+                color: isPrivateTour ? Colors.amber : AppColors.primary,
+                size: 20,
+              ),
+              tooltip: 'Assign group to guide',
+              color: const Color(0xFF1A1A2E),
+              onSelected: (guideId) => _assignGroupToGuide(bookings, guideId, controller),
+              itemBuilder: (_) => _buildGuideMenuItemsForGroup(controller, totalGuests),
             ),
           ],
         ),
@@ -2398,12 +2366,28 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
     final selected = <String>{};
     final guideBusMap = <String, String?>{}; // guideId -> busId
 
-    // Pre-select guides who already have assignments
     final controller = context.read<PickupController>();
+
+    // Pre-select guides who have accepted shifts for this date
+    final shiftsService = ShiftsService();
+    final allShifts = await shiftsService.getAllShiftsForDate(controller.selectedDate);
+    final acceptedShiftGuideIds = <String>{};
+    for (final shift in allShifts) {
+      if (shift.status == ShiftStatus.accepted && shift.guideId != null) {
+        acceptedShiftGuideIds.add(shift.guideId!);
+        selected.add(shift.guideId!);
+        // Pre-fill bus from shift if available
+        if (shift.busId != null && shift.busId!.isNotEmpty) {
+          guideBusMap[shift.guideId!] = shift.busId;
+        }
+      }
+    }
+
+    // Also pre-select guides who already have pickup assignments
     for (final guideList in controller.guideLists) {
       selected.add(guideList.guideId);
     }
-    // Pre-fill existing bus assignments
+    // Pre-fill existing bus assignments (overrides shift bus if already assigned)
     for (final entry in _busAssignments.entries) {
       guideBusMap[entry.key] = entry.value['busId'];
     }
@@ -2479,9 +2463,28 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
                                     }
                                   });
                                 },
-                                title: Text(
-                                  guide.name,
-                                  style: const TextStyle(color: Colors.white, fontSize: 14),
+                                title: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        guide.name,
+                                        style: const TextStyle(color: Colors.white, fontSize: 14),
+                                      ),
+                                    ),
+                                    if (acceptedShiftGuideIds.contains(guide.id))
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: Colors.green.withOpacity(0.2),
+                                          borderRadius: BorderRadius.circular(8),
+                                          border: Border.all(color: Colors.green.withOpacity(0.5)),
+                                        ),
+                                        child: const Text(
+                                          '✓ shift',
+                                          style: TextStyle(color: Colors.green, fontSize: 10, fontWeight: FontWeight.bold),
+                                        ),
+                                      ),
+                                  ],
                                 ),
                                 subtitle: isSelected && _availableBuses.isNotEmpty
                                     ? Padding(
@@ -2667,6 +2670,82 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
         ),
       );
     }
+  }
+
+  /// Assign ALL bookings in a pickup place group to a single guide.
+  void _assignGroupToGuide(List<PickupBooking> bookings, String guideId, PickupController controller) async {
+    final guide = _guides.firstWhere((g) => g.id == guideId, orElse: () => AdminGuide(
+      id: guideId,
+      name: 'Unknown Guide',
+      email: '',
+      phone: '',
+      profileImageUrl: '',
+      status: 'inactive',
+      joinDate: DateTime.now(),
+      totalShifts: 0,
+      rating: 0.0,
+      certifications: [],
+      preferences: {},
+    ));
+
+    int assigned = 0;
+    for (final booking in bookings) {
+      final success = await controller.assignBookingToGuide(booking.id, guideId, guide.name);
+      if (success) assigned++;
+    }
+
+    if (mounted) {
+      final totalGuests = bookings.fold<int>(0, (s, b) => s + b.numberOfGuests);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('$assigned bookings ($totalGuests guests) assigned to ${guide.name}'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    }
+  }
+
+  /// Build guide menu items showing capacity info for a group assignment.
+  List<PopupMenuEntry<String>> _buildGuideMenuItemsForGroup(PickupController controller, int groupGuests) {
+    if (_guides.isEmpty) {
+      return [
+        const PopupMenuItem(
+          value: '',
+          enabled: false,
+          child: Text('No guides available', style: TextStyle(color: Colors.white)),
+        ),
+      ];
+    }
+
+    return _guides.map((guide) {
+      final guideList = controller.getGuideList(guide.id);
+      final currentPax = guideList?.totalPassengers ?? 0;
+      final wouldBe = currentPax + groupGuests;
+      final fits = wouldBe <= 18;
+
+      return PopupMenuItem<String>(
+        value: guide.id,
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                guide.name,
+                style: const TextStyle(color: Colors.white),
+              ),
+            ),
+            Text(
+              '$currentPax → $wouldBe',
+              style: TextStyle(
+                color: fits ? Colors.green : Colors.orange,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            if (!fits) const SizedBox(width: 4),
+            if (!fits) const Icon(Icons.warning, color: Colors.orange, size: 16),
+          ],
+        ),
+      );
+    }).toList();
   }
 
   void _handleBookingAction(String action, PickupBooking booking, GuidePickupList guideList, PickupController controller) {

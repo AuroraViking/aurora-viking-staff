@@ -1,6 +1,6 @@
 /**
  * Voice Radio Cloud Functions
- * Sends push notifications when a new radio voice note is posted.
+ * Sends push notifications when a new radio message is posted (voice, text, or image).
  */
 const { onDocumentCreated } = require('firebase-functions/v2/firestore');
 const { db } = require('../utils/firebase');
@@ -21,10 +21,11 @@ const onRadioMessageCreated = onDocumentCreated(
         if (!snap) return;
 
         const data = snap.data();
-        const { channelId, senderName, senderId, durationMs } = data;
+        const { channelId, senderName, senderId, durationMs, type, textContent } = data;
+        const messageType = type || 'voice';
         const durationSecs = Math.ceil((durationMs || 0) / 1000);
 
-        console.log(`📻 New radio message from ${senderName} on channel ${channelId}`);
+        console.log(`📻 New radio ${messageType} message from ${senderName} on channel ${channelId}`);
 
         // Determine the channel info.
         const channelDoc = await db.collection('radio_channels').doc(channelId).get();
@@ -75,7 +76,19 @@ const onRadioMessageCreated = onDocumentCreated(
         }
 
         const title = `📻 ${senderName} on #${channelName}`;
-        const body = `New voice message (${durationSecs}s)`;
+
+        // Build body based on message type.
+        let body;
+        if (messageType === 'text') {
+            const preview = (textContent || '').length > 80
+                ? (textContent || '').substring(0, 80) + '...'
+                : (textContent || '');
+            body = preview || 'New text message';
+        } else if (messageType === 'image') {
+            body = '📷 Sent a photo';
+        } else {
+            body = `🎙 Voice message (${durationSecs}s)`;
+        }
 
         await sendPushNotifications(tokens, title, body, {
             type: 'radio_message',

@@ -1,4 +1,4 @@
-/// Full-screen Radio UI with channel selector, message list, and record button.
+/// Full-screen Radio UI with channel selector, message list, and multi-mode input.
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/auth/auth_controller.dart';
@@ -6,6 +6,8 @@ import 'radio_controller.dart';
 import 'radio_service.dart';
 import 'widgets/record_button.dart';
 import 'widgets/voice_message_tile.dart';
+import 'widgets/text_message_tile.dart';
+import 'widgets/image_message_tile.dart';
 
 class RadioScreen extends StatefulWidget {
   const RadioScreen({super.key});
@@ -16,6 +18,9 @@ class RadioScreen extends StatefulWidget {
 
 class _RadioScreenState extends State<RadioScreen> {
   final ScrollController _scrollController = ScrollController();
+  final TextEditingController _textController = TextEditingController();
+  final FocusNode _focusNode = FocusNode();
+  bool _showTextInput = false;
 
   @override
   void initState() {
@@ -31,6 +36,8 @@ class _RadioScreenState extends State<RadioScreen> {
   @override
   void dispose() {
     _scrollController.dispose();
+    _textController.dispose();
+    _focusNode.dispose();
     super.dispose();
   }
 
@@ -210,7 +217,7 @@ class _RadioScreenState extends State<RadioScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Hold the mic button to send a voice note',
+              'Send a voice note, text, or image',
               style: TextStyle(
                 color: Colors.white.withOpacity(0.2),
                 fontSize: 13,
@@ -227,28 +234,274 @@ class _RadioScreenState extends State<RadioScreen> {
       itemCount: radio.messages.length,
       itemBuilder: (context, i) {
         final msg = radio.messages[i];
-        return VoiceMessageTile(
-          message: msg,
-          isPlaying: radio.playingMessageId == msg.id && radio.isPlaying,
-          isOwnMessage: msg.senderId == userId,
-          onPlay: () => radio.playMessage(msg),
-        );
+        final isOwn = msg.senderId == userId;
+
+        switch (msg.type) {
+          case RadioMessageType.text:
+            return TextMessageTile(
+              message: msg,
+              isOwnMessage: isOwn,
+            );
+          case RadioMessageType.image:
+            return ImageMessageTile(
+              message: msg,
+              isOwnMessage: isOwn,
+            );
+          case RadioMessageType.voice:
+          default:
+            return VoiceMessageTile(
+              message: msg,
+              isPlaying: radio.playingMessageId == msg.id && radio.isPlaying,
+              isOwnMessage: isOwn,
+              onPlay: () => radio.playMessage(msg),
+            );
+        }
       },
     );
   }
 
   Widget _buildBottomBar(RadioController radio) {
     return Container(
-      padding: const EdgeInsets.only(top: 12, bottom: 24, left: 16, right: 16),
+      padding: const EdgeInsets.only(top: 8, bottom: 24, left: 12, right: 12),
       decoration: const BoxDecoration(
         color: Color(0xFF0F1318),
         border: Border(top: BorderSide(color: Colors.white12)),
       ),
-      child: RecordButton(
-        isRecording: radio.isRecording,
-        onRecordStart: radio.startRecording,
-        onRecordStop: radio.stopRecordingAndSend,
-        onRecordCancel: radio.cancelRecording,
+      child: SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Sending indicator
+            if (radio.isSending)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Color(0xFF00E5FF),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Sending...',
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.5),
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            // Input row
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                // Image attachment button
+                _buildActionButton(
+                  icon: Icons.image,
+                  tooltip: 'Send image',
+                  onPressed: radio.isSending
+                      ? null
+                      : () => _showImageOptions(radio),
+                ),
+                const SizedBox(width: 6),
+                // Toggle text input
+                _buildActionButton(
+                  icon: _showTextInput ? Icons.mic : Icons.text_fields,
+                  tooltip: _showTextInput ? 'Voice mode' : 'Text mode',
+                  color: const Color(0xFF00E5FF),
+                  onPressed: () {
+                    setState(() {
+                      _showTextInput = !_showTextInput;
+                      if (_showTextInput) {
+                        _focusNode.requestFocus();
+                      } else {
+                        _focusNode.unfocus();
+                      }
+                    });
+                  },
+                ),
+                const SizedBox(width: 6),
+                // Text input OR mic button
+                Expanded(
+                  child: _showTextInput
+                      ? _buildTextInput(radio)
+                      : RecordButton(
+                          isRecording: radio.isRecording,
+                          onRecordStart: radio.startRecording,
+                          onRecordStop: radio.stopRecordingAndSend,
+                          onRecordCancel: radio.cancelRecording,
+                        ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTextInput(RadioController radio) {
+    return Row(
+      children: [
+        Expanded(
+          child: Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFF1A202C),
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: Colors.white12),
+            ),
+            child: TextField(
+              controller: _textController,
+              focusNode: _focusNode,
+              decoration: const InputDecoration(
+                hintText: 'Type a message...',
+                hintStyle: TextStyle(color: Colors.white30, fontSize: 14),
+                border: InputBorder.none,
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 10,
+                ),
+              ),
+              style: const TextStyle(color: Colors.white, fontSize: 14),
+              maxLines: 3,
+              minLines: 1,
+              textInputAction: TextInputAction.send,
+              onSubmitted: (_) => _sendText(radio),
+              onChanged: (_) => setState(() {}),
+            ),
+          ),
+        ),
+        const SizedBox(width: 6),
+        Container(
+          decoration: BoxDecoration(
+            color: _textController.text.trim().isEmpty
+                ? const Color(0xFF1A202C)
+                : const Color(0xFF00E5FF),
+            shape: BoxShape.circle,
+          ),
+          child: IconButton(
+            icon: radio.isSending
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : Icon(
+                    Icons.send,
+                    color: _textController.text.trim().isEmpty
+                        ? Colors.white30
+                        : const Color(0xFF0A0D12),
+                    size: 20,
+                  ),
+            onPressed: radio.isSending || _textController.text.trim().isEmpty
+                ? null
+                : () => _sendText(radio),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildActionButton({
+    required IconData icon,
+    required String tooltip,
+    Color color = Colors.white54,
+    VoidCallback? onPressed,
+  }) {
+    return Container(
+      width: 40,
+      height: 40,
+      decoration: BoxDecoration(
+        color: const Color(0xFF1A202C),
+        shape: BoxShape.circle,
+        border: Border.all(color: Colors.white12),
+      ),
+      child: IconButton(
+        icon: Icon(icon, color: onPressed != null ? color : Colors.white24, size: 20),
+        tooltip: tooltip,
+        onPressed: onPressed,
+        padding: EdgeInsets.zero,
+      ),
+    );
+  }
+
+  void _sendText(RadioController radio) async {
+    final text = _textController.text;
+    if (text.trim().isEmpty) return;
+    _textController.clear();
+    await radio.sendTextMessage(text);
+  }
+
+  void _showImageOptions(RadioController radio) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1A202C),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: Colors.white24,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF00E5FF).withOpacity(0.15),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.photo_library, color: Color(0xFF00E5FF)),
+                ),
+                title: const Text('Choose from Gallery',
+                    style: TextStyle(color: Colors.white)),
+                subtitle: const Text('Pick an existing photo',
+                    style: TextStyle(color: Colors.white38, fontSize: 12)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  radio.pickAndSendImage();
+                },
+              ),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF69F0AE).withOpacity(0.15),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.camera_alt, color: Color(0xFF69F0AE)),
+                ),
+                title: const Text('Take Photo',
+                    style: TextStyle(color: Colors.white)),
+                subtitle: const Text('Use camera to take a new photo',
+                    style: TextStyle(color: Colors.white38, fontSize: 12)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  radio.takeAndSendPhoto();
+                },
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

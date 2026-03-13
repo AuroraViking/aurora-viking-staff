@@ -1,18 +1,22 @@
 /**
  * Reports Module
  * Handles tour report generation and related Firestore triggers
+ * Enhanced with manifest snapshotting, GPS trails, and Drive folder organization
  */
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { onCall } = require('firebase-functions/v2/https');
 const { onDocumentWritten, onDocumentCreated } = require('firebase-functions/v2/firestore');
 const { google } = require('googleapis');
 const { db } = require('../utils/firebase');
-const { DRIVE_FOLDER_ID } = require('../config');
+const { DRIVE_FOLDER_ID, REPORTS_FOLDER_NAME } = require('../config');
 const { sendNotificationToAdminsOnly } = require('../utils/notifications');
 const {
     getGoogleAuth,
+    getDriveAuthAsPhotoUser,
+    findOrCreateSubfolder,
     createSheetInFolder,
     populateSheetWithReportData,
+    populateSheetWithEnhancedReportData,
     getAuroraRatingDisplay,
     getBestAuroraRating,
 } = require('../utils/google_auth');
@@ -20,12 +24,14 @@ const {
 /**
  * DEFENSIVE generateReport - Works at any stage of the tour
  * Handles missing data gracefully
+ * Enhanced: Snapshots manifest, includes GPS trails, organizes Drive folders
  */
 async function generateReport(targetDate) {
-    console.log(`📅 Generating report for: ${targetDate}`);
+    console.log(`📅 Generating ENHANCED report for: ${targetDate}`);
 
     // ========== STEP 1: Get cached bookings ==========
     let bookings = [];
+    let usedSnapshot = false;
     try {
         const cacheDoc = await db.collection('cached_bookings').doc(targetDate).get();
 
@@ -38,6 +44,21 @@ async function generateReport(targetDate) {
         }
     } catch (error) {
         console.log('⚠️ Could not fetch cached_bookings:', error.message);
+    }
+
+    // ========== STEP 1.1: Fallback to snapshot if cached_bookings is empty ==========
+    if (bookings.length === 0) {
+        try {
+            const snapshotDoc = await db.collection('tour_report_snapshots').doc(targetDate).get();
+            if (snapshotDoc.exists) {
+                const snapshotData = snapshotDoc.data();
+                bookings = snapshotData.bookings || [];
+                usedSnapshot = true;
+                console.log(`📸 Restored ${bookings.length} bookings from snapshot (cached_bookings was empty)`);
+            }
+        } catch (error) {
+            console.log('⚠️ Could not fetch snapshot:', error.message);
+        }
     }
 
     // ========== STEP 1.5: Get pickup_assignments (SOURCE OF TRUTH!) ==========
@@ -83,8 +104,20 @@ async function generateReport(targetDate) {
     console.log(`✅ After merging: ${assignedCount}/${bookings.length} bookings have guide assignments`);
 
     if (bookings.length === 0) {
-        console.log('⚠️ Bookings array is empty.');
-        return { success: false, message: 'No bookings in cache', date: targetDate };
+        console.log('⚠️ Bookings array is empty (no cache AND no snapshot).');
+        return { success: false, message: 'No bookings found (cache and snapshot both empty)', date: targetDate };
+    }
+
+    // ========== STEP 1.7: Snapshot the bookings for permanent storage ==========
+    try {
+        await db.collection('tour_report_snapshots').doc(targetDate).set({
+            bookings: bookings,
+            snapshotAt: new Date().toISOString(),
+            source: usedSnapshot ? 'previous_snapshot' : 'cached_bookings',
+        }, { merge: false }); // Always overwrite with latest complete data
+        console.log(`📸 Manifest snapshot saved to tour_report_snapshots/${targetDate} (${bookings.length} bookings)`);
+    } catch (error) {
+        console.error('⚠️ Could not save manifest snapshot:', error.message);
     }
 
     // ========== STEP 2: Get bus-guide assignments (optional) ==========
@@ -134,6 +167,90 @@ async function generateReport(targetDate) {
         console.log('⚠️ Could not fetch end-of-shift reports (this is okay):', error.message);
     }
 
+    // ========== STEP 3.5: Fetch GPS trail data per bus ==========
+    const busGpsTrails = {};
+    try {
+        // Parse date for time range: tour evening 6pm → next day 5am
+        const dateParts = targetDate.split('-');
+        const year = parseInt(dateParts[0]);
+        const month = parseInt(dateParts[1]) - 1; // JS months are 0-indexed
+        const day = parseInt(dateParts[2]);
+
+        const startTime = new Date(year, month, day, 18, 0, 0); // 6pm
+        const endTime = new Date(year, month, day + 1, 5, 0, 0); // 5am next day
+
+        // Get all unique bus IDs from guide assignments
+        const busIds = [...new Set(Object.values(guideToBus).map(b => b.busId).filter(Boolean))];
+
+        for (const busId of busIds) {
+            try {
+                const admin = require('firebase-admin');
+                const locationSnapshot = await db.collection('location_history')
+                    .where('busId', '==', busId)
+                    .where('timestamp', '>=', admin.firestore.Timestamp.fromDate(startTime))
+                    .where('timestamp', '<=', admin.firestore.Timestamp.fromDate(endTime))
+                    .orderBy('timestamp', 'asc')
+                    .limit(5000)
+                    .get();
+
+                if (locationSnapshot.empty) {
+                    console.log(`🗺️ No GPS data for bus ${busId}`);
+                    continue;
+                }
+
+                const points = locationSnapshot.docs.map(doc => doc.data());
+                let totalDistance = 0;
+                let maxSpeed = 0;
+                let firstTime = null;
+                let lastTime = null;
+
+                for (let i = 0; i < points.length; i++) {
+                    const p = points[i];
+                    const speedKmh = (p.speed || 0) * 3.6;
+                    if (speedKmh > maxSpeed) maxSpeed = speedKmh;
+
+                    const ts = p.timestamp?.toDate ? p.timestamp.toDate() : null;
+                    if (ts) {
+                        if (!firstTime) firstTime = ts;
+                        lastTime = ts;
+                    }
+
+                    if (i > 0) {
+                        totalDistance += _haversineDistance(
+                            points[i - 1].latitude, points[i - 1].longitude,
+                            p.latitude, p.longitude
+                        );
+                    }
+                }
+
+                let durationStr = 'Unknown';
+                if (firstTime && lastTime) {
+                    const durationMs = lastTime - firstTime;
+                    const hours = Math.floor(durationMs / 3600000);
+                    const minutes = Math.floor((durationMs % 3600000) / 60000);
+                    durationStr = `${hours}h ${minutes}m`;
+                }
+
+                const formatTime = (d) => d ? `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` : 'Unknown';
+
+                busGpsTrails[busId] = {
+                    totalDistanceKm: totalDistance,
+                    maxSpeedKmh: maxSpeed,
+                    pointCount: points.length,
+                    startTimeStr: formatTime(firstTime),
+                    endTimeStr: formatTime(lastTime),
+                    durationStr: durationStr,
+                };
+
+                console.log(`🗺️ GPS trail for bus ${busId}: ${totalDistance.toFixed(1)}km, ${durationStr}, ${points.length} points`);
+            } catch (gpsError) {
+                console.log(`⚠️ Could not fetch GPS for bus ${busId}:`, gpsError.message);
+            }
+        }
+    } catch (error) {
+        console.log('⚠️ GPS trail fetch failed (continuing without):', error.message);
+    }
+
     // ========== STEP 4: Group bookings by assigned guide ==========
     const guideData = {};
     const unassignedBookings = [];
@@ -158,6 +275,8 @@ async function generateReport(targetDate) {
                     hasSubmittedReport: !!shiftReport.auroraRating,
                     totalPassengers: 0,
                     bookings: [],
+                    // Attach GPS trail for this guide's bus
+                    gpsTrail: busInfo.busId ? (busGpsTrails[busInfo.busId] || null) : null,
                 };
             }
 
@@ -208,6 +327,7 @@ async function generateReport(targetDate) {
         unassignedPassengers: unassignedPassengers,
         auroraSummary: auroraSummary,
         auroraReports: auroraRatings.length,
+        usedSnapshot: usedSnapshot,
         guides: Object.entries(guideData).map(([guideId, data]) => ({
             guideId,
             guideName: data.guideName,
@@ -220,6 +340,7 @@ async function generateReport(targetDate) {
             hasSubmittedReport: data.hasSubmittedReport,
             totalPassengers: data.totalPassengers,
             bookingCount: data.bookings.length,
+            gpsTrail: data.gpsTrail || null,
             bookings: data.bookings.map((b) => ({
                 id: b.id || b.bookingId || 'unknown',
                 customerName: b.customerFullName || b.customerName || 'Unknown',
@@ -262,47 +383,67 @@ async function generateReport(targetDate) {
         return { success: false, message: 'Error saving report: ' + error.message, date: targetDate };
     }
 
-    // ========== STEP 8: Create/Update Google Sheet ==========
+    // ========== STEP 8: Create/Update Google Sheet with Drive folder structure ==========
+    // Same proven pattern as photo_upload.js:
+    // - photo@ auth (Drive-only scopes) for file/folder creation → file owned by photo@, uses their 2TB
+    // - ADC service account auth for Sheets API population
     let sheetUrl = null;
     try {
+        // Step A: Create folders & spreadsheet file as photo@ (proven working method)
+        const driveAuth = await getDriveAuthAsPhotoUser();
+        console.log('🔑 Drive auth: photo@auroraviking.com (same as photo uploads)');
+
+        // Create folder structure: DRIVE_FOLDER_ID / reports / YYYY-MM-DD /
+        const reportsFolderId = await findOrCreateSubfolder(driveAuth, DRIVE_FOLDER_ID, REPORTS_FOLDER_NAME);
+        const dateFolderId = await findOrCreateSubfolder(driveAuth, reportsFolderId, targetDate);
+
+        // Check for existing sheet
         const existingReport = await db.collection('tour_reports').doc(targetDate).get();
         const existingData = existingReport.data() || {};
         const existingSheetId = existingData.spreadsheetId;
 
-        const auth = await getGoogleAuth();
         let spreadsheetId;
 
         if (existingSheetId) {
-            console.log(`📊 Updating existing sheet: ${existingSheetId}`);
-            spreadsheetId = existingSheetId;
-
-            const sheets = google.sheets({ version: 'v4', auth });
-            try {
-                await sheets.spreadsheets.values.clear({
-                    spreadsheetId,
-                    range: 'Sheet1!A:Z',
-                });
-            } catch (clearError) {
-                console.log('⚠️ Could not clear sheet (might be new):', clearError.message);
-            }
-
-            await populateSheetWithReportData(auth, spreadsheetId, reportData);
-        } else {
-            const sheetTitle = `Aurora Viking Tour Report - ${targetDate}`;
-            spreadsheetId = await createSheetInFolder(auth, sheetTitle, DRIVE_FOLDER_ID);
-            await populateSheetWithReportData(auth, spreadsheetId, reportData);
+            console.log(`📊 Existing sheet found: ${existingSheetId}, creating fresh one instead`);
         }
+
+        // Create spreadsheet file as photo@ (owns the file)
+        const sheetTitle = `Tour Report - ${targetDate}`;
+        spreadsheetId = await createSheetInFolder(driveAuth, sheetTitle, dateFolderId);
+        console.log(`📄 Sheet created as photo@: ${spreadsheetId}`);
+
+        // Step B: Share the spreadsheet with the service account so Sheets API can write
+        const drive = google.drive({ version: 'v3', auth: driveAuth });
+        await drive.permissions.create({
+            fileId: spreadsheetId,
+            requestBody: {
+                role: 'writer',
+                type: 'user',
+                emailAddress: 'aurora-viking-staff@appspot.gserviceaccount.com',
+            },
+            sendNotificationEmail: false,
+        });
+        console.log('📝 Shared with service account for Sheets API');
+
+        // Step C: Populate sheet using ADC service account (Sheets API)
+        const sheetsAuth = await getGoogleAuth();
+        await populateSheetWithEnhancedReportData(sheetsAuth, spreadsheetId, reportData);
+        console.log('📝 Sheet populated with report data');
 
         sheetUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}`;
 
         await db.collection('tour_reports').doc(targetDate).update({
             sheetUrl: sheetUrl,
             spreadsheetId: spreadsheetId,
+            driveFolderId: dateFolderId,
         });
 
-        console.log(`📊 Google Sheet ready: ${sheetUrl}`);
+        console.log(`📊 Enhanced Google Sheet ready: ${sheetUrl}`);
+        console.log(`📁 In Drive folder: reports/${targetDate}/`);
     } catch (sheetError) {
-        console.error('⚠️ Google Sheet error (report still saved):', sheetError.message);
+        console.error('⚠️ Google Sheet error (report still saved to Firestore):', sheetError.message);
+        console.error('⚠️ Full error:', JSON.stringify(sheetError, null, 2));
     }
 
     return {
@@ -314,7 +455,22 @@ async function generateReport(targetDate) {
         totalBookings: bookings.length,
         auroraSummary: auroraSummary,
         sheetUrl: sheetUrl,
+        usedSnapshot: usedSnapshot,
     };
+}
+
+/**
+ * Haversine distance between two lat/lng points in kilometers
+ */
+function _haversineDistance(lat1, lon1, lat2, lon2) {
+    const R = 6371;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
 }
 
 // Helper: Check if any guide assignments changed

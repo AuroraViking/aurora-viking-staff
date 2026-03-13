@@ -295,6 +295,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             fontWeight: FontWeight.w500,
                           ),
                         ),
+                        if (_guideStats != null) ...[
+                          const SizedBox(height: 4),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [
+                                  Colors.purple.withOpacity(0.25),
+                                  Colors.blue.withOpacity(0.15),
+                                ],
+                              ),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              '${_guideStats!.displayBadge} Lv.${_guideStats!.currentLevel.level} ${_guideStats!.displayTitle}',
+                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: Colors.purple[200],
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),

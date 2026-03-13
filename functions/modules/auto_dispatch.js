@@ -250,14 +250,25 @@ async function autoAcceptTopGuides(dateStr, guidesNeeded) {
 async function distributeBookings(dateStr, bookings, guides) {
     if (guides.length === 0 || bookings.length === 0) return false;
 
-    // Sort bookings alphabetically by pickup location to group similar ones
-    const sorted = [...bookings].sort((a, b) => {
-        const locA = (a.pickupPlaceName || a.pickupLocation || '').toLowerCase();
-        const locB = (b.pickupPlaceName || b.pickupLocation || '').toLowerCase();
-        return locA.localeCompare(locB);
+    const MAX_PAX = 18;
+
+    // Step 1: Group bookings by pickup location
+    const placeGroups = {};
+    for (const booking of bookings) {
+        const place = (booking.pickupPlaceName || booking.pickupLocation || 'Unknown').trim().toLowerCase();
+        if (!placeGroups[place]) placeGroups[place] = [];
+        placeGroups[place].push(booking);
+    }
+
+    // Step 2: Sort groups by total passengers DESCENDING (largest first)
+    const groupEntries = Object.entries(placeGroups);
+    groupEntries.sort((a, b) => {
+        const aPax = a[1].reduce((s, bk) => s + (bk.totalParticipants || bk.numberOfGuests || 0), 0);
+        const bPax = b[1].reduce((s, bk) => s + (bk.totalParticipants || bk.numberOfGuests || 0), 0);
+        return bPax - aPax;
     });
 
-    // Distribute round-robin
+    // Step 3: Initialize guide buckets
     const guideBookings = {};
     for (const guide of guides) {
         guideBookings[guide.guideId] = {
@@ -268,12 +279,39 @@ async function distributeBookings(dateStr, bookings, guides) {
         };
     }
 
-    sorted.forEach((booking, index) => {
-        const guide = guides[index % guides.length];
-        const passengers = booking.totalParticipants || booking.numberOfGuests || 0;
-        guideBookings[guide.guideId].bookings.push(booking);
-        guideBookings[guide.guideId].totalPassengers += passengers;
-    });
+    // Step 4: Assign each group (NEVER split) to guide with fewest passengers
+    for (const [place, groupBks] of groupEntries) {
+        const groupPax = groupBks.reduce((s, b) => s + (b.totalParticipants || b.numberOfGuests || 0), 0);
+
+        // Find guide with fewest passengers that can fit this group
+        let bestGuideId = null;
+        let bestPax = Infinity;
+        for (const guide of guides) {
+            const gb = guideBookings[guide.guideId];
+            if (gb.totalPassengers + groupPax <= MAX_PAX && gb.totalPassengers < bestPax) {
+                bestPax = gb.totalPassengers;
+                bestGuideId = guide.guideId;
+            }
+        }
+
+        // If no guide can fit within limit, assign to emptiest guide (never split)
+        if (!bestGuideId) {
+            let fewestPax = Infinity;
+            for (const guide of guides) {
+                if (guideBookings[guide.guideId].totalPassengers < fewestPax) {
+                    fewestPax = guideBookings[guide.guideId].totalPassengers;
+                    bestGuideId = guide.guideId;
+                }
+            }
+        }
+
+        const target = guideBookings[bestGuideId];
+        for (const booking of groupBks) {
+            target.bookings.push(booking);
+            target.totalPassengers += (booking.totalParticipants || booking.numberOfGuests || 0);
+        }
+        console.log(`🚌 ${place} (${groupPax}pax) → ${target.guideName} (${target.totalPassengers}pax)`);
+    }
 
     // Save to pickup_assignments
     const batch = db.batch();
@@ -335,6 +373,11 @@ async function distributeBookings(dateStr, bookings, guides) {
     }
     await individualBatch.commit();
 
+    // Log final distribution
+    for (const [guideId, data] of Object.entries(guideBookings)) {
+        const places = [...new Set(data.bookings.map(b => b.pickupPlaceName || b.pickupLocation || ''))];
+        console.log(`  📋 ${data.guideName}: ${data.totalPassengers} pax, ${places.length} stops`);
+    }
     console.log(`✅ Distributed ${bookings.length} bookings to ${guides.length} guides`);
     return true;
 }

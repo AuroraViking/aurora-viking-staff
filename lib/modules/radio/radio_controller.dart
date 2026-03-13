@@ -1,4 +1,4 @@
-/// State management for the voice radio feature.
+/// State management for the radio feature (voice, text, image).
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -7,6 +7,8 @@ import 'package:flutter/services.dart';
 import 'package:record/record.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'radio_service.dart';
 
 class RadioController extends ChangeNotifier {
@@ -51,13 +53,18 @@ class RadioController extends ChangeNotifier {
   String? _userId;
   String? _userName;
 
-  // ── Loading ──
+  // ── Loading / sending ──
   bool _isLoading = true;
   bool get isLoading => _isLoading;
+  bool _isSending = false;
+  bool get isSending => _isSending;
 
   // ── Unread badge ──
   int _totalUnread = 0;
   int get totalUnread => _totalUnread;
+
+  // ── Image picker ──
+  final ImagePicker _imagePicker = ImagePicker();
 
   RadioController() {
     _player.onPlayerComplete.listen((_) {
@@ -113,10 +120,10 @@ class RadioController extends ChangeNotifier {
         _messages = msgs;
         notifyListeners();
 
-        // Auto-play the newest message if it just arrived.
+        // Auto-play the newest voice message if it just arrived.
         if (isNew && _autoplay && msgs.isNotEmpty) {
           final newest = msgs.last;
-          if (newest.senderId != _userId) {
+          if (newest.senderId != _userId && newest.type == RadioMessageType.voice) {
             playMessage(newest);
           }
         }
@@ -133,6 +140,114 @@ class RadioController extends ChangeNotifier {
     if (_userId == null) return;
     _channels = await RadioService.getChannels(_userId!);
     notifyListeners();
+  }
+
+  // ──────────── Text messaging ────────────
+
+  Future<bool> sendTextMessage(String text) async {
+    if (_userId == null || _userName == null) return false;
+    if (text.trim().isEmpty) return false;
+
+    _isSending = true;
+    notifyListeners();
+
+    try {
+      await RadioService.sendTextMessage(
+        channelId: _activeChannelId,
+        senderId: _userId!,
+        senderName: _userName!,
+        textContent: text.trim(),
+      );
+      _isSending = false;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      print('❌ Radio text send error: $e');
+      _isSending = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  // ──────────── Image messaging ────────────
+
+  Future<bool> pickAndSendImage() async {
+    if (_userId == null || _userName == null) return false;
+
+    try {
+      final XFile? image = await _imagePicker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1200,
+        maxHeight: 1200,
+        imageQuality: 75,
+      );
+      if (image == null) return false;
+
+      _isSending = true;
+      notifyListeners();
+
+      // Upload to Firebase Storage.
+      final fileName = 'radio/${_activeChannelId}/${DateTime.now().millisecondsSinceEpoch}_${_userId}.jpg';
+      final ref = FirebaseStorage.instance.ref().child(fileName);
+      final bytes = await image.readAsBytes();
+      final uploadTask = await ref.putData(bytes, SettableMetadata(contentType: 'image/jpeg'));
+      final downloadUrl = await uploadTask.ref.getDownloadURL();
+
+      await RadioService.sendImageMessage(
+        channelId: _activeChannelId,
+        senderId: _userId!,
+        senderName: _userName!,
+        imageUrl: downloadUrl,
+      );
+
+      _isSending = false;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      print('❌ Radio image send error: $e');
+      _isSending = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<bool> takeAndSendPhoto() async {
+    if (_userId == null || _userName == null) return false;
+
+    try {
+      final XFile? image = await _imagePicker.pickImage(
+        source: ImageSource.camera,
+        maxWidth: 1200,
+        maxHeight: 1200,
+        imageQuality: 75,
+      );
+      if (image == null) return false;
+
+      _isSending = true;
+      notifyListeners();
+
+      final fileName = 'radio/${_activeChannelId}/${DateTime.now().millisecondsSinceEpoch}_${_userId}.jpg';
+      final ref = FirebaseStorage.instance.ref().child(fileName);
+      final bytes = await image.readAsBytes();
+      final uploadTask = await ref.putData(bytes, SettableMetadata(contentType: 'image/jpeg'));
+      final downloadUrl = await uploadTask.ref.getDownloadURL();
+
+      await RadioService.sendImageMessage(
+        channelId: _activeChannelId,
+        senderId: _userId!,
+        senderName: _userName!,
+        imageUrl: downloadUrl,
+      );
+
+      _isSending = false;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      print('❌ Radio camera send error: $e');
+      _isSending = false;
+      notifyListeners();
+      return false;
+    }
   }
 
   // ──────────── Recording ────────────

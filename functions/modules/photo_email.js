@@ -419,7 +419,207 @@ const photoEmailManual = onCall(
     }
 );
 
+// ── Upload-triggered email templates ──
+
+function buildUploadEmailWithReviews(firstName, guideName, folderUrl, tripAdvisorUrl) {
+    return `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#1a1a2e;font-family:Arial,Helvetica,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#1a1a2e;padding:20px 0;">
+<tr><td align="center">
+<table width="600" cellpadding="0" cellspacing="0" style="background:#16213e;border-radius:12px;overflow:hidden;max-width:100%;">
+  <tr><td style="background:linear-gradient(135deg,#0f3460,#1b4332);padding:30px;text-align:center;">
+    <h1 style="color:#d4af37;margin:0;font-size:24px;letter-spacing:1px;">Here are The Pictures!</h1>
+  </td></tr>
+  <tr><td style="padding:30px;color:#e0e0e0;font-size:15px;line-height:1.7;">
+    <p>Hi${firstName ? ' ' + firstName : ''}!</p>
+    <p>Thank you so much for joining our tour.</p>
+    <p>Click the button below to open your photos. They might look a bit blurry at first — that's normal — it just takes a moment for them to load in full quality. These are high quality images.</p>
+    <div style="text-align:center;margin:25px 0;">
+      <a href="${folderUrl}" style="display:inline-block;background:linear-gradient(135deg,#d4af37,#b8941e);color:#0f1729;text-decoration:none;padding:14px 32px;border-radius:8px;font-weight:bold;font-size:16px;letter-spacing:0.5px;">The Pictures</a>
+    </div>
+    <div style="background:#1a1a2e;border-left:4px solid #d4af37;padding:15px 20px;margin:20px 0;border-radius:0 8px 8px 0;">
+      <p style="margin:0 0 10px;color:#d4af37;font-weight:bold;font-size:15px;">⭐ A small favour that helps us more than you can imagine</p>
+      <p style="margin:0;color:#c0c8d8;font-size:14px;line-height:1.6;">We're a small, family-run company competing against giant corporations with huge marketing budgets. The only reason we survive — is because of travelers like you who share their experience and bump us up in the algorithm.</p>
+      <p style="margin:10px 0 0;color:#c0c8d8;font-size:14px;line-height:1.6;">If you enjoyed the tour even a little, we'd be incredibly thankful if you could spare one minute to write a quick review. It genuinely makes a massive difference for us.</p>
+    </div>
+    <div style="text-align:center;margin:20px 0;">
+      <a href="${tripAdvisorUrl}" style="display:inline-block;background:rgba(0,175,135,0.15);border:1px solid rgba(0,175,135,0.3);color:#00af87;text-decoration:none;padding:13px 28px;border-radius:10px;font-weight:600;font-size:14px;">⭐ Review on Tripadvisor</a>
+    </div>
+    <p>Thank you again for joining Aurora Viking — we hope your photos bring back amazing memories for years to come.</p>
+    <p>All the best,<br>
+    <strong>${guideName}</strong></p>
+  </td></tr>
+  <tr><td style="background:#0f3460;padding:20px;text-align:center;color:#888;font-size:12px;">
+    Aurora Viking &bull; <a href="mailto:photo@auroraviking.com" style="color:#4fc3f7;">photo@auroraviking.com</a> &bull; +354 784 4000
+  </td></tr>
+</table>
+</td></tr></table>
+</body></html>`;
+}
+
+function buildUploadEmailNoReviews(firstName, folderUrl) {
+    return `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#1a1a2e;font-family:Arial,Helvetica,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#1a1a2e;padding:20px 0;">
+<tr><td align="center">
+<table width="600" cellpadding="0" cellspacing="0" style="background:#16213e;border-radius:12px;overflow:hidden;max-width:100%;">
+  <tr><td style="background:linear-gradient(135deg,#0f3460,#1b4332);padding:30px;text-align:center;">
+    <h1 style="color:#d4af37;margin:0;font-size:24px;letter-spacing:1px;">Here are The Pictures!</h1>
+  </td></tr>
+  <tr><td style="padding:30px;color:#e0e0e0;font-size:15px;line-height:1.7;">
+    <p>Hi${firstName ? ' ' + firstName : ''}!</p>
+    <p>Thank you for joining the tour — it was a pleasure having you with us.</p>
+    <p>Click the button below to access your photos. They may look a little blurry for a moment at first; just give them a bit of time to load in full resolution. These are high-quality images.</p>
+    <div style="text-align:center;margin:25px 0;">
+      <a href="${folderUrl}" style="display:inline-block;background:linear-gradient(135deg,#d4af37,#b8941e);color:#0f1729;text-decoration:none;padding:14px 32px;border-radius:8px;font-weight:bold;font-size:16px;letter-spacing:0.5px;">The Pictures</a>
+    </div>
+    <p>Your support means a lot to us. Being a small Icelandic company, every guest helps us keep doing the tours we love, and we're genuinely thankful that you chose to come with us.</p>
+    <p>We hope the memories from this night stay with you for a long time.</p>
+    <p>Sincerely,<br>
+    <strong>Emil</strong></p>
+  </td></tr>
+  <tr><td style="background:#0f3460;padding:20px;text-align:center;color:#888;font-size:12px;">
+    Aurora Viking &bull; <a href="mailto:photo@auroraviking.com" style="color:#4fc3f7;">photo@auroraviking.com</a> &bull; +354 784 4000
+  </td></tr>
+</table>
+</td></tr></table>
+</body></html>`;
+}
+
+/**
+ * Called by guide app when upload starts.
+ * Sends "your photos are being uploaded" email to that guide's customers.
+ * If requestReviews=true, includes review request + TripAdvisor link.
+ */
+const sendPhotoUploadEmail = onCall(
+    {
+        region: 'us-central1',
+        secrets: ['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET'],
+        timeoutSeconds: 300,
+    },
+    async (request) => {
+        if (!request.auth) throw new Error('Authentication required');
+
+        const { date, guideName, folderUrl, requestReviews } = request.data;
+        if (!date || !guideName || !folderUrl) {
+            throw new Error('Missing required parameters: date, guideName, folderUrl');
+        }
+
+        console.log(`📸 Upload email triggered: ${guideName} on ${date}, reviews=${requestReviews}`);
+
+        const clientId = process.env.GMAIL_CLIENT_ID;
+        const clientSecret = process.env.GMAIL_CLIENT_SECRET;
+        if (!clientId || !clientSecret) {
+            throw new Error('Gmail keys not configured');
+        }
+
+        const fromEmail = 'info@auroraviking.com';
+        const gmail = await getGmailClient(fromEmail, clientId, clientSecret);
+
+        // Get this guide's customers from pickup_assignments
+        const transliteratedGuide = transliterate(guideName.trim());
+        const assignmentsSnap = await db.collection('pickup_assignments')
+            .where('date', '==', date)
+            .get();
+
+        // Find the assignment doc matching this guide
+        let customers = [];
+        for (const doc of assignmentsSnap.docs) {
+            const data = doc.data();
+            if (data.guideName && data.bookings && Array.isArray(data.bookings)) {
+                const docGuide = transliterate(data.guideName.trim());
+                if (docGuide.toLowerCase() === transliteratedGuide.toLowerCase()) {
+                    customers = data.bookings;
+                    break;
+                }
+            }
+        }
+
+        if (customers.length === 0) {
+            console.log(`⚠️ No customers found for guide ${guideName} on ${date}`);
+            return { success: true, emailsSent: 0, reason: 'no_customers' };
+        }
+
+        console.log(`👥 Found ${customers.length} customers for ${guideName}`);
+
+        // TripAdvisor review URL
+        const tripAdvisorUrl = 'https://www.tripadvisor.com/UserReviewEdit-g189970-d25217481-Reykjavik_Northern_Lights_Tour_with_Pro_Aurora_Photos_Small_Group-Reykjavik_Capital_Region.html';
+
+        const emails = new Set();
+        let emailsSent = 0;
+        let failed = 0;
+
+        for (const booking of customers) {
+            const email = (booking.email || '').toLowerCase().trim();
+            if (!email || emails.has(email)) continue;
+            emails.add(email);
+
+            const fullName = booking.customerFullName || 'Valued Customer';
+            const firstName = fullName.split(' ')[0] || '';
+
+            const htmlBody = requestReviews
+                ? buildUploadEmailWithReviews(firstName, guideName, folderUrl, tripAdvisorUrl)
+                : buildUploadEmailNoReviews(firstName, folderUrl);
+
+            const subject = 'Here are The Pictures! 📸';
+
+            const emailLines = [
+                `From: Aurora Viking <${fromEmail}>`,
+                `Reply-To: photo@auroraviking.com`,
+                `To: ${email}`,
+                `Subject: ${subject}`,
+                'MIME-Version: 1.0',
+                'Content-Type: text/html; charset=utf-8',
+                '',
+                htmlBody,
+            ];
+
+            const rawMessage = Buffer.from(emailLines.join('\r\n'))
+                .toString('base64')
+                .replace(/\+/g, '-')
+                .replace(/\//g, '_')
+                .replace(/=+$/, '');
+
+            try {
+                await gmail.users.messages.send({
+                    userId: 'me',
+                    requestBody: { raw: rawMessage },
+                });
+                emailsSent++;
+                console.log(`✅ Sent upload email to ${firstName} (${email})`);
+            } catch (sendError) {
+                console.error(`❌ Failed: ${email}: ${sendError.message}`);
+                failed++;
+            }
+
+            if (emails.size > 3) {
+                await new Promise(resolve => setTimeout(resolve, 500));
+            }
+        }
+
+        // Log
+        await db.collection('photo_upload_emails').add({
+            date,
+            guideName,
+            requestReviews: !!requestReviews,
+            emailsSent,
+            failed,
+            sentAt: admin.firestore.FieldValue.serverTimestamp(),
+            sentBy: request.auth.uid,
+        });
+
+        console.log(`✅ Upload email complete: ${emailsSent} sent, ${failed} failed`);
+
+        return { success: true, emailsSent, failed };
+    }
+);
+
 module.exports = {
     photoEmailScheduled,
     photoEmailManual,
+    sendPhotoUploadEmail,
 };

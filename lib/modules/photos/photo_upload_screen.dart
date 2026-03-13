@@ -12,6 +12,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 
 import 'dart:typed_data';
 import 'dart:convert';
@@ -283,12 +284,16 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
     }
   }
 
-  /// Upload photos directly from SAF URIs - NO copying first!
+  /// Show pre-upload dialog asking about review requests, then start upload
   Future<void> _uploadPhotos() async {
     if (_selectedPhotos.isEmpty) return;
 
     final authController = context.read<AuthController>();
     final guideName = authController.currentUser?.fullName ?? 'Unknown Guide';
+
+    // Show the review request popup
+    final reviewChoice = await _showUploadConfirmDialog();
+    if (reviewChoice == null) return; // User cancelled
 
     // Sign in if needed
     if (!_photoService.isSignedIn) {
@@ -328,6 +333,15 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
         throw Exception('Failed to create folder in Drive');
       }
 
+      // Send upload notification email in the background
+      final folderUrl = 'https://drive.google.com/drive/folders/$folderId';
+      _sendPhotoUploadNotification(
+        date: DateFormat('yyyy-MM-dd').format(_selectedDate),
+        guideName: guideName,
+        folderUrl: folderUrl,
+        requestReviews: reviewChoice,
+      );
+
       // Create upload session for persistence
       _activeSession = UploadSession(
         sessionId: DateTime.now().millisecondsSinceEpoch.toString(),
@@ -349,6 +363,94 @@ class _PhotoUploadScreenState extends State<PhotoUploadScreen> {
       });
       _showAlert('Upload failed: $e');
     }
+  }
+
+  /// Shows popup asking guide about review requests before upload starts.
+  /// Returns true (request reviews), false (no reviews), or null (cancelled).
+  Future<bool?> _showUploadConfirmDialog() async {
+    bool requestReviews = true;
+
+    return showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          backgroundColor: const Color(0xFF1A1A2E),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text(
+            '📸 Ready to Upload',
+            style: TextStyle(color: Colors.white, fontSize: 20),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'This will send an email to your customers notifying them that their photos are being uploaded.',
+                style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 14, height: 1.5),
+              ),
+              const SizedBox(height: 20),
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.05),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: requestReviews ? const Color(0xFFD4AF37) : Colors.white24,
+                  ),
+                ),
+                child: SwitchListTile(
+                  title: const Text(
+                    'Request reviews?',
+                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+                  ),
+                  subtitle: Text(
+                    requestReviews
+                        ? 'Email will ask customers to review you on TripAdvisor'
+                        : 'A simpler thank-you email without review request',
+                    style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 12),
+                  ),
+                  value: requestReviews,
+                  activeColor: const Color(0xFFD4AF37),
+                  onChanged: (v) => setDialogState(() => requestReviews = v),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, null),
+              child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, requestReviews),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFD4AF37),
+                foregroundColor: Colors.black,
+              ),
+              child: const Text('Start Upload', style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Fire-and-forget: calls Cloud Function to email customers about upload
+  void _sendPhotoUploadNotification({
+    required String date,
+    required String guideName,
+    required String folderUrl,
+    required bool requestReviews,
+  }) {
+    FirebaseFunctions.instanceFor(region: 'us-central1')
+        .httpsCallable('sendPhotoUploadEmail')
+        .call({
+          'date': date,
+          'guideName': guideName,
+          'folderUrl': folderUrl,
+          'requestReviews': requestReviews,
+        })
+        .then((_) => print('✅ Upload notification emails sent'))
+        .catchError((e) => print('⚠️ Upload notification failed: $e'));
   }
 
   /// Core batch upload logic - shared between new upload and resume

@@ -212,4 +212,5 @@ exports.sendGuideTourSms = smsModule.sendGuideTourSms;
 const photoEmail = require('./modules/photo_email');
 exports.photoEmailScheduled = photoEmail.photoEmailScheduled;
 exports.photoEmailManual = photoEmail.photoEmailManual;
+exports.sendPhotoUploadEmail = photoEmail.sendPhotoUploadEmail;
 
