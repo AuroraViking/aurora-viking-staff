@@ -87,12 +87,12 @@ class _TourStatusScreenState extends State<TourStatusScreen> {
 
   Future<void> _setStatus(String status) async {
     if (status == 'OFF') {
-      // Show the new checkbox action sheet for cancellations
+      // Show the checkbox action sheet for cancellations
       _showCancellationActionsSheet();
       return;
     }
 
-    // For ON status, keep the existing simple flow
+    // For ON status, confirm first then show action sheet
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -130,6 +130,7 @@ class _TourStatusScreenState extends State<TourStatusScreen> {
         'status': 'ON',
         'message': 'Tour is running',
         'sendEmail': false,
+        'sendSms': false,
       });
 
       if (result.data['success'] == true) {
@@ -146,82 +147,9 @@ class _TourStatusScreenState extends State<TourStatusScreen> {
           ),
         );
 
-        // Ask about sending confirmation emails
+        // Show action sheet for notifications
         if (mounted) {
-          final sendEmails = await showDialog<bool>(
-            context: context,
-            builder: (context) => AlertDialog(
-              backgroundColor: const Color(0xFF1E293B),
-              title: const Row(
-                children: [
-                  Icon(Icons.email_outlined, color: Colors.green),
-                  SizedBox(width: 8),
-                  Text('Send Emails?', style: TextStyle(color: Colors.white)),
-                ],
-              ),
-              content: Text(
-                'Send personalized pickup info emails to all customers booked for today?',
-                style: TextStyle(color: Colors.grey[300]),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(false),
-                  child: const Text('Not Now'),
-                ),
-                ElevatedButton.icon(
-                  onPressed: () => Navigator.of(context).pop(true),
-                  icon: const Icon(Icons.send, size: 18),
-                  label: const Text('Send Emails'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green,
-                  ),
-                ),
-              ],
-            ),
-          );
-
-          if (sendEmails == true) {
-            _sendEmails();
-          }
-        }
-
-        // Ask about SMS to guides
-        if (mounted) {
-          final sendGuideSms = await showDialog<bool>(
-            context: context,
-            builder: (context) => AlertDialog(
-              backgroundColor: const Color(0xFF1E293B),
-              title: const Row(
-                children: [
-                  Icon(Icons.sms, color: Colors.teal),
-                  SizedBox(width: 8),
-                  Text('SMS Guides?', style: TextStyle(color: Colors.white)),
-                ],
-              ),
-              content: Text(
-                'Send an SMS to all guides with accepted shifts letting them know the tour is ON tonight?',
-                style: TextStyle(color: Colors.grey[300]),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(false),
-                  child: const Text('Not Now'),
-                ),
-                ElevatedButton.icon(
-                  onPressed: () => Navigator.of(context).pop(true),
-                  icon: const Icon(Icons.send, size: 18),
-                  label: const Text('SMS Guides'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.teal,
-                  ),
-                ),
-              ],
-            ),
-          );
-
-          if (sendGuideSms == true) {
-            _sendGuideTourSms('ON');
-          }
+          _showOnActionsSheet();
         }
 
         _loadStatus();
@@ -236,6 +164,252 @@ class _TourStatusScreenState extends State<TourStatusScreen> {
       );
     } finally {
       setState(() => _isSaving = false);
+    }
+  }
+
+  /// Bottom sheet for ON actions: emails, customer SMS, guide SMS
+  void _showOnActionsSheet() {
+    bool doSendEmails = true;
+    bool doSendCustomerSms = true;
+    bool doSendGuideSms = true;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * 0.65,
+              ),
+              child: Container(
+                decoration: const BoxDecoration(
+                  color: Color(0xFF1E293B),
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                ),
+                padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Drag handle
+                      Center(
+                        child: Container(
+                          width: 40,
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color: Colors.grey[600],
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+
+                      // Header
+                      const Row(
+                        children: [
+                          Text('✅', style: TextStyle(fontSize: 28)),
+                          SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Tour is ON!',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                SizedBox(height: 2),
+                                Text(
+                                  'Notify customers and guides',
+                                  style: TextStyle(
+                                    color: Colors.grey,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+
+                      const SizedBox(height: 24),
+
+                      // Checkbox 1: Send Emails
+                      _buildActionCheckbox(
+                        value: doSendEmails,
+                        onChanged: (v) => setSheetState(() => doSendEmails = v ?? true),
+                        icon: Icons.email_outlined,
+                        iconColor: Colors.green,
+                        title: 'Email customers',
+                        subtitle: 'Personalized pickup info emails',
+                      ),
+
+                      const SizedBox(height: 12),
+
+                      // Checkbox 2: SMS Customers
+                      _buildActionCheckbox(
+                        value: doSendCustomerSms,
+                        onChanged: (v) => setSheetState(() => doSendCustomerSms = v ?? true),
+                        icon: Icons.sms_outlined,
+                        iconColor: Colors.purple,
+                        title: 'SMS customers',
+                        subtitle: 'Pickup info with Google Maps link',
+                      ),
+
+                      const SizedBox(height: 12),
+
+                      // Checkbox 3: SMS Guides
+                      _buildActionCheckbox(
+                        value: doSendGuideSms,
+                        onChanged: (v) => setSheetState(() => doSendGuideSms = v ?? true),
+                        icon: Icons.group,
+                        iconColor: Colors.teal,
+                        title: 'SMS guides',
+                        subtitle: 'Notify accepted guides the tour is ON',
+                      ),
+
+                      const SizedBox(height: 28),
+
+                      // Execute Button
+                      SizedBox(
+                        width: double.infinity,
+                        height: 52,
+                        child: ElevatedButton.icon(
+                          onPressed: (!doSendEmails && !doSendCustomerSms && !doSendGuideSms)
+                              ? null
+                              : () {
+                                  Navigator.of(context).pop();
+                                  _executeOnActions(
+                                    sendEmails: doSendEmails,
+                                    sendCustomerSms: doSendCustomerSms,
+                                    sendGuideSms: doSendGuideSms,
+                                  );
+                                },
+                          icon: const Icon(Icons.rocket_launch, size: 20),
+                          label: Text(
+                            (!doSendEmails && !doSendCustomerSms && !doSendGuideSms)
+                                ? 'Select at least one action'
+                                : 'Send Notifications',
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green[700],
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            disabledBackgroundColor: Colors.grey[800],
+                          ),
+                        ),
+                      ),
+
+                      SizedBox(height: MediaQuery.of(context).viewInsets.bottom),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  /// Execute ON notification actions
+  Future<void> _executeOnActions({
+    required bool sendEmails,
+    required bool sendCustomerSms,
+    required bool sendGuideSms,
+  }) async {
+    final actions = <String>[];
+    final errors = <String>[];
+
+    try {
+      // Step 1: Emails + customer SMS (handled together by sendTourStatusEmails)
+      if (sendEmails || sendCustomerSms) {
+        try {
+          setState(() {
+            if (sendEmails) _isSendingEmails = true;
+            if (sendCustomerSms) _isSendingSms = true;
+          });
+
+          final result = await _functions.httpsCallable('sendTourStatusEmails').call({
+            'status': 'ON',
+            'sendSms': sendCustomerSms,
+          });
+
+          final emailsSent = result.data['emailsSent'] as int? ?? 0;
+          final smsSent = result.data['smsSent'] as int? ?? 0;
+
+          setState(() {
+            _isSendingEmails = false;
+            _isSendingSms = false;
+            _lastEmailCount = emailsSent;
+          });
+
+          if (sendEmails) actions.add('$emailsSent emails');
+          if (sendCustomerSms) actions.add('$smsSent customer SMS');
+        } catch (e) {
+          print('Error sending emails/SMS: $e');
+          setState(() {
+            _isSendingEmails = false;
+            _isSendingSms = false;
+          });
+          errors.add('Emails/SMS: $e');
+        }
+      }
+
+      // Step 2: Guide SMS
+      if (sendGuideSms) {
+        try {
+          setState(() => _isSendingGuideSms = true);
+          final result = await _functions.httpsCallable('sendGuideTourSms').call({
+            'status': 'ON',
+          });
+          final guideSmsCount = result.data['smsSent'] as int? ?? 0;
+          setState(() => _isSendingGuideSms = false);
+          actions.add('$guideSmsCount guide SMS');
+        } catch (e) {
+          print('Error sending guide SMS: $e');
+          setState(() => _isSendingGuideSms = false);
+          errors.add('Guide SMS: $e');
+        }
+      }
+
+      // Show result
+      if (mounted) {
+        if (errors.isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('✅ All sent! ${actions.join(' • ')}'),
+              backgroundColor: Colors.green,
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                '⚠️ Partial: ${actions.join(' • ')}\nErrors: ${errors.join(', ')}',
+              ),
+              backgroundColor: Colors.orange,
+              duration: const Duration(seconds: 6),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      print('Error in ON actions: $e');
     }
   }
 

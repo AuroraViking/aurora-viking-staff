@@ -206,3 +206,10 @@ exports.guideShiftReminderManual = guideShiftSms.guideShiftReminderManual;
 const smsModule = require('./modules/sms');
 exports.sendGuideTourSms = smsModule.sendGuideTourSms;
 
+// ============================================
+// PHOTO EMAIL MODULE (Post-tour photo link)
+// ============================================
+const photoEmail = require('./modules/photo_email');
+exports.photoEmailScheduled = photoEmail.photoEmailScheduled;
+exports.photoEmailManual = photoEmail.photoEmailManual;
+
