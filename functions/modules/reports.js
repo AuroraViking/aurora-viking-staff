@@ -405,13 +405,26 @@ async function generateReport(targetDate) {
         let spreadsheetId;
 
         if (existingSheetId) {
-            console.log(`📊 Existing sheet found: ${existingSheetId}, creating fresh one instead`);
+            // Reuse existing sheet — clear and repopulate instead of creating a new one
+            console.log(`📊 Reusing existing sheet: ${existingSheetId}`);
+            try {
+                // Verify the sheet still exists by trying to get it
+                const sheets = google.sheets({ version: 'v4', auth: driveAuth });
+                await sheets.spreadsheets.get({ spreadsheetId: existingSheetId });
+                spreadsheetId = existingSheetId;
+                console.log(`✅ Existing sheet verified, will repopulate`);
+            } catch (verifyErr) {
+                console.log(`⚠️ Existing sheet not accessible (${verifyErr.message}), creating new one`);
+                const sheetTitle = `Tour Report - ${targetDate}`;
+                spreadsheetId = await createSheetInFolder(driveAuth, sheetTitle, dateFolderId);
+                console.log(`📄 New sheet created as photo@: ${spreadsheetId}`);
+            }
+        } else {
+            // No existing sheet — create one
+            const sheetTitle = `Tour Report - ${targetDate}`;
+            spreadsheetId = await createSheetInFolder(driveAuth, sheetTitle, dateFolderId);
+            console.log(`📄 Sheet created as photo@: ${spreadsheetId}`);
         }
-
-        // Create spreadsheet file as photo@ (owns the file)
-        const sheetTitle = `Tour Report - ${targetDate}`;
-        spreadsheetId = await createSheetInFolder(driveAuth, sheetTitle, dateFolderId);
-        console.log(`📄 Sheet created as photo@: ${spreadsheetId}`);
 
         // Step B: Share the spreadsheet with the service account so Sheets API can write
         const drive = google.drive({ version: 'v3', auth: driveAuth });

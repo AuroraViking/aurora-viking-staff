@@ -10,11 +10,13 @@ import '../../widgets/common/error_widget.dart';
 import '../pickup/pickup_controller.dart';
 import 'admin_service.dart';
 import '../../core/models/admin_models.dart';
-import '../../core/services/firebase_service.dart'; // Added import for FirebaseService
+import '../../core/services/firebase_service.dart';
 import '../../core/services/bus_management_service.dart';
 import '../../core/services/auto_dispatch_service.dart';
 import '../shifts/shifts_service.dart';
 import '../../core/models/shift_model.dart';
+import '../../core/services/pickup_overgroup_service.dart';
+import '../../core/models/pickup_overgroup_model.dart';
 
 class AdminPickupManagementScreen extends StatefulWidget {
   const AdminPickupManagementScreen({Key? key}) : super(key: key);
@@ -41,6 +43,8 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
   bool _hasNote = false; // true when a non-empty note exists for this date
   final BusManagementService _busService = BusManagementService();
   final AutoDispatchService _autoDispatchService = AutoDispatchService();
+  final PickupOvergroupService _overgroupService = PickupOvergroupService();
+  Map<String, String> _placeToGroupMap = {}; // pickup place name → overgroup canonical name
 
   @override
   void initState() {
@@ -54,6 +58,7 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
       await _loadBuses();
       await _loadBusAssignments(controller);
       await _loadDayNote(controller);
+      await _loadOvergroups();
       
       // Load reordered bookings from Firebase after data is loaded
       await _updateReorderedBookings(controller);
@@ -591,8 +596,21 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
             tooltip: 'Add Manual Booking',
           ),
           IconButton(
+            icon: const Icon(Icons.folder_outlined),
+            onPressed: () => _showOvergroupManagementSheet(context.read<PickupController>()),
+            tooltip: 'Pickup Place Groups',
+          ),
+          IconButton(
             icon: const Icon(Icons.calendar_today),
             onPressed: _selectDate,
+          ),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: () {
+              final controller = context.read<PickupController>();
+              controller.loadBookingsForDate(controller.selectedDate, forceRefresh: true);
+            },
+            tooltip: 'Refresh',
           ),
           PopupMenuButton<String>(
             icon: const Icon(Icons.auto_fix_high),
@@ -658,7 +676,6 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
           return Column(
             children: [
               _buildDateHeader(controller),
-              _buildStatsCard(controller),
               _buildTabBar(),
               Expanded(
                 child: _buildTabView(controller),
@@ -671,30 +688,44 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
   }
 
   Widget _buildDateHeader(PickupController controller) {
+    final totalGuests = controller.bookings.fold<int>(0, (sum, b) => sum + b.numberOfGuests);
+    final assignedGuests = controller.bookings
+        .where((b) => b.assignedGuideId != null)
+        .fold<int>(0, (sum, b) => sum + b.numberOfGuests);
+    final unassignedGuests = controller.bookings
+        .where((b) => b.assignedGuideId == null)
+        .fold<int>(0, (sum, b) => sum + b.numberOfGuests);
+    final noShowGuests = controller.bookings
+        .where((b) => b.isNoShow)
+        .fold<int>(0, (sum, b) => sum + b.numberOfGuests);
+
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       color: AppColors.primary.withOpacity(0.1),
       child: Row(
         children: [
-          Icon(Icons.calendar_today, color: AppColors.primary),
-          const SizedBox(width: 8),
+          Icon(Icons.calendar_today, color: AppColors.primary, size: 18),
+          const SizedBox(width: 6),
           Text(
             '${controller.selectedDate.day}/${controller.selectedDate.month}/${controller.selectedDate.year}',
             style: TextStyle(
-              fontSize: 18,
+              fontSize: 15,
               fontWeight: FontWeight.bold,
               color: AppColors.primary,
             ),
           ),
-          const Spacer(),
-          Text(
-            '${controller.bookings.fold<int>(0, (sum, booking) => sum + booking.numberOfGuests)} total guests',
-            style: const TextStyle(
-              fontSize: 14,
-              color: Colors.white,
-            ),
-          ),
           const SizedBox(width: 12),
+          // Inline stats chips
+          _buildMiniStat('👥', '$totalGuests', Colors.white),
+          const SizedBox(width: 6),
+          _buildMiniStat('✓', '$assignedGuests', AppColors.success),
+          const SizedBox(width: 6),
+          _buildMiniStat('⏳', '$unassignedGuests', AppColors.warning),
+          if (noShowGuests > 0) ...[
+            const SizedBox(width: 6),
+            _buildMiniStat('✗', '$noShowGuests', AppColors.error),
+          ],
+          const Spacer(),
           // Note button with badge
           Stack(
             clipBehavior: Clip.none,
@@ -758,91 +789,25 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
     );
   }
 
-  Widget _buildStatsCard(PickupController controller) {
-    final stats = controller.stats;
-    if (stats == null) return const SizedBox.shrink();
-
-    // Calculate guest counts
-    final totalGuests = controller.bookings.fold<int>(0, (sum, booking) => sum + booking.numberOfGuests);
-    final assignedGuests = controller.bookings
-        .where((booking) => booking.assignedGuideId != null)
-        .fold<int>(0, (sum, booking) => sum + booking.numberOfGuests);
-    final unassignedGuests = controller.bookings
-        .where((booking) => booking.assignedGuideId == null)
-        .fold<int>(0, (sum, booking) => sum + booking.numberOfGuests);
-    final noShowGuests = controller.bookings
-        .where((booking) => booking.isNoShow)
-        .fold<int>(0, (sum, booking) => sum + booking.numberOfGuests);
-
-    return Card(
-      margin: const EdgeInsets.all(16),
-      color: const Color(0xFF1A1A2E), // Dark background for better contrast
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          children: [
-            Expanded(
-              child: _buildStatItem(
-                'Total Guests',
-                '$totalGuests',
-                Icons.people,
-                AppColors.primary,
-              ),
-            ),
-            Expanded(
-              child: _buildStatItem(
-                'Assigned Guests',
-                '$assignedGuests',
-                Icons.check_circle,
-                AppColors.success,
-              ),
-            ),
-            Expanded(
-              child: _buildStatItem(
-                'Unassigned Guests',
-                '$unassignedGuests',
-                Icons.pending,
-                AppColors.warning,
-              ),
-            ),
-            Expanded(
-              child: _buildStatItem(
-                'No Show Guests',
-                '$noShowGuests',
-                Icons.cancel,
-                AppColors.error,
-              ),
-            ),
-          ],
-        ),
+  Widget _buildMiniStat(String icon, String value, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(icon, style: const TextStyle(fontSize: 11)),
+          const SizedBox(width: 3),
+          Text(value, style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.bold)),
+        ],
       ),
     );
   }
 
-  Widget _buildStatItem(String label, String value, IconData icon, Color color) {
-    return Column(
-      children: [
-        Icon(icon, color: color, size: 24),
-        const SizedBox(height: 4),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-            color: color,
-          ),
-        ),
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 11,
-            color: Colors.white,
-          ),
-          textAlign: TextAlign.center,
-        ),
-      ],
-    );
-  }
+
 
   Widget _buildTabBar() {
     return Container(
@@ -914,11 +879,14 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
 
   /// Build a tour group section in the unassigned tab
   Widget _buildTourGroupSection(TourGroup tourGroup, PickupController controller) {
-    // Within each tour group, group by pickup place
+    // Within each tour group, group by pickup place.
+    // Use overgroup canonical name when available so that different-named
+    // variants of the same physical location appear together.
     final bookingsByPlace = <String, List<PickupBooking>>{};
     for (final booking in tourGroup.bookings) {
-      final place = booking.pickupPlaceName;
-      bookingsByPlace.putIfAbsent(place, () => []).add(booking);
+      final rawPlace = booking.pickupPlaceName;
+      final groupKey = _placeToGroupMap[rawPlace.trim().toLowerCase()] ?? rawPlace;
+      bookingsByPlace.putIfAbsent(groupKey, () => []).add(booking);
     }
     final sortedPlaces = bookingsByPlace.keys.toList()..sort();
     
@@ -3193,6 +3161,496 @@ class _AdminPickupManagementScreenState extends State<AdminPickupManagementScree
           ),
         ],
       ),
+    );
+  }
+
+  // ─── Overgroup helpers ──────────────────────────────────────────────
+
+  Future<void> _loadOvergroups() async {
+    try {
+      final map = await _overgroupService.buildPlaceToGroupMap();
+      if (mounted) {
+        setState(() => _placeToGroupMap = map);
+      }
+    } catch (e) {
+      print('⚠️ Could not load overgroups: $e');
+    }
+  }
+
+  void _showOvergroupManagementSheet(PickupController controller) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.85,
+          minChildSize: 0.5,
+          maxChildSize: 0.95,
+          builder: (_, scrollController) {
+            return StreamBuilder<List<PickupOvergroup>>(
+              stream: _overgroupService.getOvergroups(),
+              builder: (ctx, snapshot) {
+                final overgroups = snapshot.data ?? [];
+                // Collect all unique pickup place names from today's bookings
+                final allBookingPlaces = controller.bookings
+                    .map((b) => b.pickupPlaceName)
+                    .toSet()
+                    .toList()
+                  ..sort();
+                // Find unassigned places (not in any overgroup)
+                final assignedPlaces = <String>{};
+                for (final g in overgroups) {
+                  assignedPlaces.addAll(g.members.map((m) => m.trim().toLowerCase()));
+                }
+                final unassignedPlaces = allBookingPlaces
+                    .where((p) => !assignedPlaces.contains(p.trim().toLowerCase()))
+                    .toList();
+
+                return Container(
+                  decoration: const BoxDecoration(
+                    color: Color(0xFF1A1A2E),
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                  ),
+                  child: Column(
+                    children: [
+                      // Handle bar
+                      Container(
+                        margin: const EdgeInsets.only(top: 8),
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.4),
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                      // Header
+                      Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.folder, color: AppColors.primary),
+                            const SizedBox(width: 10),
+                            const Expanded(
+                              child: Text(
+                                'Pickup Place Groups',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.add_circle, color: Colors.green, size: 28),
+                              tooltip: 'Create New Group',
+                              onPressed: () => _showCreateOvergroupDialog(),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Divider(color: Colors.white24, height: 1),
+                      // Content
+                      Expanded(
+                        child: ListView(
+                          controller: scrollController,
+                          padding: const EdgeInsets.all(12),
+                          children: [
+                            // Existing overgroups
+                            if (overgroups.isEmpty)
+                              Padding(
+                                padding: const EdgeInsets.all(24),
+                                child: Column(
+                                  children: [
+                                    Icon(Icons.folder_off, color: Colors.white.withOpacity(0.3), size: 48),
+                                    const SizedBox(height: 12),
+                                    Text(
+                                      'No pickup place groups yet',
+                                      style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 16),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      'Create a group to merge duplicate pickup place names',
+                                      style: TextStyle(color: Colors.white.withOpacity(0.3), fontSize: 13),
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  ],
+                                ),
+                              )
+                            else
+                              ...overgroups.map((group) => _buildOvergroupCard(group, controller)),
+
+                            // Unassigned pickup places from today's bookings
+                            if (unassignedPlaces.isNotEmpty) ...[
+                              const SizedBox(height: 20),
+                              Text(
+                                'Ungrouped Pickup Places (today)',
+                                style: TextStyle(
+                                  color: Colors.white.withOpacity(0.7),
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Wrap(
+                                spacing: 6,
+                                runSpacing: 6,
+                                children: unassignedPlaces.map((place) {
+                                  return ActionChip(
+                                    label: Text(place, style: const TextStyle(fontSize: 12)),
+                                    backgroundColor: Colors.white.withOpacity(0.1),
+                                    labelStyle: const TextStyle(color: Colors.white),
+                                    avatar: const Icon(Icons.add, size: 16, color: Colors.green),
+                                    onPressed: () => _showAddPlaceToGroupDialog(place, overgroups),
+                                  );
+                                }).toList(),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            );
+          },
+        );
+      },
+    ).then((_) {
+      // Reload overgroup map when sheet is closed so grouping is updated
+      _loadOvergroups();
+    });
+  }
+
+  Widget _buildOvergroupCard(PickupOvergroup group, PickupController controller) {
+    return Card(
+      color: const Color(0xFF2A2A3E),
+      margin: const EdgeInsets.only(bottom: 10),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(10),
+        side: BorderSide(color: AppColors.primary.withOpacity(0.3)),
+      ),
+      child: ExpansionTile(
+        leading: const Icon(Icons.folder, color: AppColors.primary, size: 22),
+        title: Text(
+          group.name,
+          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+        ),
+        subtitle: Text(
+          '${group.members.length} place${group.members.length == 1 ? '' : 's'}',
+          style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 12),
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.edit, color: Colors.blue, size: 18),
+              onPressed: () => _showEditOvergroupDialog(group),
+              tooltip: 'Rename',
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+            ),
+            const SizedBox(width: 8),
+            IconButton(
+              icon: const Icon(Icons.delete, color: Colors.redAccent, size: 18),
+              onPressed: () => _confirmDeleteOvergroup(group),
+              tooltip: 'Delete',
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+            ),
+            const SizedBox(width: 8),
+            const Icon(Icons.expand_more, color: Colors.white38, size: 20),
+          ],
+        ),
+        children: [
+          // Members list
+          ...group.members.map((member) {
+            return ListTile(
+              dense: true,
+              leading: const Icon(Icons.location_on, size: 16, color: Colors.white54),
+              title: Text(member, style: const TextStyle(color: Colors.white, fontSize: 13)),
+              trailing: IconButton(
+                icon: const Icon(Icons.remove_circle, color: Colors.redAccent, size: 18),
+                onPressed: () async {
+                  if (group.members.length <= 1) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Group must have at least one member. Delete the group instead.'), backgroundColor: Colors.orange),
+                    );
+                    return;
+                  }
+                  await _overgroupService.removeMemberFromOvergroup(group.id, member);
+                },
+                tooltip: 'Remove from group',
+              ),
+            );
+          }).toList(),
+          // Add member button
+          ListTile(
+            dense: true,
+            leading: const Icon(Icons.add, size: 16, color: Colors.green),
+            title: const Text('Add pickup place name...', style: TextStyle(color: Colors.green, fontSize: 13)),
+            onTap: () => _showAddMemberDialog(group),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showCreateOvergroupDialog() {
+    final nameController = TextEditingController();
+    final memberController = TextEditingController();
+    final members = <String>[];
+
+    showDialog(
+      context: context,
+      builder: (dialogCtx) {
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            return AlertDialog(
+              backgroundColor: const Color(0xFF1A1A2E),
+              title: const Text('Create Pickup Place Group', style: TextStyle(color: Colors.white)),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    TextField(
+                      controller: nameController,
+                      style: const TextStyle(color: Colors.white),
+                      decoration: InputDecoration(
+                        labelText: 'Group Name (canonical display name)',
+                        labelStyle: TextStyle(color: Colors.white.withOpacity(0.6)),
+                        enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.white.withOpacity(0.3))),
+                        focusedBorder: const OutlineInputBorder(borderSide: BorderSide(color: AppColors.primary)),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: memberController,
+                            style: const TextStyle(color: Colors.white),
+                            decoration: InputDecoration(
+                              labelText: 'Add a pickup place name',
+                              labelStyle: TextStyle(color: Colors.white.withOpacity(0.6)),
+                              enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.white.withOpacity(0.3))),
+                              focusedBorder: const OutlineInputBorder(borderSide: BorderSide(color: AppColors.primary)),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        IconButton(
+                          icon: const Icon(Icons.add_circle, color: Colors.green),
+                          onPressed: () {
+                            final text = memberController.text.trim();
+                            if (text.isNotEmpty && !members.contains(text)) {
+                              setDialogState(() => members.add(text));
+                              memberController.clear();
+                            }
+                          },
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    if (members.isNotEmpty)
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 4,
+                        children: members.map((m) {
+                          return Chip(
+                            label: Text(m, style: const TextStyle(color: Colors.white, fontSize: 12)),
+                            backgroundColor: AppColors.primary.withOpacity(0.2),
+                            deleteIconColor: Colors.redAccent,
+                            onDeleted: () => setDialogState(() => members.remove(m)),
+                          );
+                        }).toList(),
+                      ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogCtx),
+                  child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
+                ),
+                ElevatedButton(
+                  onPressed: () async {
+                    final name = nameController.text.trim();
+                    if (name.isEmpty) return;
+                    // Auto-add the group name itself as a member
+                    if (!members.contains(name)) members.insert(0, name);
+                    await _overgroupService.createOvergroup(name, members);
+                    if (mounted) Navigator.pop(dialogCtx);
+                  },
+                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+                  child: const Text('Create'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showEditOvergroupDialog(PickupOvergroup group) {
+    final nameController = TextEditingController(text: group.name);
+    showDialog(
+      context: context,
+      builder: (dialogCtx) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF1A1A2E),
+          title: const Text('Rename Group', style: TextStyle(color: Colors.white)),
+          content: TextField(
+            controller: nameController,
+            style: const TextStyle(color: Colors.white),
+            decoration: InputDecoration(
+              labelText: 'Group Name',
+              labelStyle: TextStyle(color: Colors.white.withOpacity(0.6)),
+              enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.white.withOpacity(0.3))),
+              focusedBorder: const OutlineInputBorder(borderSide: BorderSide(color: AppColors.primary)),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogCtx),
+              child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final name = nameController.text.trim();
+                if (name.isEmpty) return;
+                await _overgroupService.updateOvergroup(group.id, name: name);
+                if (mounted) Navigator.pop(dialogCtx);
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _confirmDeleteOvergroup(PickupOvergroup group) {
+    showDialog(
+      context: context,
+      builder: (dialogCtx) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF1A1A2E),
+          title: const Text('Delete Group?', style: TextStyle(color: Colors.white)),
+          content: Text(
+            'Delete "${group.name}" and ungroup its ${group.members.length} member(s)? This cannot be undone.',
+            style: const TextStyle(color: Colors.white70),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogCtx),
+              child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                await _overgroupService.deleteOvergroup(group.id);
+                if (mounted) Navigator.pop(dialogCtx);
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showAddMemberDialog(PickupOvergroup group) {
+    final memberController = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (dialogCtx) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF1A1A2E),
+          title: Text('Add to "${group.name}"', style: const TextStyle(color: Colors.white)),
+          content: TextField(
+            controller: memberController,
+            style: const TextStyle(color: Colors.white),
+            decoration: InputDecoration(
+              labelText: 'Pickup place name',
+              labelStyle: TextStyle(color: Colors.white.withOpacity(0.6)),
+              enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.white.withOpacity(0.3))),
+              focusedBorder: const OutlineInputBorder(borderSide: BorderSide(color: AppColors.primary)),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogCtx),
+              child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final name = memberController.text.trim();
+                if (name.isEmpty) return;
+                await _overgroupService.addMemberToOvergroup(group.id, name);
+                if (mounted) Navigator.pop(dialogCtx);
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+              child: const Text('Add'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  /// Show a dialog to add a specific pickup place to an existing overgroup.
+  void _showAddPlaceToGroupDialog(String placeName, List<PickupOvergroup> overgroups) {
+    if (overgroups.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Create a group first, then add places to it.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    showDialog(
+      context: context,
+      builder: (dialogCtx) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF1A1A2E),
+          title: Text('Add "$placeName" to group', style: const TextStyle(color: Colors.white, fontSize: 16)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: overgroups.map((group) {
+              return ListTile(
+                leading: const Icon(Icons.folder, color: AppColors.primary, size: 20),
+                title: Text(group.name, style: const TextStyle(color: Colors.white)),
+                subtitle: Text('${group.members.length} members', style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 12)),
+                onTap: () async {
+                  await _overgroupService.addMemberToOvergroup(group.id, placeName);
+                  if (mounted) {
+                    Navigator.pop(dialogCtx);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Added "$placeName" to ${group.name}'),
+                        backgroundColor: Colors.green,
+                      ),
+                    );
+                  }
+                },
+              );
+            }).toList(),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogCtx),
+              child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
+            ),
+          ],
+        );
+      },
     );
   }
 } 

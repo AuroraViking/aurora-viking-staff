@@ -102,11 +102,7 @@ class FirebaseService {
       throw Exception('Firebase not initialized');
     }
     
-    try {
-      await _auth!.sendPasswordResetEmail(email: email);
-    } catch (e) {
-      throw Exception('Failed to send password reset email: $e');
-    }
+    await _auth!.sendPasswordResetEmail(email: email);
   }
 
   // Sign out

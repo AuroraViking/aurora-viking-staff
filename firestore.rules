@@ -221,5 +221,10 @@ service cloud.firestore {
     match /photo_requests/{requestId} {
       allow read: if request.auth != null;
     }
+    
+    // Pickup place overgroups - authenticated users can read/write
+    match /pickup_overgroups/{document} {
+      allow read, write: if request.auth != null;
+    }
   }
 } 

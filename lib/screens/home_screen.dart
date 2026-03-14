@@ -24,6 +24,10 @@ import '../modules/radio/radio_controller.dart';
 import '../modules/guide_map/guide_map_screen.dart';
 import '../core/services/notification_service.dart';
 import '../modules/inbox/unified_inbox_screen.dart';
+import '../core/services/bus_management_service.dart';
+import '../core/services/location_service.dart';
+import '../core/services/platform_service.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -37,6 +41,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final GuideGamificationService _gamificationService = GuideGamificationService();
   GuideStats? _guideStats;
   StreamSubscription<Map<String, dynamic>>? _notificationSub;
+  bool _hasShownTrackingPopup = false;
 
   @override
   void initState() {
@@ -49,6 +54,11 @@ class _HomeScreenState extends State<HomeScreen> {
       if (userId.isNotEmpty) {
         context.read<RadioController>().init(userId, userName);
         _loadGamification(userId, userName);
+        // Show tracking reminder popup on mobile only
+        if (PlatformFeatures.trackingTab && !_hasShownTrackingPopup) {
+          _hasShownTrackingPopup = true;
+          _showTrackingReminderPopup();
+        }
       }
     });
 
@@ -106,6 +116,171 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (e) {
       print('⚠️ Could not load gamification: $e');
     }
+  }
+
+  /// Show a popup asking the guide to select a vehicle for GPS tracking.
+  /// Skips if the native tracking service is already running.
+  Future<void> _showTrackingReminderPopup() async {
+    // Check if already tracking — no need to annoy them
+    try {
+      final alreadyTracking = await PlatformService.isLocationServiceRunning();
+      if (alreadyTracking) {
+        print('🚌 Already tracking — skipping reminder popup');
+        return;
+      }
+    } catch (_) {
+      // PlatformService not available (e.g. web) — skip
+    }
+
+    if (!mounted) return;
+
+    // Load buses
+    final busService = BusManagementService();
+    List<Map<String, dynamic>> buses = [];
+    try {
+      buses = await busService.getActiveBuses().first;
+    } catch (e) {
+      print('⚠️ Could not load buses for tracking popup: $e');
+      return;
+    }
+
+    if (buses.isEmpty || !mounted) return;
+
+    String? selectedBusId;
+    String? selectedBusName;
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            return AlertDialog(
+              backgroundColor: const Color(0xFF1A1A2E),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: BorderSide(color: Colors.white.withOpacity(0.2)),
+              ),
+              title: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(Icons.directions_bus, color: Colors.blue, size: 24),
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Text(
+                      'Start Tracking?',
+                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Select the vehicle you are driving today so we can track your location.',
+                    style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 14),
+                  ),
+                  const SizedBox(height: 16),
+                  DropdownButtonFormField<String>(
+                    value: selectedBusId,
+                    decoration: InputDecoration(
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide(color: Colors.grey.shade300),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide(color: Colors.grey.shade300),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: const BorderSide(color: Colors.blue, width: 2),
+                      ),
+                      filled: true,
+                      fillColor: Colors.white,
+                      hintText: 'Choose a vehicle',
+                      hintStyle: TextStyle(color: Colors.grey.shade600),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    ),
+                    style: const TextStyle(color: Colors.black87, fontSize: 16, fontWeight: FontWeight.w500),
+                    dropdownColor: Colors.white,
+                    icon: Icon(Icons.arrow_drop_down, color: Colors.grey.shade700),
+                    items: buses.map((bus) {
+                      return DropdownMenuItem<String>(
+                        value: bus['id'] as String,
+                        child: Text(
+                          '${bus['name']} (${bus['licensePlate']})',
+                          style: const TextStyle(color: Colors.black87, fontSize: 16),
+                        ),
+                      );
+                    }).toList(),
+                    onChanged: (value) {
+                      setDialogState(() {
+                        selectedBusId = value;
+                        selectedBusName = buses.firstWhere((b) => b['id'] == value)['name'] as String?;
+                      });
+                    },
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: Text('Skip', style: TextStyle(color: Colors.white.withOpacity(0.6))),
+                ),
+                ElevatedButton.icon(
+                  onPressed: selectedBusId == null
+                      ? null
+                      : () async {
+                          Navigator.pop(dialogContext);
+                          // Start tracking
+                          final user = FirebaseAuth.instance.currentUser;
+                          if (user != null && selectedBusId != null) {
+                            final locationService = LocationService();
+                            final success = await locationService.startTracking(selectedBusId!, user.uid);
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    success
+                                        ? '🚌 Tracking started: $selectedBusName'
+                                        : '❌ Failed to start tracking',
+                                  ),
+                                  backgroundColor: success ? Colors.green : Colors.red,
+                                ),
+                              );
+                              // Switch to the Tracking tab
+                              if (success) {
+                                final trackingIndex = _navItems.indexWhere((item) => item.label == 'Tracking');
+                                if (trackingIndex >= 0) {
+                                  setState(() => _selectedIndex = trackingIndex);
+                                }
+                              }
+                            }
+                          }
+                        },
+                  icon: const Icon(Icons.play_arrow, size: 18),
+                  label: const Text('Start Tracking'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   // Build screens list based on platform capabilities
