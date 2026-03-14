@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -28,6 +29,40 @@ class PickupService {
 
   // Check if API credentials are available
   bool get _hasApiCredentials => _accessKey.isNotEmpty && _secretKey.isNotEmpty;
+
+  /// Retry a future-returning function on transient network errors.
+  /// Uses exponential backoff: 2s, 4s, 8s between attempts.
+  /// Catches DNS failures, socket errors, timeouts, and HTTP 5xx.
+  Future<T> _retryOnTransientError<T>(Future<T> Function() fn, {int maxAttempts = 3}) async {
+    for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await fn();
+      } catch (e) {
+        final errorStr = e.toString().toLowerCase();
+        final isTransient = errorStr.contains('socketexception') ||
+            errorStr.contains('socket') ||
+            errorStr.contains('host lookup') ||
+            errorStr.contains('connection refused') ||
+            errorStr.contains('connection reset') ||
+            errorStr.contains('connection closed') ||
+            errorStr.contains('network is unreachable') ||
+            errorStr.contains('no address associated') ||
+            errorStr.contains('timed out') ||
+            errorStr.contains('timeout') ||
+            e is TimeoutException;
+
+        if (!isTransient || attempt == maxAttempts) {
+          print('❌ Retry: giving up after $attempt attempt(s): $e');
+          rethrow;
+        }
+
+        final delay = Duration(seconds: 1 << attempt); // 2s, 4s, 8s
+        print('⚠️ Retry: transient error on attempt $attempt/$maxAttempts, retrying in ${delay.inSeconds}s: $e');
+        await Future.delayed(delay);
+      }
+    }
+    throw StateError('Unreachable'); // satisfy type system
+  }
 
   /// Check if a booking status is valid for showing in pickup lists
   bool _isValidBookingStatus(String status) {
@@ -774,10 +809,10 @@ class PickupService {
       
       if (kIsWeb) {
         print('🌐 Using Cloud Function (web)');
-        data = await _fetchBookingsViaCloudFunction(
+        data = await _retryOnTransientError(() => _fetchBookingsViaCloudFunction(
           startDate.toUtc().toIso8601String(),
           endDate.toUtc().toIso8601String(),
-        );
+        ));
       } else {
         print('📱 Using direct API call (mobile)');
         final url = '$_baseUrl/booking.json/booking-search';
@@ -804,11 +839,11 @@ class PickupService {
         print('📅 Date Range: ${startDate.toUtc().toIso8601String()} to ${endDate.toUtc().toIso8601String()}');
         print('📅 Local Date Range: ${startDate.toLocal()} to ${endDate.toLocal()}');
 
-        final response = await http.post(
+        final response = await _retryOnTransientError(() => http.post(
           Uri.parse(url),
           headers: _getHeaders(bodyJson, requestDate: date),
           body: bodyJson,
-        );
+        ));
 
         print('📡 Pickup API Response Status: ${response.statusCode}');
         print('📄 Pickup Response Headers: ${response.headers}');

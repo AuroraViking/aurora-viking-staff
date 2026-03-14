@@ -242,6 +242,35 @@ async function sendPhotoEmails(dateStr) {
         }
     }
 
+    // Fallback: build guide mapping from cached_bookings if pickup_assignments is empty
+    if (guideAssignments.length === 0) {
+        console.log(`⚠️ No guide-level pickup_assignments found, falling back to cached_bookings...`);
+        const guideMap = {};
+        for (const booking of bookings) {
+            const guideId = booking.assignedGuideId;
+            const guideName = booking.assignedGuideName;
+            if (guideId && guideName) {
+                if (!guideMap[guideId]) {
+                    guideMap[guideId] = { guideName, bookings: [] };
+                }
+                guideMap[guideId].bookings.push({
+                    id: booking.id || booking.bookingId,
+                    customerFullName: booking.customerFullName || booking.customerName || '',
+                    pickupPlaceName: booking.pickupPlaceName || booking.pickupLocation || '',
+                    pickupTime: booking.pickupTime || '',
+                    numberOfGuests: booking.totalParticipants || booking.numberOfGuests || 0,
+                    phoneNumber: booking.customerPhone || booking.phoneNumber || '',
+                    email: booking.customerEmail || booking.email || '',
+                    confirmationCode: booking.confirmationCode || '',
+                });
+            }
+        }
+        for (const [guideId, data] of Object.entries(guideMap)) {
+            guideAssignments.push(data);
+        }
+        console.log(`📋 Built ${guideAssignments.length} guide assignments from cached_bookings`);
+    }
+
     if (guideAssignments.length === 0) {
         console.log(`⏭️ No guide assignments found for ${dateStr}`);
         return { success: true, skipped: true, reason: 'no_assignments' };

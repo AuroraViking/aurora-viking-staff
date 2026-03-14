@@ -1,1 +1,158 @@
-import 'package:cloud_firestore/cloud_firestore.dart';\r\nimport '../models/pickup_overgroup_model.dart';\r\n\r\n/// Service to manage pickup place overgroups in Firestore.\r\n///\r\n/// Overgroups let admins unify multiple pickup place names (that represent\r\n/// the same physical location but are named differently by resellers) under\r\n/// a single canonical display name.\r\nclass PickupOvergroupService {\r\n  static final PickupOvergroupService _instance = PickupOvergroupService._internal();\r\n  factory PickupOvergroupService() => _instance;\r\n  PickupOvergroupService._internal();\r\n\r\n  final FirebaseFirestore _firestore = FirebaseFirestore.instance;\r\n  static const String _collectionName = 'pickup_overgroups';\r\n\r\n  // ─── In-memory cache ────────────────────────────────────────────────\r\n  List<PickupOvergroup>? _cachedOvergroups;\r\n  Map<String, String>? _cachedPlaceToGroupMap;\r\n\r\n  void _invalidateCache() {\r\n    _cachedOvergroups = null;\r\n    _cachedPlaceToGroupMap = null;\r\n  }\r\n\r\n  // ─── Read ──────────────────────────────────────────────────────────\r\n\r\n  /// Realtime stream of all overgroups.\r\n  Stream<List<PickupOvergroup>> getOvergroups() {\r\n    return _firestore\r\n        .collection(_collectionName)\r\n        .orderBy('name')\r\n        .snapshots()\r\n        .map((snapshot) {\r\n      final groups = snapshot.docs\r\n          .map((doc) => PickupOvergroup.fromMap(doc.id, doc.data()))\r\n          .toList();\r\n      _cachedOvergroups = groups;\r\n      _cachedPlaceToGroupMap = null; // invalidate derived cache\r\n      return groups;\r\n    });\r\n  }\r\n\r\n  /// One-shot fetch of all overgroups.\r\n  Future<List<PickupOvergroup>> getOvergroupsOnce() async {\r\n    if (_cachedOvergroups != null) return _cachedOvergroups!;\r\n    final snapshot = await _firestore\r\n        .collection(_collectionName)\r\n        .orderBy('name')\r\n        .get();\r\n    final groups = snapshot.docs\r\n        .map((doc) => PickupOvergroup.fromMap(doc.id, doc.data()))\r\n        .toList();\r\n    _cachedOvergroups = groups;\r\n    return groups;\r\n  }\r\n\r\n  // ─── Write ─────────────────────────────────────────────────────────\r\n\r\n  Future<bool> createOvergroup(String name, List<String> members) async {\r\n    try {\r\n      await _firestore.collection(_collectionName).add({\r\n        'name': name,\r\n        'members': members,\r\n        'createdAt': FieldValue.serverTimestamp(),\r\n        'updatedAt': FieldValue.serverTimestamp(),\r\n      });\r\n      _invalidateCache();\r\n      print('✅ Created overgroup: $name with ${members.length} members');\r\n      return true;\r\n    } catch (e) {\r\n      print('❌ Error creating overgroup: $e');\r\n      return false;\r\n    }\r\n  }\r\n\r\n  Future<bool> updateOvergroup(String id, {String? name, List<String>? members}) async {\r\n    try {\r\n      final data = <String, dynamic>{'updatedAt': FieldValue.serverTimestamp()};\r\n      if (name != null) data['name'] = name;\r\n      if (members != null) data['members'] = members;\r\n      await _firestore.collection(_collectionName).doc(id).update(data);\r\n      _invalidateCache();\r\n      print('✅ Updated overgroup $id');\r\n      return true;\r\n    } catch (e) {\r\n      print('❌ Error updating overgroup: $e');\r\n      return false;\r\n    }\r\n  }\r\n\r\n  Future<bool> deleteOvergroup(String id) async {\r\n    try {\r\n      await _firestore.collection(_collectionName).doc(id).delete();\r\n      _invalidateCache();\r\n      print('✅ Deleted overgroup $id');\r\n      return true;\r\n    } catch (e) {\r\n      print('❌ Error deleting overgroup: $e');\r\n      return false;\r\n    }\r\n  }\r\n\r\n  Future<bool> addMemberToOvergroup(String overgroupId, String memberName) async {\r\n    try {\r\n      await _firestore.collection(_collectionName).doc(overgroupId).update({\r\n        'members': FieldValue.arrayUnion([memberName]),\r\n        'updatedAt': FieldValue.serverTimestamp(),\r\n      });\r\n      _invalidateCache();\r\n      print('✅ Added \"$memberName\" to overgroup $overgroupId');\r\n      return true;\r\n    } catch (e) {\r\n      print('❌ Error adding member to overgroup: $e');\r\n      return false;\r\n    }\r\n  }\r\n\r\n  Future<bool> removeMemberFromOvergroup(String overgroupId, String memberName) async {\r\n    try {\r\n      await _firestore.collection(_collectionName).doc(overgroupId).update({\r\n        'members': FieldValue.arrayRemove([memberName]),\r\n        'updatedAt': FieldValue.serverTimestamp(),\r\n      });\r\n      _invalidateCache();\r\n      print('✅ Removed \"$memberName\" from overgroup $overgroupId');\r\n      return true;\r\n    } catch (e) {\r\n      print('❌ Error removing member from overgroup: $e');\r\n      return false;\r\n    }\r\n  }\r\n\r\n  // ─── Lookup helpers ────────────────────────────────────────────────\r\n\r\n  /// Build a map from any member pickup name → overgroup canonical name.\r\n  /// Uses a normalised (trimmed, lowercase) key for fuzzy-ish matching.\r\n  Future<Map<String, String>> buildPlaceToGroupMap() async {\r\n    if (_cachedPlaceToGroupMap != null) return _cachedPlaceToGroupMap!;\r\n\r\n    final overgroups = await getOvergroupsOnce();\r\n    final map = <String, String>{};\r\n    for (final group in overgroups) {\r\n      for (final member in group.members) {\r\n        map[member.trim().toLowerCase()] = group.name;\r\n      }\r\n    }\r\n    _cachedPlaceToGroupMap = map;\r\n    return map;\r\n  }\r\n\r\n  /// Look up the canonical group name for a given pickup place.\r\n  /// Returns null if the place is not in any overgroup.\r\n  Future<String?> getOvergroupNameForPlace(String placeName) async {\r\n    final map = await buildPlaceToGroupMap();\r\n    return map[placeName.trim().toLowerCase()];\r\n  }\r\n}\r\n
+import 'package:cloud_firestore/cloud_firestore.dart';
+import '../models/pickup_overgroup_model.dart';
+
+/// Service to manage pickup place overgroups in Firestore.
+///
+/// Overgroups let admins unify multiple pickup place names (that represent
+/// the same physical location but are named differently by resellers) under
+/// a single canonical display name.
+class PickupOvergroupService {
+  static final PickupOvergroupService _instance = PickupOvergroupService._internal();
+  factory PickupOvergroupService() => _instance;
+  PickupOvergroupService._internal();
+
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  static const String _collectionName = 'pickup_overgroups';
+
+  // ─── In-memory cache ────────────────────────────────────────────────
+  List<PickupOvergroup>? _cachedOvergroups;
+  Map<String, String>? _cachedPlaceToGroupMap;
+
+  void _invalidateCache() {
+    _cachedOvergroups = null;
+    _cachedPlaceToGroupMap = null;
+  }
+
+  // ─── Read ──────────────────────────────────────────────────────────
+
+  /// Realtime stream of all overgroups.
+  Stream<List<PickupOvergroup>> getOvergroups() {
+    return _firestore
+        .collection(_collectionName)
+        .orderBy('name')
+        .snapshots()
+        .map((snapshot) {
+      final groups = snapshot.docs
+          .map((doc) => PickupOvergroup.fromMap(doc.id, doc.data()))
+          .toList();
+      _cachedOvergroups = groups;
+      _cachedPlaceToGroupMap = null; // invalidate derived cache
+      return groups;
+    });
+  }
+
+  /// One-shot fetch of all overgroups.
+  Future<List<PickupOvergroup>> getOvergroupsOnce() async {
+    if (_cachedOvergroups != null) return _cachedOvergroups!;
+    final snapshot = await _firestore
+        .collection(_collectionName)
+        .orderBy('name')
+        .get();
+    final groups = snapshot.docs
+        .map((doc) => PickupOvergroup.fromMap(doc.id, doc.data()))
+        .toList();
+    _cachedOvergroups = groups;
+    return groups;
+  }
+
+  // ─── Write ─────────────────────────────────────────────────────────
+
+  Future<bool> createOvergroup(String name, List<String> members) async {
+    try {
+      await _firestore.collection(_collectionName).add({
+        'name': name,
+        'members': members,
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      _invalidateCache();
+      print('✅ Created overgroup: $name with ${members.length} members');
+      return true;
+    } catch (e) {
+      print('❌ Error creating overgroup: $e');
+      return false;
+    }
+  }
+
+  Future<bool> updateOvergroup(String id, {String? name, List<String>? members}) async {
+    try {
+      final data = <String, dynamic>{'updatedAt': FieldValue.serverTimestamp()};
+      if (name != null) data['name'] = name;
+      if (members != null) data['members'] = members;
+      await _firestore.collection(_collectionName).doc(id).update(data);
+      _invalidateCache();
+      print('✅ Updated overgroup $id');
+      return true;
+    } catch (e) {
+      print('❌ Error updating overgroup: $e');
+      return false;
+    }
+  }
+
+  Future<bool> deleteOvergroup(String id) async {
+    try {
+      await _firestore.collection(_collectionName).doc(id).delete();
+      _invalidateCache();
+      print('✅ Deleted overgroup $id');
+      return true;
+    } catch (e) {
+      print('❌ Error deleting overgroup: $e');
+      return false;
+    }
+  }
+
+  Future<bool> addMemberToOvergroup(String overgroupId, String memberName) async {
+    try {
+      await _firestore.collection(_collectionName).doc(overgroupId).update({
+        'members': FieldValue.arrayUnion([memberName]),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      _invalidateCache();
+      print('✅ Added "$memberName" to overgroup $overgroupId');
+      return true;
+    } catch (e) {
+      print('❌ Error adding member to overgroup: $e');
+      return false;
+    }
+  }
+
+  Future<bool> removeMemberFromOvergroup(String overgroupId, String memberName) async {
+    try {
+      await _firestore.collection(_collectionName).doc(overgroupId).update({
+        'members': FieldValue.arrayRemove([memberName]),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      _invalidateCache();
+      print('✅ Removed "$memberName" from overgroup $overgroupId');
+      return true;
+    } catch (e) {
+      print('❌ Error removing member from overgroup: $e');
+      return false;
+    }
+  }
+
+  // ─── Lookup helpers ────────────────────────────────────────────────
+
+  /// Build a map from any member pickup name → overgroup canonical name.
+  /// Uses a normalised (trimmed, lowercase) key for fuzzy-ish matching.
+  Future<Map<String, String>> buildPlaceToGroupMap() async {
+    if (_cachedPlaceToGroupMap != null) return _cachedPlaceToGroupMap!;
+
+    final overgroups = await getOvergroupsOnce();
+    final map = <String, String>{};
+    for (final group in overgroups) {
+      for (final member in group.members) {
+        map[member.trim().toLowerCase()] = group.name;
+      }
+    }
+    _cachedPlaceToGroupMap = map;
+    return map;
+  }
+
+  /// Look up the canonical group name for a given pickup place.
+  /// Returns null if the place is not in any overgroup.
+  Future<String?> getOvergroupNameForPlace(String placeName) async {
+    final map = await buildPlaceToGroupMap();
+    return map[placeName.trim().toLowerCase()];
+  }
+}

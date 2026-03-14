@@ -1,1 +1,43 @@
-/// Model for pickup place overgroups.\r\n///\r\n/// An overgroup unifies multiple pickup place names (that represent the\r\n/// same physical location but are named differently by resellers) under\r\n/// a single canonical display name.\r\nclass PickupOvergroup {\r\n  final String id;\r\n  final String name;\r\n  final List<String> members;\r\n\r\n  const PickupOvergroup({\r\n    required this.id,\r\n    required this.name,\r\n    required this.members,\r\n  });\r\n\r\n  factory PickupOvergroup.fromMap(String id, Map<String, dynamic> data) {\r\n    return PickupOvergroup(\r\n      id: id,\r\n      name: data['name'] as String? ?? '',\r\n      members: List<String>.from(data['members'] as List? ?? []),\r\n    );\r\n  }\r\n\r\n  Map<String, dynamic> toMap() {\r\n    return {\r\n      'name': name,\r\n      'members': members,\r\n    };\r\n  }\r\n\r\n  PickupOvergroup copyWith({\r\n    String? id,\r\n    String? name,\r\n    List<String>? members,\r\n  }) {\r\n    return PickupOvergroup(\r\n      id: id ?? this.id,\r\n      name: name ?? this.name,\r\n      members: members ?? this.members,\r\n    );\r\n  }\r\n}\r\n
+/// Model for pickup place overgroups.
+///
+/// An overgroup unifies multiple pickup place names (that represent the
+/// same physical location but are named differently by resellers) under
+/// a single canonical display name.
+class PickupOvergroup {
+  final String id;
+  final String name;
+  final List<String> members;
+
+  const PickupOvergroup({
+    required this.id,
+    required this.name,
+    required this.members,
+  });
+
+  factory PickupOvergroup.fromMap(String id, Map<String, dynamic> data) {
+    return PickupOvergroup(
+      id: id,
+      name: data['name'] as String? ?? '',
+      members: List<String>.from(data['members'] as List? ?? []),
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'name': name,
+      'members': members,
+    };
+  }
+
+  PickupOvergroup copyWith({
+    String? id,
+    String? name,
+    List<String>? members,
+  }) {
+    return PickupOvergroup(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      members: members ?? this.members,
+    );
+  }
+}
